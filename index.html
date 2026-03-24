@@ -1,0 +1,202 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ASC System Checker</title>
+    <link rel="icon" type="image/x-icon" href="assets/ASC_logo.jpg" />
+    <link rel="stylesheet" href="css/styles.css" />
+  </head>
+  <body>
+    <!-- ══════════════ SCREEN 1 — LANDING ══════════════ -->
+    <div class="screen active" id="screen-landing">
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="assets/ASC_logo.jpg" alt="ASC Logo" />
+        </div>
+        <h1>ASC System Checker</h1>
+        <p class="subtitle">
+          Confirm your system meets our technical requirements in just a few
+          steps.
+        </p>
+
+        <div class="steps" id="steps-windows">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div>
+              Click <strong>Download Checker</strong> below to save
+              <code>ASC_Checker.bat</code> to your computer.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div>
+              Open your <strong>Downloads</strong> folder and
+              <strong>double-click</strong> <code>ASC_Checker.bat</code> to run
+              it.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div>
+              If a <em>Windows SmartScreen</em> warning appears, click
+              <strong>"More info"</strong> then <strong>"Run anyway"</strong>.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div>
+              Your browser will reopen this page automatically with your system
+              data. Follow the prompts to finish.
+            </div>
+          </div>
+        </div>
+        <div class="steps" id="steps-mac" style="display: none">
+          <div class="step">
+            <div class="step-num">1</div>
+            <div>
+              Click <strong>Download Checker</strong> below to save
+              <code>ASC_Checker.sh</code> to your computer.
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">2</div>
+            <div>
+              Open <strong>Terminal</strong> (press &#x2318;+Space, type
+              &ldquo;Terminal&rdquo;, press Enter).
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">3</div>
+            <div>
+              Run this command and press Enter:
+              <code>bash ~/Downloads/ASC_Checker.sh</code>
+            </div>
+          </div>
+          <div class="step">
+            <div class="step-num">4</div>
+            <div>
+              Your browser will reopen this page automatically with your system
+              data. Follow the prompts to finish.
+            </div>
+          </div>
+        </div>
+
+        <button class="btn" onclick="downloadScript()">
+          &#x2B07;&nbsp; Download Checker
+        </button>
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 2 — USER INFO ══════════════ -->
+    <div class="screen" id="screen-info">
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="assets/ASC_logo.jpg" alt="ASC Logo" />
+        </div>
+        <h2>System Data Collected &#x2713;</h2>
+        <p class="subtitle" style="text-align: left">
+          Enter your details below, then we'll run a speed test to complete the
+          check.
+        </p>
+
+        <form id="info-form" onsubmit="startSpeedTest(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label for="firstName">First Name</label>
+              <input type="text" id="firstName" placeholder="Jane" required />
+            </div>
+            <div class="form-group">
+              <label for="lastName">Last Name</label>
+              <input type="text" id="lastName" placeholder="Doe" required />
+            </div>
+          </div>
+          <div class="form-group">
+            <label for="userEmail">Email Address</label>
+            <input
+              type="email"
+              id="userEmail"
+              placeholder="jane.doe@example.com"
+              required
+            />
+          </div>
+          <button class="btn" type="submit">Run Speed Test &rarr;</button>
+        </form>
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 3 — TESTING ══════════════ -->
+    <div class="screen" id="screen-testing">
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="assets/ASC_logo.jpg" alt="ASC Logo" />
+        </div>
+        <h2>Running System Check&hellip;</h2>
+        <p class="subtitle" style="text-align: left">
+          Please keep this window open. This takes about 30&ndash;45 seconds.
+        </p>
+
+        <ul class="test-list">
+          <li class="test-item">
+            <span class="test-icon">&#x1F4BB;</span>
+            <span class="test-label">System Information</span>
+            <span class="test-status" id="tstatus-sys">Reading&hellip;</span>
+            <span id="tcheck-sys"></span>
+          </li>
+          <li class="test-item">
+            <span class="test-icon">&#x2B07;</span>
+            <span class="test-label">Download Speed</span>
+            <span class="test-status" id="tstatus-dl">Waiting&hellip;</span>
+            <div class="spinner" id="tspinner-dl" style="display: none"></div>
+            <span id="tcheck-dl"></span>
+          </li>
+          <li class="test-item">
+            <span class="test-icon">&#x2B06;</span>
+            <span class="test-label">Upload Speed</span>
+            <span class="test-status" id="tstatus-ul">Waiting&hellip;</span>
+            <div class="spinner" id="tspinner-ul" style="display: none"></div>
+            <span id="tcheck-ul"></span>
+          </li>
+        </ul>
+      </div>
+    </div>
+
+    <!-- ══════════════ SCREEN 4 — RESULTS ══════════════ -->
+    <div class="screen" id="screen-results">
+      <div class="card">
+        <div class="logo-wrap">
+          <img src="assets/ASC_logo.jpg" alt="ASC Logo" />
+        </div>
+        <h2>System Check Report</h2>
+        <p
+          class="subtitle"
+          style="text-align: left; margin-bottom: 18px"
+          id="results-meta"
+        ></p>
+
+        <div class="summary-banner">
+          <div class="summary-score" id="score-display">&mdash;</div>
+          <div class="summary-label">requirements met</div>
+        </div>
+
+        <div class="results-grid" id="results-grid"></div>
+
+        <hr class="divider" />
+
+        <div class="btn-row">
+          <button class="btn btn-outline" onclick="window.print()">
+            &#x1F5A8;&nbsp; Print
+          </button>
+          <button class="btn" id="btn-send" onclick="sendReport()">
+            &#x1F4E7;&nbsp; Send Report to HR
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toast notification -->
+    <div class="toast" id="toast"></div>
+
+    <script src="js/app.js"></script>
+  </body>
+</html>
