@@ -293,16 +293,16 @@ async function measureUpload() {
   const sizes  = [2_000_000, 5_000_000];
   const speeds = [];
   for (const bytes of sizes) {
-    const data = new Uint8Array(bytes);
-    crypto.getRandomValues(data);
-    // Wrap in a text/plain Blob so this is treated as a CORS-simple request
-    // (no preflight needed, works cross-origin with no-cors mode)
+    // Fill with a repeating pattern — crypto.getRandomValues has a 65 536-byte
+    // limit per call so it cannot be used for multi-MB buffers.
+    const data = new Uint8Array(bytes).map((_, i) => i & 0xff);
+    // text/plain keeps this a CORS-simple request (no preflight needed)
     const blob = new Blob([data], { type: 'text/plain' });
     const t0   = performance.now();
     await fetch('https://speed.cloudflare.com/__up', {
       method : 'POST',
       body   : blob,
-      mode   : 'no-cors',
+      mode   : 'cors',
       cache  : 'no-store',
     });
     const sec = (performance.now() - t0) / 1000;
