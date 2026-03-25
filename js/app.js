@@ -276,29 +276,34 @@ function setTest(key, state, text) {
 }
 
 async function measureDownload() {
-  const sizes  = [5_000_000, 10_000_000];
-  const speeds = [];
-  for (const bytes of sizes) {
+  const DURATION_MS = 30_000;
+  const CHUNK_BYTES = 10_000_000;
+  const deadline    = performance.now() + DURATION_MS;
+  let totalBits = 0;
+  let totalSec  = 0;
+  while (performance.now() < deadline) {
     const t0  = performance.now();
-    const res = await fetch('https://speed.cloudflare.com/__down?bytes=' + bytes, { cache: 'no-store' });
+    const res = await fetch('https://speed.cloudflare.com/__down?bytes=' + CHUNK_BYTES, { cache: 'no-store' });
     await res.arrayBuffer();
     const sec = (performance.now() - t0) / 1000;
-    speeds.push((bytes * 8) / sec / 1_000_000);
+    totalBits += CHUNK_BYTES * 8;
+    totalSec  += sec;
   }
-  return speeds.reduce((a, b) => a + b) / speeds.length;
+  return totalBits / totalSec / 1_000_000;
 }
 
 async function measureUpload() {
-  // Two passes — average for stability
-  const sizes  = [2_000_000, 5_000_000];
-  const speeds = [];
-  for (const bytes of sizes) {
-    // Fill with a repeating pattern — crypto.getRandomValues has a 65 536-byte
-    // limit per call so it cannot be used for multi-MB buffers.
-    const data = new Uint8Array(bytes).map((_, i) => i & 0xff);
-    // text/plain keeps this a CORS-simple request (no preflight needed)
-    const blob = new Blob([data], { type: 'text/plain' });
-    const t0   = performance.now();
+  const DURATION_MS = 30_000;
+  const CHUNK_BYTES = 5_000_000;
+  // Fill with a repeating pattern — crypto.getRandomValues has a 65 536-byte
+  // limit per call so it cannot be used for multi-MB buffers.
+  const data     = new Uint8Array(CHUNK_BYTES).map((_, i) => i & 0xff);
+  const blob     = new Blob([data], { type: 'text/plain' });
+  const deadline = performance.now() + DURATION_MS;
+  let totalBits = 0;
+  let totalSec  = 0;
+  while (performance.now() < deadline) {
+    const t0 = performance.now();
     await fetch('https://speed.cloudflare.com/__up', {
       method : 'POST',
       body   : blob,
@@ -306,9 +311,10 @@ async function measureUpload() {
       cache  : 'no-store',
     });
     const sec = (performance.now() - t0) / 1000;
-    speeds.push((bytes * 8) / sec / 1_000_000);
+    totalBits += CHUNK_BYTES * 8;
+    totalSec  += sec;
   }
-  return speeds.reduce((a, b) => a + b) / speeds.length;
+  return totalBits / totalSec / 1_000_000;
 }
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
