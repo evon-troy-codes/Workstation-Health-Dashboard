@@ -306,13 +306,12 @@ async function measureUpload() {
   let totalSec  = 0;
   while (performance.now() < deadline) {
     const t0  = performance.now();
-    const res = await fetch('https://speed.cloudflare.com/__up', {
+    await fetch('https://speed.cloudflare.com/__up', {
       method : 'POST',
       body   : blob,
       mode   : 'cors',
       cache  : 'no-store',
     });
-    if (!res.ok) break;
     const sec = (performance.now() - t0) / 1000;
     totalBits += CHUNK_BYTES * 8;
     totalSec  += sec;
