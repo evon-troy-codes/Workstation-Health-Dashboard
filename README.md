@@ -1,4 +1,4 @@
-# ASC System Checker
+# ASC System Scanner
 
 A web-based tool that verifies whether a candidate's system meets ASC's technical requirements. The user downloads a lightweight script that collects system information, then the page runs an internet speed test and displays a pass/fail report that can be emailed to HR. Supports both Windows and macOS.
 
