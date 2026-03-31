@@ -296,7 +296,7 @@ async function measureDownload() {
 
 async function measureUpload() {
   const DURATION_MS = 10_000;
-  const CHUNK_BYTES = 10_000_000; // large chunk = fewer requests = less chance of rate-limit
+  const CHUNK_BYTES = 2_000_000; // smaller chunks so uploads complete quickly
   // Fill with a repeating pattern — crypto.getRandomValues has a 65 536-byte
   // limit per call so it cannot be used for multi-MB buffers.
   const data     = new Uint8Array(CHUNK_BYTES).map((_, i) => i & 0xff);
@@ -304,7 +304,8 @@ async function measureUpload() {
   const deadline = performance.now() + DURATION_MS;
   let totalBits = 0;
   let totalSec  = 0;
-  while (performance.now() < deadline) {
+  let iterations = 0;
+  while (performance.now() < deadline || iterations === 0) {
     const t0  = performance.now();
     await fetch('https://speed.cloudflare.com/__up', {
       method : 'POST',
@@ -315,6 +316,7 @@ async function measureUpload() {
     const sec = (performance.now() - t0) / 1000;
     totalBits += CHUNK_BYTES * 8;
     totalSec  += sec;
+    iterations++;
     await sleep(500); // brief pause between requests to avoid rate-limiting
   }
   return totalSec > 0 ? totalBits / totalSec / 1_000_000 : 0;
