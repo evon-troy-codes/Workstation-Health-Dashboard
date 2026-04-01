@@ -106,6 +106,9 @@ function buildHtml(array $data): string {
       <tbody>{$rows}</tbody>
     </table>
   </div>
+  <div style='padding:14px 32px; font-size:.82rem; color:#555; background:#fff8e1; border-top:1px solid #ffe082; text-align:center;'>
+    <b>Note:</b> These results are preliminary and subject to validation.
+  </div>
   <div class='ftr'>ASC System Checker &bull; Confidential HR Report</div>
 </div>
 </body>
@@ -127,6 +130,8 @@ function buildText(array $data): string {
         $lines[] = $status . '  ' . $r['label'] . ': ' . $r['value'];
         $lines[] = '       ' . $r['note'];
     }
+    $lines[] = '';
+    $lines[] = 'NOTE: These results are preliminary and subject to validation.';
     return implode("\n", $lines);
 }
 
@@ -151,8 +156,8 @@ try {
         $mail->addReplyTo($data['user_email'], $replyName);
     }
 
-    $firstName = trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? ''));
-    $mail->Subject = 'System Check Report — ' . $firstName;
+    $fullName = trim(($data['first_name'] ?? '') . ' ' . ($data['last_name'] ?? ''));
+    $mail->Subject = 'Test: Computer Information Report ' . $fullName;
     $mail->isHTML(true);
     $mail->Body    = buildHtml($data);
     $mail->AltBody = buildText($data);
