@@ -5,7 +5,8 @@ const CONFIG = {
   thresholds: {
     downloadMbps : 100,
     uploadMbps   :  10,
-    ramGB        :  16,
+    ramGB        :  14,
+    ramGBAmd     :  10,
     diskFreeGB   :  50,
     cpuCores     :   4,
     cpuGHz       :   2.0,
@@ -367,11 +368,13 @@ function evaluate() {
     note     : osNote,
   });
 
+  const isAmd    = /amd/i.test(sysData.cpu);
+  const ramMinGB = isAmd ? CONFIG.thresholds.ramGBAmd : CONFIG.thresholds.ramGB;
   rows.push({
     label    : 'RAM',
     value    : sysData.ramGB + ' GB',
-    eligible : sysData.ramGB >= CONFIG.thresholds.ramGB,
-    note     : 'Minimum: ' + CONFIG.thresholds.ramGB + ' GB',
+    eligible : sysData.ramGB >= ramMinGB,
+    note     : 'Minimum: ' + ramMinGB + ' GB' + (isAmd ? ' (AMD unified memory)' : ''),
   });
 
   rows.push({
