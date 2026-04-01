@@ -13,12 +13,6 @@ const CONFIG = {
   },
   requiredOS: "Windows 11",
 
-  // ── EmailJS ─────────────────────────────────────────
-  // 1. Sign up free at https://www.emailjs.com
-  // 2. Add an Email Service (Gmail / Google Workspace)
-  // 3. Create an Email Template using the {{variables}}
-  //    listed in sendReport() below
-  // 4. Replace the placeholders here
   reportEndpoint: "YOUR_ZAPIER_WEBHOOK_URL_HERE",
 };
 
