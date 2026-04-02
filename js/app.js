@@ -13,7 +13,7 @@ const CONFIG = {
   },
   requiredOS: "Windows 11",
 
-  reportEndpoint: "https://hooks.zapier.com/hooks/catch/27075116/unne09d/",
+  reportEndpoint: "https://hooks.zapier.com/hooks/catch/27075116/unnjhwy/",
 };
 
 const MAC_VERSION_NAMES = { 13: "Ventura", 14: "Sonoma", 15: "Sequoia" };
