@@ -49,6 +49,8 @@ let userInfo = {};
       build: p.get("build") || "",
       diskFree: parseFloat(p.get("diskFree") || "0"),
       av: decodeURIComponent(p.get("av") || ""),
+      usbHeadset: decodeURIComponent(p.get("usbHeadset") || ""),
+      defaultMic: decodeURIComponent(p.get("defaultMic") || ""),
     };
     show("screen-info");
   } else {
@@ -120,6 +122,25 @@ function downloadScript() {
     "    }",
     '} catch { $avName = "Could not detect" }',
     "",
+    "# USB Headset & Default Microphone",
+    '$usbHeadset = "None detected"',
+    '$defaultMic = "None detected"',
+    "try {",
+    "    $audioEndpoints = Get-CimInstance Win32_PnPEntity -ErrorAction Stop | Where-Object {",
+    "        $_.PNPClass -eq 'AudioEndpoint' -and $_.Status -eq 'OK'",
+    "    }",
+    "    $usbDevices = $audioEndpoints | Where-Object { $_.DeviceID -match 'USB' }",
+    "    if ($usbDevices) {",
+    "        $usbHeadset = ($usbDevices | Select-Object -First 1).Name",
+    "    }",
+    "    $micDevices = $audioEndpoints | Where-Object { $_.Name -match 'Microphone|Mic|Headset' }",
+    "    if ($micDevices) {",
+    "        $usbMic = $micDevices | Where-Object { $_.DeviceID -match 'USB' } | Select-Object -First 1",
+    "        if ($usbMic) { $defaultMic = $usbMic.Name }",
+    "        else { $defaultMic = ($micDevices | Select-Object -First 1).Name }",
+    "    }",
+    "} catch {}",
+    "",
     "function UE($s) { return [Uri]::EscapeDataString($s) }",
     "",
     '$q  = "syscheck=1"',
@@ -131,6 +152,8 @@ function downloadScript() {
     '$q += "&build="    + $osBuild',
     '$q += "&diskFree=" + $diskFreeGB',
     '$q += "&av="       + (UE $avName)',
+    '$q += "&usbHeadset=" + (UE $usbHeadset)',
+    '$q += "&defaultMic=" + (UE $defaultMic)',
     "",
     'Start-Process ($baseUrl + "?" + $q)',
     "Start-Sleep -Seconds 2",
@@ -204,6 +227,20 @@ function downloadMacScript() {
     "  fi",
     "done",
     "",
+    "# USB Headset & Default Microphone",
+    'USB_HEADSET="None detected"',
+    'DEFAULT_MIC="None detected"',
+    'USB_AUDIO=$(system_profiler SPUSBDataType 2>/dev/null | grep -i "audio\\|headset\\|headphone" | head -1 | sed "s/^[[:space:]]*//" | sed "s/:$//")',
+    'if [ -n "$USB_AUDIO" ]; then',
+    '  USB_HEADSET="$USB_AUDIO"',
+    "fi",
+    'AUDIO_INPUT=$(system_profiler SPAudioDataType 2>/dev/null | awk "/Input/,/Default Input Device/{print}" | grep "Default Input Device" | awk -F": " "{print \\$2}" | sed "s/^[[:space:]]*//")',
+    'if [ -n "$AUDIO_INPUT" ]; then',
+    '  DEFAULT_MIC="$AUDIO_INPUT"',
+    'elif [ -n "$USB_AUDIO" ]; then',
+    '  DEFAULT_MIC="$USB_AUDIO"',
+    "fi",
+    "",
     "# URL encode",
     'UE() { python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=\'\'))" "$1"; }',
     "",
@@ -216,6 +253,8 @@ function downloadMacScript() {
     'Q="${Q}&build=${OS_BUILD}"',
     'Q="${Q}&diskFree=${DISK_FREE_GB}"',
     'Q="${Q}&av=$(UE "$AV_NAME")"',
+    'Q="${Q}&usbHeadset=$(UE "$USB_HEADSET")"',
+    'Q="${Q}&defaultMic=$(UE "$DEFAULT_MIC")"',
     "",
     'open "${BASE_URL}?${Q}"',
   ];
@@ -405,6 +444,14 @@ function evaluate() {
     value: sysData.av || "None detected",
     eligible: avRes.eligible,
     note: avRes.note,
+  });
+
+  const headsetRes = evalHeadset(sysData.usbHeadset, sysData.defaultMic);
+  rows.push({
+    label: "USB Headset",
+    value: headsetRes.value,
+    eligible: headsetRes.eligible,
+    note: headsetRes.note,
   });
 
   return rows;
@@ -614,6 +661,62 @@ function evalAV(av) {
   return {
     eligible: true,
     note: "Antivirus detected \u2014 please verify it is an active paid subscription",
+  };
+}
+
+// ── USB Headset ─────────────────────────────────────────
+function evalHeadset(usbHeadset, defaultMic) {
+  const noHeadset =
+    !usbHeadset || /^none|^could not/i.test(usbHeadset);
+  const noMic =
+    !defaultMic || /^none|^could not/i.test(defaultMic);
+
+  if (noHeadset && noMic) {
+    return {
+      value: "No USB headset detected",
+      eligible: false,
+      note: "A USB headset with microphone is required",
+    };
+  }
+
+  if (noHeadset && !noMic) {
+    return {
+      value: "Mic: " + defaultMic,
+      eligible: false,
+      note:
+        "Microphone detected but no USB headset found \u2014 a USB headset is required",
+    };
+  }
+
+  const micIsUsb =
+    !noMic &&
+    (defaultMic.toLowerCase().includes("usb") ||
+      defaultMic.toLowerCase() === usbHeadset.toLowerCase() ||
+      usbHeadset.toLowerCase().includes(defaultMic.toLowerCase()) ||
+      defaultMic.toLowerCase().includes(usbHeadset.toLowerCase()));
+
+  if (!noHeadset && noMic) {
+    return {
+      value: usbHeadset,
+      eligible: false,
+      note:
+        "USB headset detected but no microphone found \u2014 verify headset mic is enabled",
+    };
+  }
+
+  if (!noHeadset && !noMic && micIsUsb) {
+    return {
+      value: usbHeadset + " (Mic: " + defaultMic + ")",
+      eligible: true,
+      note: "USB headset with microphone detected",
+    };
+  }
+
+  return {
+    value: usbHeadset + " (Mic: " + defaultMic + ")",
+    eligible: false,
+    note:
+      "USB headset detected but default microphone does not appear to be from the USB headset",
   };
 }
 
