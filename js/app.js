@@ -788,18 +788,9 @@ function esc(s) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  EMAIL
-//  EmailJS template variables:
-//    {{to_email}} {{first_name}} {{last_name}}
-//    {{user_email}} {{score}} {{check_date}}
-//    {{summary}} {{download_speed}} {{upload_speed}}
-//    {{os}} {{cpu}} {{ram}} {{disk_free}} {{antivirus}}
+//  SEND REPORT (Zapier webhook)
 // ═══════════════════════════════════════════════════════
 async function sendReport() {
-  const btn = document.getElementById("btn-send");
-  btn.disabled = true;
-  btn.textContent = "Sending\u2026";
-
   const rows = evaluate();
   const passCount = rows.filter((r) => r.eligible).length;
 
@@ -848,9 +839,6 @@ async function sendReport() {
   } catch (err) {
     console.error("Send report error:", err);
     toast("Failed to send report: " + err.message, "error");
-  } finally {
-    btn.disabled = false;
-    btn.textContent = "\uD83D\uDCE7\u00a0 Send Report to HR";
   }
 }
 
