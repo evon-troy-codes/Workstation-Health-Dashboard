@@ -51,6 +51,7 @@ let userInfo = {};
       av: decodeURIComponent(p.get("av") || ""),
       usbHeadset: decodeURIComponent(p.get("usbHeadset") || ""),
       defaultMic: decodeURIComponent(p.get("defaultMic") || ""),
+      debugUsb: decodeURIComponent(p.get("debugUsb") || ""),
     };
     show("screen-info");
   } else {
@@ -129,6 +130,7 @@ function downloadScript() {
     "    $allUsb = Get-CimInstance Win32_PnPEntity -ErrorAction Stop | Where-Object {",
     "        $_.DeviceID -match '^USB' -and $_.Status -eq 'OK'",
     "    }",
+    "    $debugUsb = ($allUsb | ForEach-Object { $_.Name + ' [' + $_.PNPClass + ']' }) -join ' | '",
     "    $usbAudio = $allUsb | Where-Object { $_.PNPClass -match 'AudioEndpoint|MEDIA|Audio' -or $_.Name -match 'Audio|Headset|Headphone|Microphone|Mic|Speaker' }",
     "    if ($usbAudio) {",
     "        $headset = $usbAudio | Where-Object { $_.Name -notmatch 'Microphone|Mic' } | Select-Object -First 1",
@@ -153,6 +155,7 @@ function downloadScript() {
     '$q += "&av="       + (UE $avName)',
     '$q += "&usbHeadset=" + (UE $usbHeadset)',
     '$q += "&defaultMic=" + (UE $defaultMic)',
+    '$q += "&debugUsb=" + (UE $debugUsb)',
     "",
     'Start-Process ($baseUrl + "?" + $q)',
     "Start-Sleep -Seconds 2",
@@ -452,6 +455,16 @@ function evaluate() {
     eligible: headsetRes.eligible,
     note: headsetRes.note,
   });
+
+  // DEBUG: temporary — remove after troubleshooting
+  if (sysData.debugUsb) {
+    rows.push({
+      label: "DEBUG: USB Devices",
+      value: sysData.debugUsb,
+      eligible: true,
+      note: "All USB PnP devices with [PNPClass]",
+    });
+  }
 
   return rows;
 }
