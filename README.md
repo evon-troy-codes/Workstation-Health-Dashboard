@@ -50,31 +50,28 @@ system_checker/
 
 ## Setup & Deployment
 
-### 1. EmailJS (for HR email reports)
+### 1. Zapier Webhook (for HR email reports)
 
-1. Create a free account at [emailjs.com](https://www.emailjs.com)
-2. Add an **Email Service** using Gmail / Google Workspace
-3. Create an **Email Template** — available template variables:
+Reports are sent via a Zapier webhook that triggers an email to HR.
 
-   | Variable                                                             | Description                   |
-   | -------------------------------------------------------------------- | ----------------------------- |
-   | `{{first_name}}` / `{{last_name}}`                                   | Applicant name                |
-   | `{{user_email}}`                                                     | Applicant email               |
-   | `{{score}}`                                                          | e.g. `6 / 7`                  |
-   | `{{check_date}}`                                                     | Date and time of check        |
-   | `{{summary}}`                                                        | Full plain-text results block |
-   | `{{download_speed}}` / `{{upload_speed}}`                            | Speed test results            |
-   | `{{os}}` / `{{cpu}}` / `{{ram}}` / `{{disk_free}}` / `{{antivirus}}` | Individual system fields      |
+1. Create a Zap at [zapier.com](https://zapier.com) with:
+   - **Trigger:** Webhooks by Zapier → Catch Hook
+   - **Action:** Email by Zapier (or Gmail) → Send Outbound Email
+2. Map the following fields from the webhook data in the email action:
 
-4. Open `js/app.js` and fill in the `CONFIG.emailjs` block at the top:
+   | Zapier Field   | Maps To         | Description                        |
+   | -------------- | --------------- | ---------------------------------- |
+   | `to_email`     | To              | Recipient addresses (comma-separated) |
+   | `subject`      | Subject         | Email subject line                 |
+   | `body_text`    | Body            | Full plain-text results report     |
+   | `user_email`   | Reply To        | Applicant's email address          |
+
+   Additional fields available in the payload: `first_name`, `last_name`, `score`, `check_date`.
+
+3. Copy the webhook URL from Zapier and paste it into `js/app.js` in the `CONFIG` object:
 
 ```js
-emailjs: {
-  publicKey  : 'your_public_key',
-  serviceId  : 'service_xxxxxxx',
-  templateId : 'template_xxxxxxx',
-  hrEmail    : 'hr@yourcompany.com',
-},
+reportEndpoint: "https://hooks.zapier.com/hooks/catch/xxxxx/xxxxx/",
 ```
 
 ### 2. Local Testing (VS Code)
