@@ -462,13 +462,13 @@ function evalCPU(name, cores, speedMHz) {
     const m = n.match(/\bI([579])[- ](\d{4,5})([A-Z0-9]*)/);
     if (m) {
       const suffix = m[3];
-      if (/[HF]/.test(suffix)) {
+      if (suffix && !/^(HX|[HFV])/.test(suffix)) {
         return {
           eligible: false,
           note:
-            'Processors with H or F suffix are not eligible (detected suffix: "' +
+            'Processor suffix "' +
             suffix +
-            '")',
+            '" is not eligible (allowed suffixes: H, F, V, HX)',
         };
       }
       const modelStr = m[2];
