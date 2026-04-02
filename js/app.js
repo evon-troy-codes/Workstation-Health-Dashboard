@@ -13,7 +13,7 @@ const CONFIG = {
   },
   requiredOS: "Windows 11",
 
-  reportEndpoint: "YOUR_ZAPIER_WEBHOOK_URL_HERE",
+  reportEndpoint: "https://hooks.zapier.com/hooks/catch/27075116/unne09d/",
 };
 
 const MAC_VERSION_NAMES = { 13: "Ventura", 14: "Sonoma", 15: "Sequoia" };
@@ -824,7 +824,8 @@ async function sendReport() {
   });
 
   const payload = {
-    subject: "Test: Computer Information Report " + fullName,
+    to_email: "support@answeringservicecare.com,techspecs.3hksby@zapiermail.com",
+    subject: "Computer Information Report — " + fullName,
     first_name: userInfo.firstName,
     last_name: userInfo.lastName,
     user_email: userInfo.email,
@@ -839,11 +840,10 @@ async function sendReport() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
     });
-    const json = await res.json();
-    if (json.status === "success") {
+    if (res.ok) {
       toast("Report sent successfully.", "success");
     } else {
-      throw new Error(json.message || "Unknown error");
+      throw new Error("Server responded with status " + res.status);
     }
   } catch (err) {
     console.error("Send report error:", err);
