@@ -13,7 +13,11 @@ const CONFIG = {
   },
   requiredOS: "Windows 11",
 
-  reportEndpoint: "https://hooks.zapier.com/hooks/catch/27075116/unnjhwy/",
+  emailjs: {
+    publicKey: "k4E4C5-tO2FG8PFmB",
+    serviceId: "service_wz5mwq8",
+    templateId: "template_vgggpq5",
+  },
 };
 
 const MAC_VERSION_NAMES = { 13: "Ventura", 14: "Sonoma", 15: "Sequoia" };
@@ -788,7 +792,7 @@ function esc(s) {
 }
 
 // ═══════════════════════════════════════════════════════
-//  SEND REPORT (Zapier webhook)
+//  SEND REPORT (EmailJS)
 // ═══════════════════════════════════════════════════════
 async function sendReport() {
   const rows = evaluate();
@@ -798,23 +802,83 @@ async function sendReport() {
   const checkDate = new Date().toLocaleString();
   const scoreStr = passCount + " / " + rows.length;
 
-  const bodyLines = [
-    "ASC SYSTEM CHECK REPORT",
-    "----------------------------------------",
-    "Name:  " + fullName,
-    "Email: " + userInfo.email,
-    "Date:  " + checkDate,
-    "Score: " + scoreStr,
-    "",
-  ];
-  rows.forEach(function (r) {
-    bodyLines.push(
-      (r.eligible ? "[PASS]" : "[FAIL]") + "  " + r.label + ": " + r.value,
-    );
-    bodyLines.push("       " + r.note);
-  });
+  const rowsHtml = rows
+    .map(function (r) {
+      const bgColor = r.eligible
+        ? "rgba(46,125,50,0.13)"
+        : "rgba(198,40,40,0.13)";
+      const borderColor = r.eligible
+        ? "rgba(46,125,50,0.35)"
+        : "rgba(198,40,40,0.35)";
+      const pillBg = r.eligible
+        ? "rgba(46,125,50,0.25)"
+        : "rgba(198,40,40,0.25)";
+      const pillColor = r.eligible ? "#66bb6a" : "#ef5350";
+      const badge = r.eligible ? "\u2705" : "\u274c";
+      const pillText = r.eligible ? "ELIGIBLE" : "NOT ELIGIBLE";
+      return (
+        '<tr><td style="padding:6px 0;">' +
+        '<table width="100%" cellpadding="0" cellspacing="0" style="background:' +
+        bgColor +
+        ";border:1px solid " +
+        borderColor +
+        ';border-radius:8px;"><tr><td style="padding:12px 14px;">' +
+        '<table width="100%" cellpadding="0" cellspacing="0"><tr>' +
+        '<td style="width:28px;vertical-align:top;font-size:16px;">' +
+        badge +
+        "</td>" +
+        '<td style="padding-left:10px;">' +
+        '<span style="font-weight:600;color:#c8ddf0;font-size:14px;">' +
+        esc(r.label) +
+        "</span>" +
+        '&nbsp;&nbsp;<span style="color:#7a9abf;font-size:13px;">' +
+        esc(r.value) +
+        "</span>" +
+        '&nbsp;&nbsp;<span style="background:' +
+        pillBg +
+        ";color:" +
+        pillColor +
+        ';font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;letter-spacing:0.04em;">' +
+        pillText +
+        "</span>" +
+        '<br><span style="font-size:12px;color:#546e8a;">' +
+        esc(r.note) +
+        "</span>" +
+        "</td></tr></table>" +
+        "</td></tr></table>" +
+        "</td></tr>"
+      );
+    })
+    .join("");
 
-  const payload = {
+  const bodyHtml =
+    '<div style="background:#ffffff;padding:24px;font-family:Segoe UI,Tahoma,Geneva,Verdana,sans-serif;">' +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;margin:0 auto;background:#0f2035;border:1px solid #1a3a5c;border-radius:14px;padding:40px 44px;">' +
+    "<tr><td>" +
+    '<h2 style="color:#fff;font-size:20px;margin:0 0 6px;">System Check Report</h2>' +
+    '<p style="color:#7a9abf;font-size:14px;margin:0 0 18px;">' +
+    esc(fullName) +
+    " &middot; " +
+    esc(userInfo.email) +
+    " &middot; " +
+    esc(checkDate) +
+    "</p>" +
+    '<table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#0d2d55 0%,#091828 100%);border:1px solid #1565c0;border-radius:10px;text-align:center;padding:22px;margin-bottom:22px;">' +
+    '<tr><td><span style="font-size:40px;font-weight:700;color:#fff;">' +
+    esc(scoreStr) +
+    "</span>" +
+    '<br><span style="font-size:13px;color:#7a9abf;">requirements met</span>' +
+    "</td></tr></table>" +
+    "<table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\">" +
+    rowsHtml +
+    "</table>" +
+    '<p style="font-size:13px;color:#7a6300;background:#fff8e1;border:1px solid #ffe082;border-radius:6px;padding:10px 14px;margin-top:16px;">' +
+    "<strong>Note:</strong> These results are preliminary and subject to validation." +
+    "</p>" +
+    "</td></tr></table>" +
+    "</div>";
+
+  const templateParams = {
     to_email: "support@answeringservicecare.com,techspecs.3hksby@zapiermail.com",
     subject: "Computer Information Report — " + fullName,
     first_name: userInfo.firstName,
@@ -822,23 +886,20 @@ async function sendReport() {
     user_email: userInfo.email,
     score: scoreStr,
     check_date: checkDate,
-    body_text: bodyLines.join("\n"),
+    body_html: bodyHtml,
   };
 
   try {
-    const res = await fetch(CONFIG.reportEndpoint, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
-    if (res.ok) {
-      toast("Report sent successfully.", "success");
-    } else {
-      throw new Error("Server responded with status " + res.status);
-    }
+    await emailjs.send(
+      CONFIG.emailjs.serviceId,
+      CONFIG.emailjs.templateId,
+      templateParams,
+      CONFIG.emailjs.publicKey,
+    );
+    toast("Report sent successfully.", "success");
   } catch (err) {
     console.error("Send report error:", err);
-    toast("Failed to send report: " + err.message, "error");
+    toast("Failed to send report: " + (err.text || err.message || err), "error");
   }
 }
 
