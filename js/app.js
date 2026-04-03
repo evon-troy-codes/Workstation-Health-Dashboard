@@ -192,6 +192,9 @@ function downloadMacScript() {
 
   const lines = [
     "#!/bin/bash",
+    "# Make ourselves executable so double-click works next time",
+    'chmod +x "$0" 2>/dev/null',
+    "",
     'BASE_URL="' + baseUrl + '"',
     "",
     "# CPU name",
@@ -266,7 +269,7 @@ function downloadMacScript() {
   const blob = new Blob([sh], { type: "text/plain" });
   const a = document.createElement("a");
   a.href = URL.createObjectURL(blob);
-  a.download = "ASC_Checker.sh";
+  a.download = "ASC_Checker.command";
   a.click();
   URL.revokeObjectURL(a.href);
 }
