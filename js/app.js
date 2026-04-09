@@ -415,10 +415,22 @@ function evaluate() {
     osEligible = sysData.os.includes(CONFIG.requiredOS);
     osNote = "Required: " + CONFIG.requiredOS;
   }
+
+  // Windows 11 version check — 25H2 (build 26120) or newer is green, older is yellow
+  var osWarn = false;
+  if (!isMacOS && osEligible && sysData.build) {
+    var buildNum = parseInt(sysData.build);
+    if (buildNum > 0 && buildNum < 26120) {
+      osWarn = true;
+      osNote = "Windows Update Needed — 25H2 or newer recommended";
+    }
+  }
+
   rows.push({
     label: "Operating System",
     value: sysData.os || "Unknown",
     eligible: osEligible,
+    warn: osWarn,
     note: osNote,
   });
 
@@ -755,13 +767,12 @@ function showResults() {
 
   document.getElementById("results-grid").innerHTML = rows
     .map(function (r) {
+      var rowClass = r.warn ? "warn" : r.eligible ? "eligible" : "ineligible";
+      var badge = r.warn ? "\u26a0\ufe0f" : r.eligible ? "\u2705" : "\u274c";
+      var pillText = r.warn ? "UPDATE NEEDED" : r.eligible ? "ELIGIBLE" : "NOT ELIGIBLE";
       return (
-        '<div class="result-row ' +
-        (r.eligible ? "eligible" : "ineligible") +
-        '">' +
-        '<span class="result-badge">' +
-        (r.eligible ? "\u2705" : "\u274c") +
-        "</span>" +
+        '<div class="result-row ' + rowClass + '">' +
+        '<span class="result-badge">' + badge + "</span>" +
         '<div class="result-body">' +
         '<div class="result-top">' +
         '<span class="result-label">' +
@@ -770,9 +781,7 @@ function showResults() {
         '<span class="result-value">' +
         esc(r.value) +
         "</span>" +
-        '<span class="result-pill">' +
-        (r.eligible ? "ELIGIBLE" : "NOT ELIGIBLE") +
-        "</span>" +
+        '<span class="result-pill">' + pillText + "</span>" +
         "</div>" +
         '<div class="result-note">' +
         esc(r.note) +
@@ -810,12 +819,12 @@ async function sendReport() {
 
   const rowsHtml = rows
     .map(function (r) {
-      const bgColor = r.eligible ? "#162e1f" : "#2d1519";
-      const borderColor = r.eligible ? "#1e4a27" : "#4a1c1c";
-      const pillBg = r.eligible ? "#1a3a21" : "#3a1717";
-      const pillColor = r.eligible ? "#66bb6a" : "#ef5350";
-      const badge = r.eligible ? "\u2705" : "\u274c";
-      const pillText = r.eligible ? "ELIGIBLE" : "NOT ELIGIBLE";
+      const bgColor = r.warn ? "#2d2a15" : r.eligible ? "#162e1f" : "#2d1519";
+      const borderColor = r.warn ? "#4a4417" : r.eligible ? "#1e4a27" : "#4a1c1c";
+      const pillBg = r.warn ? "#3a3517" : r.eligible ? "#1a3a21" : "#3a1717";
+      const pillColor = r.warn ? "#ffa726" : r.eligible ? "#66bb6a" : "#ef5350";
+      const badge = r.warn ? "\u26a0\ufe0f" : r.eligible ? "\u2705" : "\u274c";
+      const pillText = r.warn ? "UPDATE NEEDED" : r.eligible ? "ELIGIBLE" : "NOT ELIGIBLE";
       return (
         '<tr><td style="padding:6px 0;">' +
         '<table width="100%" cellpadding="0" cellspacing="0" style="background:' +
