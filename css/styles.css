@@ -270,6 +270,10 @@ input:focus {
   background: rgba(46, 125, 50, 0.13);
   border: 1px solid rgba(46, 125, 50, 0.35);
 }
+.result-row.warn {
+  background: rgba(255, 167, 38, 0.13);
+  border: 1px solid rgba(255, 167, 38, 0.35);
+}
 .result-row.ineligible {
   background: rgba(198, 40, 40, 0.13);
   border: 1px solid rgba(198, 40, 40, 0.35);
@@ -314,6 +318,10 @@ input:focus {
 .eligible .result-pill {
   background: rgba(46, 125, 50, 0.25);
   color: #66bb6a;
+}
+.warn .result-pill {
+  background: rgba(255, 167, 38, 0.25);
+  color: #ffa726;
 }
 .ineligible .result-pill {
   background: rgba(198, 40, 40, 0.25);
