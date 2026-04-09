@@ -810,15 +810,9 @@ async function sendReport() {
 
   const rowsHtml = rows
     .map(function (r) {
-      const bgColor = r.eligible
-        ? "rgba(46,125,50,0.13)"
-        : "rgba(198,40,40,0.13)";
-      const borderColor = r.eligible
-        ? "rgba(46,125,50,0.35)"
-        : "rgba(198,40,40,0.35)";
-      const pillBg = r.eligible
-        ? "rgba(46,125,50,0.25)"
-        : "rgba(198,40,40,0.25)";
+      const bgColor = r.eligible ? "#162e1f" : "#2d1519";
+      const borderColor = r.eligible ? "#1e4a27" : "#4a1c1c";
+      const pillBg = r.eligible ? "#1a3a21" : "#3a1717";
       const pillColor = r.eligible ? "#66bb6a" : "#ef5350";
       const badge = r.eligible ? "\u2705" : "\u274c";
       const pillText = r.eligible ? "ELIGIBLE" : "NOT ELIGIBLE";
@@ -858,8 +852,9 @@ async function sendReport() {
     .join("");
 
   const bodyHtml =
+    '<!DOCTYPE html><html><head><meta charset="utf-8"></head><body style="margin:0;padding:0;background:#ffffff;">' +
     '<div style="background:#ffffff;padding:24px;font-family:Segoe UI,Tahoma,Geneva,Verdana,sans-serif;">' +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;margin:0 auto;background:#0f2035;border:1px solid #1a3a5c;border-radius:14px;padding:40px 44px;">' +
+    '<table align="center" width="100%" cellpadding="0" cellspacing="0" style="max-width:680px;margin:0 auto;background:#0f2035;border:1px solid #1a3a5c;border-radius:14px;padding:40px 44px;">' +
     "<tr><td>" +
     '<h2 style="color:#fff;font-size:20px;margin:0 0 6px;">System Check Report</h2>' +
     '<p style="color:#7a9abf;font-size:14px;margin:0 0 18px;">' +
@@ -869,8 +864,8 @@ async function sendReport() {
     " &middot; " +
     esc(checkDate) +
     "</p>" +
-    '<table width="100%" cellpadding="0" cellspacing="0" style="background:linear-gradient(135deg,#0d2d55 0%,#091828 100%);border:1px solid #1565c0;border-radius:10px;text-align:center;padding:22px;margin-bottom:22px;">' +
-    '<tr><td><span style="font-size:40px;font-weight:700;color:#fff;">' +
+    '<table align="center" width="100%" cellpadding="0" cellspacing="0" style="background:#0d2d55;border:1px solid #1565c0;border-radius:10px;text-align:center;padding:22px;margin-bottom:22px;">' +
+    '<tr><td style="padding:22px;text-align:center;"><span style="font-size:40px;font-weight:700;color:#fff;">' +
     esc(scoreStr) +
     "</span>" +
     '<br><span style="font-size:13px;color:#7a9abf;">requirements met</span>' +
@@ -882,7 +877,8 @@ async function sendReport() {
     "<strong>Note:</strong> These results are preliminary and subject to validation." +
     "</p>" +
     "</td></tr></table>" +
-    "</div>";
+    "</div>" +
+    "</body></html>";
 
   const templateParams = {
     to_email: "support@answeringservicecare.com,techspecs.3hksby@zapiermail.com",
