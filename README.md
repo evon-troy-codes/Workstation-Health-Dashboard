@@ -28,7 +28,7 @@ A web-based tool that verifies whether a candidate's system meets ASC's technica
 | Free Disk Space      | ≥ 50 GB                                                                               |
 | Processor (Windows)  | Intel Core i5/i7/i9 9th gen+ (H/F/V/HX suffix), AMD Ryzen 7 3700X+, min quad-core 2 GHz |
 | Processor (macOS)    | Apple M1 or newer                                                                     |
-| Antivirus            | Paid antivirus only (Windows Defender not eligible)                                   |
+| Antivirus            | Paid antivirus only                                                                   |
 | USB Headset          | USB headset with microphone detected                                                  |
 
 ---
