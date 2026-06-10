@@ -1,0 +1,24 @@
+{
+  "name": "asc-system-scanner",
+  "version": "1.0.0",
+  "description": "A web-based tool that verifies whether a candidate's system meets ASC's technical requirements. The user downloads a lightweight script that collects system information, then the page runs an internet speed test and displays a pass/fail report. A styled HTML report is automatically emailed to relevant parties via. Supports both Windows and macOS.",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/evon-troy-codes/ASC-System-Scanner.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/evon-troy-codes/ASC-System-Scanner/issues"
+  },
+  "homepage": "https://github.com/evon-troy-codes/ASC-System-Scanner#readme",
+  "devDependencies": {
+    "electron": "^42.4.0"
+  }
+}
