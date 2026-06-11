@@ -23,7 +23,8 @@ const CONFIG = {
 const MAC_VERSION_NAMES = { 13: "Ventura", 14: "Sonoma", 15: "Sequoia" };
 
 function isMacPlatform() {
-  return /macintosh|mac os x/i.test(navigator.userAgent);
+  // In Electron the platform is supplied by the preload bridge.
+  return window.ascAPI && window.ascAPI.platform === "darwin";
 }
 
 // ═══════════════════════════════════════════════════════
@@ -37,29 +38,7 @@ let userInfo = {};
 //  INIT
 // ═══════════════════════════════════════════════════════
 (function init() {
-  if (isMacPlatform()) {
-    document.getElementById("steps-windows").style.display = "none";
-    document.getElementById("steps-mac").style.display = "";
-  }
-
-  const p = new URLSearchParams(window.location.search);
-  if (p.get("syscheck") === "1") {
-    sysData = {
-      cpu: decodeURIComponent(p.get("cpu") || ""),
-      cores: parseInt(p.get("cores") || "0"),
-      speedMHz: parseInt(p.get("speed") || "0"),
-      ramGB: parseFloat(p.get("ramGB") || "0"),
-      os: decodeURIComponent(p.get("os") || ""),
-      build: p.get("build") || "",
-      diskFree: parseFloat(p.get("diskFree") || "0"),
-      av: decodeURIComponent(p.get("av") || ""),
-      usbHeadset: decodeURIComponent(p.get("usbHeadset") || ""),
-      defaultMic: decodeURIComponent(p.get("defaultMic") || ""),
-    };
-    show("screen-info");
-  } else {
-    show("screen-landing");
-  }
+  show("screen-landing");
 })();
 
 function show(id) {
@@ -70,211 +49,10 @@ function show(id) {
   window.scrollTo(0, 0);
 }
 
-// ═══════════════════════════════════════════════════════
-//  DOWNLOAD CHECKER (.bat with Base64-encoded PowerShell)
-//
-//  Encoding the PS script as UTF-16LE Base64 and passing
-//  it via -EncodedCommand is the most reliable way to run
-//  PowerShell from a .bat file — no polyglot tricks, no
-//  escaping issues, no -File path problems.
-// ═══════════════════════════════════════════════════════
-function downloadScript() {
-  if (isMacPlatform()) {
-    downloadMacScript();
-    return;
-  }
-  const baseUrl = window.location.href.split("?")[0];
-
-  const psLines = [
-    '$ErrorActionPreference = "SilentlyContinue"',
-    '$baseUrl = "' + baseUrl + '"',
-    "",
-    "# CPU",
-    "$cpu      = Get-CimInstance Win32_Processor | Select-Object -First 1",
-    '$cpuName  = ($cpu.Name -replace "\\s+", " ").Trim()',
-    "$cpuCores = $cpu.NumberOfCores",
-    "$cpuSpeed = $cpu.MaxClockSpeed",
-    "",
-    "# RAM",
-    "$ramBytes = (Get-CimInstance Win32_ComputerSystem).TotalPhysicalMemory",
-    "$ramGB    = [math]::Round($ramBytes / 1GB, 1)",
-    "",
-    "# OS",
-    "$osInfo    = Get-CimInstance Win32_OperatingSystem",
-    "$osCaption = $osInfo.Caption.Trim()",
-    "$osBuild   = $osInfo.BuildNumber",
-    "",
-    "# Disk (C: free space)",
-    "$diskFreeGB = 0",
-    "try {",
-    "    $d = Get-PSDrive C -ErrorAction Stop",
-    "    $diskFreeGB = [math]::Round($d.Free / 1GB, 1)",
-    "} catch {",
-    "    try {",
-    "        $d = Get-CimInstance Win32_LogicalDisk -Filter \"DeviceID='C:'\"",
-    "        $diskFreeGB = [math]::Round($d.FreeSpace / 1GB, 1)",
-    "    } catch {}",
-    "}",
-    "",
-    "# Antivirus",
-    '$avName = "None detected"',
-    "try {",
-    "    $avList = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop",
-    "    if ($avList) {",
-    '        $p = $avList | Where-Object { $_.displayName -notmatch "Windows Defender|Microsoft Defender" } | Select-Object -First 1',
-    "        $avName = if ($p) { $p.displayName } else { ($avList | Select-Object -First 1).displayName }",
-    "    }",
-    '} catch { $avName = "Could not detect" }',
-    "",
-    "# USB Headset & Default Microphone",
-    '$usbHeadset = "None detected"',
-    '$defaultMic = "None detected"',
-    "try {",
-    "    $allUsb = Get-CimInstance Win32_PnPEntity -ErrorAction Stop | Where-Object {",
-    "        $_.DeviceID -match '^USB' -and $_.Status -eq 'OK'",
-    "    }",
-    "    # Exclude cameras/webcams so their built-in mics don't count as a headset",
-    "    $nonCamera = $allUsb | Where-Object { $_.PNPClass -notmatch 'Camera|Image' -and $_.Name -notmatch 'Camera|Webcam|Web Cam|HD Cam' -and $_.Service -notmatch 'usbvideo' }",
-    "    # USB audio devices: match by audio PNPClass, by name, or by the USB audio class driver service (catches vendor-named devices like 'Poly BW8225')",
-    "    $usbAudio = $nonCamera | Where-Object { $_.PNPClass -match 'AudioEndpoint|MEDIA|Audio' -or $_.Service -match 'usbaudio|USBAUDIO' -or $_.Name -match 'Audio|Headset|Headphone|Microphone|Mic|Speaker' }",
-    "    if ($usbAudio) {",
-    "        $headset = $usbAudio | Where-Object { $_.Name -notmatch 'Microphone|Mic' } | Select-Object -First 1",
-    "        if ($headset) { $usbHeadset = $headset.Name }",
-    "        else { $usbHeadset = ($usbAudio | Select-Object -First 1).Name }",
-    "    }",
-    "    $usbMic = $usbAudio | Where-Object { $_.Name -match 'Microphone|Mic' } | Select-Object -First 1",
-    "    if ($usbMic) { $defaultMic = $usbMic.Name }",
-    "    elseif ($usbAudio) { $defaultMic = ($usbAudio | Select-Object -First 1).Name }",
-    "} catch {}",
-    "",
-    "function UE($s) { return [Uri]::EscapeDataString($s) }",
-    "",
-    '$q  = "syscheck=1"',
-    '$q += "&cpu="      + (UE $cpuName)',
-    '$q += "&cores="    + $cpuCores',
-    '$q += "&speed="    + $cpuSpeed',
-    '$q += "&ramGB="    + $ramGB',
-    '$q += "&os="       + (UE $osCaption)',
-    '$q += "&build="    + $osBuild',
-    '$q += "&diskFree=" + $diskFreeGB',
-    '$q += "&av="       + (UE $avName)',
-    '$q += "&usbHeadset=" + (UE $usbHeadset)',
-    '$q += "&defaultMic=" + (UE $defaultMic)',
-    "",
-    'Start-Process ($baseUrl + "?" + $q)',
-    "Start-Sleep -Seconds 2",
-  ];
-
-  const ps = psLines.join("\r\n");
-
-  // Encode as UTF-16LE Base64 — required by PowerShell -EncodedCommand
-  const bytes = new Uint8Array(ps.length * 2);
-  for (let i = 0; i < ps.length; i++) {
-    bytes[i * 2] = ps.charCodeAt(i) & 0xff;
-    bytes[i * 2 + 1] = (ps.charCodeAt(i) >> 8) & 0xff;
-  }
-  let binary = "";
-  bytes.forEach((b) => (binary += String.fromCharCode(b)));
-  const encoded = btoa(binary);
-
-  const bat =
-    "@echo off\r\npowershell.exe -ExecutionPolicy Bypass -WindowStyle Hidden -EncodedCommand " +
-    encoded +
-    "\r\n";
-
-  const blob = new Blob([bat], { type: "application/octet-stream" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "ASC_Checker.bat";
-  a.click();
-  URL.revokeObjectURL(a.href);
-}
-
-function downloadMacScript() {
-  const baseUrl = window.location.href.split("?")[0];
-
-  const lines = [
-    "#!/bin/bash",
-    "# Make ourselves executable so double-click works next time",
-    'chmod +x "$0" 2>/dev/null',
-    "",
-    'BASE_URL="' + baseUrl + '"',
-    "",
-    "# CPU name",
-    "CPU_NAME=$(sysctl -n machdep.cpu.brand_string 2>/dev/null)",
-    'if [ -z "$CPU_NAME" ]; then',
-    "  CPU_NAME=$(system_profiler SPHardwareDataType 2>/dev/null | awk -F': ' '/Chip/{gsub(/^[[:space:]]+/,\"\",$2); print $2; exit}')",
-    "fi",
-    '[ -z "$CPU_NAME" ] && CPU_NAME="Unknown"',
-    "",
-    "# CPU cores and speed",
-    "CPU_CORES=$(sysctl -n hw.physicalcpu 2>/dev/null || echo 0)",
-    "CPU_SPEED_HZ=$(sysctl -n hw.cpufrequency 2>/dev/null || echo 0)",
-    "CPU_SPEED_MHZ=$(( CPU_SPEED_HZ / 1000000 ))",
-    "",
-    "# RAM",
-    "RAM_BYTES=$(sysctl -n hw.memsize 2>/dev/null || echo 0)",
-    'RAM_GB=$(awk "BEGIN{printf \\"%.1f\\", $RAM_BYTES/1073741824}")',
-    "",
-    "# OS",
-    'OS_NAME=$(sw_vers -productName 2>/dev/null || echo "macOS")',
-    'OS_VER=$(sw_vers -productVersion 2>/dev/null || echo "")',
-    'OS_FULL="${OS_NAME} ${OS_VER}"',
-    'OS_BUILD=$(sw_vers -buildVersion 2>/dev/null || echo "")',
-    "",
-    "# Disk (/ free space)",
-    "DISK_FREE_GB=$(df -k / 2>/dev/null | tail -1 | awk '{printf \"%.1f\", $4/1048576}')",
-    '[ -z "$DISK_FREE_GB" ] && DISK_FREE_GB=0',
-    "",
-    "# Antivirus",
-    'AV_NAME="None detected"',
-    'for av_path in "/Applications/Malwarebytes.app" "/Applications/Norton 360.app" "/Applications/Bitdefender Antivirus for Mac.app" "/Applications/ESET Endpoint Antivirus.app" "/Applications/Kaspersky Internet Security.app" "/Applications/Sophos Home.app" "/Applications/Webroot SecureAnywhere.app" "/Applications/CrowdStrike Falcon.app" "/Applications/SentinelOne.app"',
-    "do",
-    '  if [ -d "$av_path" ]; then',
-    '    AV_NAME=$(basename "$av_path" .app)',
-    "    break",
-    "  fi",
-    "done",
-    "",
-    "# USB Headset & Default Microphone",
-    'USB_HEADSET="None detected"',
-    'DEFAULT_MIC="None detected"',
-    'USB_AUDIO=$(system_profiler SPUSBDataType 2>/dev/null | grep -i "audio\\|headset\\|headphone" | head -1 | sed "s/^[[:space:]]*//" | sed "s/:$//")',
-    'if [ -n "$USB_AUDIO" ]; then',
-    '  USB_HEADSET="$USB_AUDIO"',
-    "fi",
-    'AUDIO_INPUT=$(system_profiler SPAudioDataType 2>/dev/null | awk "/Input/,/Default Input Device/{print}" | grep "Default Input Device" | awk -F": " "{print \\$2}" | sed "s/^[[:space:]]*//")',
-    'if [ -n "$AUDIO_INPUT" ]; then',
-    '  DEFAULT_MIC="$AUDIO_INPUT"',
-    'elif [ -n "$USB_AUDIO" ]; then',
-    '  DEFAULT_MIC="$USB_AUDIO"',
-    "fi",
-    "",
-    "# URL encode",
-    'UE() { python3 -c "import sys,urllib.parse; print(urllib.parse.quote(sys.argv[1],safe=\'\'))" "$1"; }',
-    "",
-    'Q="syscheck=1"',
-    'Q="${Q}&cpu=$(UE "$CPU_NAME")"',
-    'Q="${Q}&cores=${CPU_CORES}"',
-    'Q="${Q}&speed=${CPU_SPEED_MHZ}"',
-    'Q="${Q}&ramGB=${RAM_GB}"',
-    'Q="${Q}&os=$(UE "$OS_FULL")"',
-    'Q="${Q}&build=${OS_BUILD}"',
-    'Q="${Q}&diskFree=${DISK_FREE_GB}"',
-    'Q="${Q}&av=$(UE "$AV_NAME")"',
-    'Q="${Q}&usbHeadset=$(UE "$USB_HEADSET")"',
-    'Q="${Q}&defaultMic=$(UE "$DEFAULT_MIC")"',
-    "",
-    'open "${BASE_URL}?${Q}"',
-  ];
-
-  const sh = lines.join("\n");
-  const blob = new Blob([sh], { type: "text/plain" });
-  const a = document.createElement("a");
-  a.href = URL.createObjectURL(blob);
-  a.download = "ASC_Checker.command";
-  a.click();
-  URL.revokeObjectURL(a.href);
+// Landing → user-info form. System specs are read later, on the
+// testing screen, directly from the OS via the Electron main process.
+function beginCheck() {
+  show("screen-info");
 }
 
 // ═══════════════════════════════════════════════════════
@@ -292,8 +70,15 @@ function startSpeedTest(e) {
 }
 
 async function runChecks() {
-  await sleep(300);
-  setTest("sys", "done", "Collected ✓");
+  setTest("sys", "running", "Reading…");
+  try {
+    sysData = await window.ascAPI.collectSystemInfo();
+    setTest("sys", "done", "Collected ✓");
+  } catch (err) {
+    console.error("System info error:", err);
+    sysData = {};
+    setTest("sys", "done", "Read failed");
+  }
 
   setTest("dl", "running", "Testing…");
   try {
