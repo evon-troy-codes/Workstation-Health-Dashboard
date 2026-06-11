@@ -1,0 +1,216 @@
+/* ============================================================
+   Kauneonga Design System — Colors & Type Tokens
+   Extracted from liberty-platform (archo/style.css, globals/_colors.sass,
+   utilities.css, admin.html.haml) and brand assets.
+   ============================================================ */
+
+/* Local brand font — variable Fredoka (weight 300–700, width 75–125).
+   Path is relative to this stylesheet; consumers from /preview, /ui_kits/*,
+   /slides all resolve to /fonts/. */
+@font-face {
+  font-family: 'Fredoka';
+  src: url('fonts/Fredoka-VariableFont_wdth_wght.ttf') format('truetype-variations'),
+       url('fonts/Fredoka-VariableFont_wdth_wght.ttf') format('truetype');
+  font-weight: 300 700;
+  font-stretch: 75% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+/* Sibling paths for stylesheets nested one level deep */
+@font-face {
+  font-family: 'Fredoka';
+  src: url('../fonts/Fredoka-VariableFont_wdth_wght.ttf') format('truetype-variations'),
+       url('../fonts/Fredoka-VariableFont_wdth_wght.ttf') format('truetype');
+  font-weight: 300 700;
+  font-stretch: 75% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+/* Two levels deep (ui_kits/<product>/*.css) */
+@font-face {
+  font-family: 'Fredoka';
+  src: url('../../fonts/Fredoka-VariableFont_wdth_wght.ttf') format('truetype-variations'),
+       url('../../fonts/Fredoka-VariableFont_wdth_wght.ttf') format('truetype');
+  font-weight: 300 700;
+  font-stretch: 75% 125%;
+  font-style: normal;
+  font-display: swap;
+}
+
+:root {
+  /* ---- Brand ---- */
+  --kau-cyan: #0ec2e2;        /* primary brand — logo, links, CTAs */
+  --kau-cyan-hover: #69dff7;  /* button hover bg from archo */
+  --kau-cyan-dark: #0a91af;   /* hover text-shadow partner */
+  --kau-blue: #00adf2;        /* secondary blue (globals/_colors) */
+  --kau-ink: #232323;         /* archo primary button bg */
+
+  /* ---- Foreground / Neutral ---- */
+  --fg-1: #4c4c4c;   /* default body text (archo color-4) */
+  --fg-2: #616161;   /* secondary text (archo color-5) */
+  --fg-3: #8e8e8e;   /* muted / metadata */
+  --fg-4: #b6b6b6;   /* placeholder / subhead mute */
+  --fg-5: #989898;   /* form placeholders (archo) */
+  --fg-inverse: #ffffff;
+
+  /* ---- Background / Surfaces ---- */
+  --bg-app: #f5f8f7;        /* soft app canvas (img-border2) */
+  --bg-surface: #ffffff;
+  --bg-muted: #f7f7f7;
+  --bg-highlight: #faf8f0;  /* agents screen .highlight */
+  --bg-inverse: #232323;
+
+  /* ---- Borders ---- */
+  --border-1: #ededed;      /* footer border */
+  --border-2: #e8e8e8;      /* input border */
+  --border-3: #d7d7d9;      /* search input */
+  --border-4: #d9d9da;      /* button line */
+  --divider: #eeeeee;       /* img-border */
+
+  /* ---- Semantic (globals/_colors.sass) ---- */
+  --semantic-green: #35aa47;
+  --semantic-red: #ef8476;
+  --semantic-yellow: #fccb7e;
+  --semantic-blue: #00adf2;
+  --semantic-orange: #ff8c00;
+
+  /* ---- Status / State (utilities.css + agents screen) ---- */
+  --state-in-progress: #2ecc71;
+  --state-hold: #ffb848;
+  --state-hungup: #e74c3c;
+  --state-transferred: #4b8df8;
+  --state-completed: #cccccc;
+
+  --chat-started: #50d17a;
+  --chat-idled: #ffc96b;
+  --chat-waiting: #eb6c60;
+  --chat-ended: #e5e5e5;
+
+  /* ---- Info (has-info from agents screen) ---- */
+  --info-border: #46b8da;
+  --info-focus: #269abc;
+  --info-bg: #fcf8e3;
+  --required: #b94a48;
+
+  /* ---- Shadow ---- */
+  --shadow-xs: 0 1px 1px rgba(0,0,0,0.06);
+  --shadow-sm: 0 2px 4px rgba(0,0,0,0.06);
+  --shadow-md: 0 8px 20px rgba(14,194,226,0.12);
+  --shadow-lg: 0 16px 40px rgba(17,24,39,0.10);
+  --shadow-focus: 0 0 0 3px rgba(14,194,226,0.25);
+
+  /* ---- Radii ---- */
+  --radius-xs: 3px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-pill: 9999px;
+
+  /* ---- Spacing scale (4px base) ---- */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+  --space-10: 40px;
+  --space-12: 48px;
+  --space-16: 64px;
+
+  /* ---- Type ---- */
+  --font-display: 'Fredoka', system-ui, sans-serif; /* brand logo feel + admin uses this */
+  --font-sans: 'Fredoka', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --font-mono: 'SFMono-Regular', Menlo, Monaco, Consolas, 'Liberation Mono', monospace;
+
+  /* Type scale — optimized for web + app density */
+  --fs-12: 12px;
+  --fs-13: 13px;
+  --fs-14: 14px;
+  --fs-15: 15px;
+  --fs-16: 16px;
+  --fs-18: 18px;
+  --fs-20: 20px;
+  --fs-24: 24px;
+  --fs-30: 30px;
+  --fs-36: 36px;
+  --fs-48: 48px;
+  --fs-60: 60px;
+
+  --lh-tight: 1.1;
+  --lh-snug: 1.3;
+  --lh-normal: 1.5;
+  --lh-relaxed: 1.65;
+
+  --fw-light: 300;
+  --fw-regular: 400;
+  --fw-medium: 500;
+  --fw-semi: 600;
+  --fw-bold: 700;
+}
+
+/* ============================================================
+   Semantic element styles
+   ============================================================ */
+
+body {
+  font-family: var(--font-sans);
+  font-size: var(--fs-15);
+  line-height: var(--lh-normal);
+  color: var(--fg-1);
+  background: var(--bg-surface);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-display);
+  color: var(--fg-1);
+  margin: 0;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+h1 { font-size: var(--fs-48); line-height: var(--lh-tight); font-weight: var(--fw-bold); letter-spacing: -0.02em; }
+h2 { font-size: var(--fs-36); line-height: var(--lh-tight); font-weight: var(--fw-semi); letter-spacing: -0.02em; }
+h3 { font-size: var(--fs-24); line-height: var(--lh-snug); font-weight: var(--fw-semi); }
+h4 { font-size: var(--fs-20); line-height: var(--lh-snug); font-weight: var(--fw-medium); }
+h5 { font-size: var(--fs-16); line-height: var(--lh-snug); font-weight: var(--fw-medium); text-transform: uppercase; letter-spacing: 0.04em; color: var(--kau-cyan); }
+h6 { font-size: var(--fs-14); line-height: var(--lh-snug); font-weight: var(--fw-medium); color: var(--kau-cyan); }
+
+p { margin: 0 0 var(--space-4); text-wrap: pretty; }
+
+a {
+  color: var(--kau-cyan);
+  text-decoration: none;
+  transition: color 140ms ease, opacity 140ms ease;
+}
+a:hover { text-decoration: underline; }
+a:active { color: var(--kau-cyan-dark); }
+
+small, .small { font-size: var(--fs-12); color: var(--fg-3); }
+
+code, pre, kbd {
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+  background: var(--bg-muted);
+  padding: 2px 6px;
+  border-radius: var(--radius-xs);
+}
+
+.eyebrow {
+  font-size: var(--fs-12);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  font-weight: var(--fw-semi);
+  color: var(--kau-cyan);
+}
+
+.display-1 {
+  font-family: var(--font-display);
+  font-size: var(--fs-60);
+  line-height: 1.05;
+  font-weight: var(--fw-bold);
+  letter-spacing: -0.03em;
+}
