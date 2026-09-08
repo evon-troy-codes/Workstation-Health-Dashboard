@@ -164,29 +164,6 @@ function Header({ syncedAgo }) {
   );
 }
 
-function VerdictBar() {
-  return (
-    <div className={`verdict-bar verdict-${STATUS}`}>
-      <div className="verdict-left">
-        <div className={`big-dot ${STATUS}`}></div>
-        <div>
-          <div className="verdict-h">
-            {STATUS === "pass" ? "Workstation is healthy" :
-             STATUS === "warn" ? "Minor issues detected" :
-             "Out of spec"}
-          </div>
-          <div className="verdict-d">
-            {VERDICT.pass.length} pass · {VERDICT.warn.length} warn · {VERDICT.fail.length} fail
-          </div>
-        </div>
-      </div>
-      <button className="send-btn" onClick={() => { if (window.whd && window.whd.sendReport) { window.whd.sendReport(FACTS); } window.dispatchEvent(new CustomEvent("whd-toast", { detail: "Health report sent" })); }}>
-        <Icon name="paper-plane" /> Send health report
-      </button>
-    </div>
-  );
-}
-
 function Card({ icon, title, status, children, sub }) {
   return (
     <div className="hcard">
@@ -237,7 +214,6 @@ function HelperApp() {
       <Sidebar active={screen} onChange={setScreen} />
       <div className="helper-main">
         <Header syncedAgo={syncedAgo} />
-        <VerdictBar />
         <div className="screen-wrap">
           {screen === "overview" && <OverviewScreen onJump={setScreen} />}
           {screen === "system"   && <SystemScreen />}
@@ -526,8 +502,8 @@ function NetworkScreen() {
 // the loading screen during startup, then the dashboard.
 function Frame({ children }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#fff", display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
-      <div style={{ width: "100%", background: "#fff", overflow: "hidden" }}>
+    <div style={{ minHeight: "100vh", background: "#e8e8e8", display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
+      <div style={{ width: "100%", background: "#e8e8e8", overflow: "hidden" }}>
         <div style={{
           height: 38, background: "#ededed", borderBottom: "1px solid #d6d6d6",
           display: "flex", alignItems: "center", padding: "0 14px",

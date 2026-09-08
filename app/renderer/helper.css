@@ -30,30 +30,6 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
 .helper-head .syncline { font-size: 13px; font-weight: 700; color: #18222d; text-align: right; }
 .helper-head .syncsub { font-size: 11px; color: var(--fg-3); text-align: right; margin-top: 2px; }
 
-/* Verdict bar */
-.verdict-bar {
-  display: flex; align-items: center; justify-content: space-between;
-  padding: 18px 22px;
-  border-radius: 14px;
-  margin-bottom: 18px;
-  border: 1px solid;
-}
-.verdict-pass { background: #e8f7f1; border-color: #cce6d3; }
-.verdict-warn { background: #fff5e6; border-color: #ffe1ba; }
-.verdict-fail { background: #fdebe7; border-color: #f7c8c0; }
-.verdict-bar .verdict-left { display: flex; align-items: center; gap: 16px; flex: 1; min-width: 0; }
-.verdict-bar .verdict-left > div:last-child { flex: 1; min-width: 0; }
-.big-dot {
-  width: 36px; height: 36px; border-radius: 50%;
-  display: inline-flex; align-items: center; justify-content: center;
-  color: #fff; font-size: 18px; flex-shrink: 0;
-}
-.big-dot.pass { background: var(--semantic-green); box-shadow: 0 0 0 5px rgba(53,170,71,0.18); }
-.big-dot.warn { background: var(--semantic-orange); box-shadow: 0 0 0 5px rgba(255,140,0,0.18); }
-.big-dot.fail { background: var(--state-hungup); box-shadow: 0 0 0 5px rgba(231,76,60,0.18); }
-.verdict-h { font-family: var(--font-display); font-size: 20px; font-weight: 600; color: #18222d; letter-spacing: -0.01em; line-height: 1.2; }
-.verdict-d { font-size: 13px; color: var(--fg-2); margin-top: 4px; }
-
 .send-btn {
   background: var(--whd-cyan); color: #fff; border: none;
   padding: 12px 22px; border-radius: 8px;
@@ -70,7 +46,7 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
   margin-bottom: 22px;
 }
 .hcard {
-  background: #fff;
+  background: #f4f5f6;
   border: 1px solid var(--border-1);
   border-radius: 12px;
   overflow: hidden;
@@ -126,13 +102,13 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
   display: flex; align-items: center; justify-content: space-between;
   gap: 18px;
   padding: 14px 18px;
-  background: #fff;
+  background: #f4f5f6;
   border: 1px solid var(--border-1);
   border-radius: 12px;
 }
 .foot-actions { display: flex; gap: 8px; }
 .foot-btn {
-  background: #fff; color: var(--fg-1);
+  background: #f4f5f6; color: var(--fg-1);
   border: 1px solid var(--border-2);
   padding: 8px 12px; border-radius: 6px;
   font-family: var(--font-sans); font-size: 12px; font-weight: 600;
@@ -175,7 +151,6 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
 
 .helper-main { flex: 1; padding: 14px 18px; background: #f7f8f9; display: flex; flex-direction: column; min-width: 0; }
 .helper-main .helper-head { margin-bottom: 12px; padding-bottom: 10px; }
-.helper-main .verdict-bar { margin-bottom: 18px; }
 .screen-wrap { flex: 1; min-width: 0; }
 
 .card-grid-2 { grid-template-columns: repeat(2, 1fr); }
@@ -186,7 +161,7 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
   margin-bottom: 18px;
 }
 .ov-stat {
-  background: #fff; border: 1px solid var(--border-1);
+  background: #f4f5f6; border: 1px solid var(--border-1);
   border-radius: 12px; padding: 14px 16px;
   border-left: 4px solid;
 }
@@ -199,7 +174,7 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
 
 .quick-jump { display: flex; gap: 8px; margin-top: 4px; }
 .qj-btn {
-  flex: 1; background: #fff; border: 1px solid var(--border-1);
+  flex: 1; background: #f4f5f6; border: 1px solid var(--border-1);
   padding: 12px 14px; border-radius: 10px;
   font-family: var(--font-sans); font-size: 13px; font-weight: 600;
   color: var(--fg-1); cursor: pointer;
@@ -211,7 +186,7 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
 .speed-hero {
   display: grid; grid-template-columns: repeat(4, 1fr) auto;
   gap: 16px; align-items: center;
-  background: #fff; border: 1px solid var(--border-1);
+  background: #f4f5f6; border: 1px solid var(--border-1);
   border-radius: 14px; padding: 22px 24px;
   margin-bottom: 18px;
 }
