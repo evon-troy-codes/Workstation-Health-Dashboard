@@ -56,9 +56,10 @@ Workstation-Health-Dashboard/
 
 ## Optional: report endpoint
 
-Set `WHD_REPORT_URL` to have the **Send health report** button POST the
-collected facts (as JSON) to your own endpoint. It's unset by default — the
-app is fully self-contained and works offline with no configuration.
+The app can POST the collected facts (as JSON) to a backend of your own —
+call `window.whd.sendReport(facts)` from the renderer and set `WHD_REPORT_URL`
+in the main process. Neither is wired to the UI by default, so the app is
+fully self-contained and works offline with no configuration.
 
 See [app/INTEGRATION.md](app/INTEGRATION.md) for the full data flow and how
 to add new checks.

@@ -55,10 +55,10 @@ Network tab's speed test and merged into `FACTS` after the app collects it.
 
 ## Optional report endpoint
 
-The **Send health report** button calls `window.whd.sendReport(FACTS)`,
-which POSTs the FACTS object as JSON to the `WHD_REPORT_URL` environment
-variable if one is set (see `main.js`). With no env var configured, it no-ops
-gracefully — the button and the rest of the app work fully offline.
+Calling `window.whd.sendReport(FACTS)` from the renderer POSTs the FACTS
+object as JSON to the `WHD_REPORT_URL` environment variable if one is set
+(see `main.js`). Neither is currently wired to a UI element — with no env
+var configured, it no-ops gracefully, and the app works fully offline.
 
 ## Production hardening (before shipping)
 
