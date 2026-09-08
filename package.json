@@ -1,7 +1,7 @@
 {
-  "name": "kauneonga-helper",
+  "name": "workstation-health-dashboard",
   "version": "1.0.0",
-  "description": "Kauneonga Helper — an Electron desktop app that checks a workstation's health (CPU, RAM, disk, OS, network, antivirus, headset) and runs a network speed test for Liberty CRM agents.",
+  "description": "Workstation Health Dashboard — an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
@@ -9,16 +9,21 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/evon-troy-codes/Kauneonga-Helper.git"
+    "url": "git+https://github.com/evon-troy-codes/Workstation-Health-Dashboard.git"
   },
-  "keywords": [],
+  "keywords": [
+    "electron",
+    "system-info",
+    "diagnostics",
+    "desktop-app"
+  ],
   "author": "",
   "license": "ISC",
   "type": "commonjs",
   "bugs": {
-    "url": "https://github.com/evon-troy-codes/Kauneonga-Helper/issues"
+    "url": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard/issues"
   },
-  "homepage": "https://github.com/evon-troy-codes/Kauneonga-Helper#readme",
+  "homepage": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard#readme",
   "devDependencies": {
     "electron": "^42.4.0"
   },
