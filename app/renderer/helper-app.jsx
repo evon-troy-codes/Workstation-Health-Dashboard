@@ -12,7 +12,7 @@ const MOCK_FACTS = {
   hostname: "logan-macbook-pro",
   user: "logan",
   uptime: "3 days, 4 hours",
-  appVersion: "1.0.0",
+  appVersion: "1.1.0",
 
   cpu: {
     model: "Apple M4 Pro",
@@ -23,19 +23,17 @@ const MOCK_FACTS = {
     family: "Apple Silicon",
     arch: "arm64",
     series: "M-series",
-    approved: true,
   },
   machineType: "Apple MacBook Pro 16\" (2024)",
-  ram: { totalGB: 32, freeGB: 14.2, type: "LPDDR5", approved: true },
-  disk: { totalGB: 1024, freeGB: 614, usedPercent: 40, ssd: true, approved: true },
-  display: { resolution: "1728 × 1117", external: true, externalSize: "27\"", externalConnection: "Thunderbolt (DisplayPort)", approved: true },
+  ram: { totalGB: 32, freeGB: 14.2, type: "LPDDR5" },
+  disk: { totalGB: 1024, freeGB: 614, usedPercent: 40, ssd: true },
+  display: { resolution: "1728 × 1117", external: true, externalSize: "27\"", externalConnection: "Thunderbolt (DisplayPort)" },
   os: {
     name: "macOS",
     version: "26.1",
     build: "26A123",
     lastUpdateCheck: "2 hours ago",
     pendingUpdates: 0,
-    approved: true,
   },
   network: {
     interface: "en0",
@@ -49,7 +47,6 @@ const MOCK_FACTS = {
     dns: ["1.1.1.1", "8.8.8.8"],
     ssid: null,
     isWired: true,
-    approved: true,
   },
   bandwidth: {
     downMbps: 487,
@@ -57,63 +54,28 @@ const MOCK_FACTS = {
     ping: 7,
     jitter: 0.4,
     measuredAt: "3 minutes ago",
-    approvedDown: true,
-    approvedUp: true,
   },
-  vpn: { detected: false, name: null, approved: true },
+  vpn: { detected: false, name: null },
   antivirus: {
     products: [{ name: "Microsoft Defender for Endpoint", version: "101.24112.0001", running: true, definitionsAge: "12 hours" }],
-    approved: true,
   },
   backgroundApps: { browserExtensions: 4, runningApps: ["Slack", "Dropbox"] },
-  power: { onBattery: false, batteryLevel: 100, plugged: true, lidClosed: false },
+  power: { onBattery: false, batteryLevel: 100, plugged: true },
   audio: {
     output: "Plantronics Blackwire 5220 (USB)",
     input: "Plantronics Blackwire 5220 (USB)",
     isWired: true,
     headsetConnected: true,
     headsetClass: "USB headset",
-    sampleRate: 48000,
   },
 };
 
 // Live facts are injected by the Electron bootstrap; fall back to the mock.
 const FACTS = (typeof window !== "undefined" && window.__WHD_FACTS__) || MOCK_FACTS;
 
-// Compute overall verdict
-function computeVerdict(f) {
-  const pass = [];
-  const warn = [];
-  const fail = [];
-  if (f.cpu.approved) pass.push("CPU on approved list"); else fail.push("CPU not on approved list");
-  if (f.ram.totalGB >= 16) pass.push("RAM ≥ 16 GB"); else fail.push("RAM below 16 GB");
-  if (f.disk.freeGB >= 50 && f.disk.totalGB >= 128 && f.disk.ssd) pass.push("Storage meets spec"); else warn.push("Storage below spec");
-  if (f.display.resolution) pass.push("Resolution OK");
-  if (f.os.approved) pass.push("OS supported"); else fail.push("OS not supported");
-  if (f.network.isWired) pass.push("Wired Ethernet"); else warn.push("Not wired");
-  if (f.network.ipv6Disabled) pass.push("IPv6 disabled"); else warn.push("IPv6 enabled");
-  if (f.bandwidth.approvedDown && f.bandwidth.approvedUp) pass.push("Bandwidth OK"); else fail.push("Bandwidth below 100/10");
-  if (f.antivirus.approved && f.antivirus.products.length === 1) pass.push("One AV, current"); else if (f.antivirus.products.length === 0) fail.push("No antivirus"); else warn.push("Multiple AVs");
-  if (f.audio.headsetConnected && f.audio.isWired) pass.push("Wired audio device"); else warn.push("No wired headset/mic");
-  if (f.display.external) pass.push("External monitor ≥ 22\"");
-  if (f.power.plugged) pass.push("Plugged in"); else warn.push("On battery");
-  if (!f.vpn.detected) pass.push("No VPN"); else warn.push("VPN active");
-  return { pass, warn, fail };
-}
-
-// Recomputed in place after a live measurement (e.g. the speed test) updates
-// FACTS; components read these module-level values at render time, so a parent
-// re-render picks up the new verdict.
-let VERDICT = computeVerdict(FACTS);
-let STATUS = VERDICT.fail.length ? "fail" : VERDICT.warn.length ? "warn" : "pass";
-function recomputeVerdict() {
-  VERDICT = computeVerdict(FACTS);
-  STATUS = VERDICT.fail.length ? "fail" : VERDICT.warn.length ? "warn" : "pass";
-}
-
 // Shared speed-test controller. Auto-runs once at startup and can be re-run from
 // the Network tab. Holds testing/progress so every screen can reflect it, and
-// dispatches "speedtest-progress" (re-render) + "facts-updated" (verdict) events.
+// dispatches "speedtest-progress" (re-render) + "facts-updated" (data refresh) events.
 const SpeedTest = {
   testing: false,
   progress: 0,
@@ -129,7 +91,6 @@ const SpeedTest = {
         window.dispatchEvent(new CustomEvent("speedtest-progress"));
       });
       FACTS.bandwidth = { ...FACTS.bandwidth, ...res };
-      recomputeVerdict();
       this.hasRun = true;
     } catch (e) {
       window.dispatchEvent(new CustomEvent("whd-toast", { detail: "Speed test failed" }));
@@ -147,14 +108,13 @@ function Header({ syncedAgo }) {
   return (
     <div className="helper-head">
       <div className="brand">
-        <Icon name="cloud" size={26} color="var(--whd-cyan)" />
+        <img src="assets/logo/logo-mark.svg" alt="" width={26} height={26} style={{ display: "block" }} />
         <div>
           <div className="brand-name">Workstation Health Dashboard</div>
           <div className="brand-sub">Local diagnostics · v{FACTS.appVersion}</div>
         </div>
       </div>
       <div className="head-right">
-        <div className={`live-dot ${STATUS}`}></div>
         <div>
           <div className="syncline">{FACTS.hostname}</div>
           <div className="syncsub">Last scan {syncedAgo}s ago</div>
@@ -164,7 +124,7 @@ function Header({ syncedAgo }) {
   );
 }
 
-function Card({ icon, title, status, children, sub }) {
+function Card({ icon, title, children, sub }) {
   return (
     <div className="hcard">
       <div className="hcard-head">
@@ -173,20 +133,17 @@ function Card({ icon, title, status, children, sub }) {
           <div className="t">{title}</div>
           {sub && <div className="s">{sub}</div>}
         </div>
-        <div className={`hpill ${status}`}>
-          {status === "pass" ? "Pass" : status === "warn" ? "Warn" : status === "fail" ? "Fail" : "Info"}
-        </div>
       </div>
       <div className="hcard-body">{children}</div>
     </div>
   );
 }
 
-function KV({ k, v, status }) {
+function KV({ k, v }) {
   return (
     <div className="kv">
       <span className="kv-k">{k}</span>
-      <span className="kv-v">{v}{status && <span className={`kv-dot ${status}`}></span>}</span>
+      <span className="kv-v">{v}</span>
     </div>
   );
 }
@@ -248,7 +205,7 @@ function Sidebar({ active, onChange }) {
   return (
     <aside className="helper-sidebar">
       <div className="sb-brand">
-        <Icon name="cloud" size={22} color="var(--whd-cyan)" />
+        <img src="assets/logo/logo-mark.svg" alt="" width={22} height={22} style={{ display: "block" }} />
         <div>
           <div className="sb-name">Health Dashboard</div>
           <div className="sb-sub">v{FACTS.appVersion}</div>
@@ -274,56 +231,17 @@ function Sidebar({ active, onChange }) {
 // Screen 1 — Overview
 // ============================================================================
 function OverviewScreen({ onJump }) {
-  const allRows = [
-    ...VERDICT.fail.map((t) => ({ sev: "fail", text: t })),
-    ...VERDICT.warn.map((t) => ({ sev: "warn", text: t })),
-  ];
   return (
     <>
-      {/* Big numbers row */}
-      <div className="ov-stats">
-        <div className="ov-stat ov-pass">
-          <div className="ov-stat-v">{VERDICT.pass.length}</div>
-          <div className="ov-stat-l">Pass</div>
-        </div>
-        <div className="ov-stat ov-warn">
-          <div className="ov-stat-v">{VERDICT.warn.length}</div>
-          <div className="ov-stat-l">Warn</div>
-        </div>
-        <div className="ov-stat ov-fail">
-          <div className="ov-stat-v">{VERDICT.fail.length}</div>
-          <div className="ov-stat-l">Fail</div>
-        </div>
-        <div className="ov-stat ov-mos">
-          <div className="ov-stat-v">{FACTS.bandwidth.downMbps == null ? "—" : FACTS.bandwidth.downMbps}</div>
-          <div className="ov-stat-l">Mbps down</div>
-        </div>
-      </div>
-
       <div className="card-grid card-grid-2">
-        <Card icon="cog" title="Quick specs" status="info" sub={FACTS.machineType || FACTS.os.name}>
+        <Card icon="cog" title="Quick specs" sub={FACTS.machineType || FACTS.os.name}>
           <KV k="CPU" v={FACTS.cpu.model} />
           <KV k="RAM" v={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`} />
           <KV k="Storage" v={`${FACTS.disk.totalGB} GB ${FACTS.disk.ssd == null ? "" : FACTS.disk.ssd ? "SSD" : "HDD"}`.trim()} />
           <KV k="OS" v={`${FACTS.os.name} ${FACTS.os.version}`} />
         </Card>
 
-        <Card icon="triangle-exclamation" title={`Findings (${allRows.length})`} status={allRows.length === 0 ? "pass" : VERDICT.fail.length > 0 ? "fail" : "warn"} sub={allRows.length === 0 ? "Nothing to flag" : "Items needing attention"}>
-          {allRows.length === 0 ? (
-            <div style={{ fontSize: 13, color: "var(--semantic-green)", fontWeight: 600, display: "inline-flex", alignItems: "center", gap: 6 }}>
-              <Icon name="circle-check" size={14} /> Workstation meets every check.
-            </div>
-          ) : (
-            allRows.map((r, i) => (
-              <div key={i} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", fontSize: 12, color: "var(--fg-1)" }}>
-                <span style={{ width: 7, height: 7, borderRadius: "50%", background: r.sev === "fail" ? "var(--state-hungup)" : "var(--semantic-orange)" }}></span>
-                {r.text}
-              </div>
-            ))
-          )}
-        </Card>
-
-        <Card icon="cloud" title="Session" status="info" sub="This scan">
+        <Card icon="cloud" title="Session" sub="This scan">
           <KV k="Hostname" v={FACTS.hostname} />
           <KV k="User" v={FACTS.user} />
           <KV k="Uptime" v={FACTS.uptime} />
@@ -345,82 +263,60 @@ function OverviewScreen({ onJump }) {
 function SystemScreen() {
   return (
     <div className="card-grid card-grid-2">
-      <Card icon="cog" title="Processor" status={FACTS.cpu.approved ? "pass" : "fail"} sub={`${FACTS.cpu.cores} cores · ${FACTS.cpu.ghz} GHz · ${FACTS.cpu.arch}`}>
+      <Card icon="cog" title="Processor" sub={`${FACTS.cpu.cores} cores · ${FACTS.cpu.ghz} GHz · ${FACTS.cpu.arch}`}>
         <KV k="Model" v={FACTS.cpu.model} />
         <KV k="Machine" v={FACTS.machineType} />
         <KV k="Family / series" v={`${FACTS.cpu.family} · ${FACTS.cpu.series}`} />
         <KV k="Cores" v={`${FACTS.cpu.cores} (${FACTS.cpu.perfCores}P + ${FACTS.cpu.effCores}E)`} />
-        <KV k="Meets req." v={FACTS.cpu.approved ? "On approved list" : "Not on approved list"} status={FACTS.cpu.approved ? "pass" : "fail"} />
       </Card>
 
-      <Card icon="grip" title="Memory" status={FACTS.ram.totalGB >= 16 ? "pass" : "fail"} sub="≥16 GB required">
+      <Card icon="grip" title="Memory" sub={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`}>
         <KV k="Total" v={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`} />
         <KV k="Free" v={`${FACTS.ram.freeGB} GB`} />
-        <KV k="Pressure" v={FACTS.ram.pressure} status={FACTS.ram.pressure === "Normal" ? "pass" : FACTS.ram.pressure === "Moderate" ? "warn" : "fail"} />
-        <KV k="Meets req." v={FACTS.ram.totalGB >= 16 ? "Yes" : "No"} status={FACTS.ram.totalGB >= 16 ? "pass" : "fail"} />
+        <KV k="Pressure" v={FACTS.ram.pressure} />
       </Card>
 
-      <Card icon="briefcase" title="Hard drive" status={FACTS.disk.ssd == null ? "info" : FACTS.disk.freeGB >= 50 && FACTS.disk.totalGB >= 128 && FACTS.disk.ssd ? "pass" : "warn"} sub={`${FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.ssd ? "SSD" : "HDD"} · ${FACTS.disk.totalGB} GB total`}>
+      <Card icon="briefcase" title="Hard drive" sub={`${FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.ssd ? "SSD" : "HDD"} · ${FACTS.disk.totalGB} GB total`}>
         <KV k="Total" v={`${FACTS.disk.totalGB} GB`} />
-        <KV k="Free" v={`${FACTS.disk.freeGB} GB`} status={FACTS.disk.freeGB >= 50 ? "pass" : "fail"} />
+        <KV k="Free" v={`${FACTS.disk.freeGB} GB`} />
         <KV k="Used" v={`${FACTS.disk.usedPercent}%`} />
-        <KV k="Drive type" v={FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.ssd ? "SSD" : "HDD"} status={FACTS.disk.ssd == null ? null : FACTS.disk.ssd ? "pass" : "warn"} />
-        <KV k="Meets req." v={FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.totalGB >= 128 && FACTS.disk.freeGB >= 50 && FACTS.disk.ssd ? "Yes" : "Below spec"} status={FACTS.disk.ssd == null ? null : FACTS.disk.totalGB >= 128 && FACTS.disk.freeGB >= 50 && FACTS.disk.ssd ? "pass" : "fail"} />
+        <KV k="Drive type" v={FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.ssd ? "SSD" : "HDD"} />
       </Card>
 
-      <Card icon="house" title="Operating system" status={FACTS.os.approved ? "pass" : "fail"} sub={`${FACTS.os.name} ${FACTS.os.version}`}>
+      <Card icon="house" title="Operating system" sub={`${FACTS.os.name} ${FACTS.os.version}`}>
         <KV k="Computer name" v={FACTS.hostname} />
         <KV k="Version" v={`${FACTS.os.version} (${FACTS.os.build})`} />
-        <KV k="Meets req." v={FACTS.os.approved ? "Yes" : "No"} status={FACTS.os.approved ? "pass" : "fail"} />
       </Card>
 
-      <Card icon="circle-info" title="OS updates" status={FACTS.os.pendingUpdates == null ? "info" : FACTS.os.pendingUpdates === 0 ? "pass" : "warn"} sub={`Last checked ${FACTS.os.lastUpdateCheck}`}>
-        <KV k="Pending updates" v={FACTS.os.pendingUpdates == null ? "Unknown" : FACTS.os.pendingUpdates === 0 ? "None" : `${FACTS.os.pendingUpdates} pending`} status={FACTS.os.pendingUpdates == null ? null : FACTS.os.pendingUpdates === 0 ? "pass" : "warn"} />
+      <Card icon="circle-info" title="OS updates" sub={`Last checked ${FACTS.os.lastUpdateCheck}`}>
+        <KV k="Pending updates" v={FACTS.os.pendingUpdates == null ? "Unknown" : FACTS.os.pendingUpdates === 0 ? "None" : `${FACTS.os.pendingUpdates} pending`} />
         <KV k="Last check" v={FACTS.os.lastUpdateCheck} />
-        <KV k="Meets req." v={FACTS.os.pendingUpdates == null ? "Unknown" : FACTS.os.pendingUpdates === 0 ? "Yes" : "No"} status={FACTS.os.pendingUpdates == null ? null : FACTS.os.pendingUpdates === 0 ? "pass" : "warn"} />
       </Card>
 
-      <Card icon="circle-check" title="Antivirus" status={FACTS.antivirus.products.length === 1 ? "pass" : FACTS.antivirus.products.length === 0 ? "fail" : "warn"} sub="One product required">
+      <Card icon="circle-check" title="Antivirus" sub={`${FACTS.antivirus.products.length} product${FACTS.antivirus.products.length === 1 ? "" : "s"} detected`}>
         {FACTS.antivirus.products.length === 0 && (
-          <KV k="Status" v="No antivirus detected" status="fail" />
+          <KV k="Status" v="No antivirus detected" />
         )}
         {FACTS.antivirus.products.map((p, i) => (
           <KV key={i} k={p.name} v={
             [p.version ? `v${p.version}` : null, p.definitionsAge ? `defs ${p.definitionsAge}` : null]
               .filter(Boolean).join(" · ") || (p.running ? "Active" : "Inactive")
-          } status={p.running ? "pass" : "fail"} />
+          } />
         ))}
-        <KV k="Meets req." v={FACTS.antivirus.products.length === 1 ? "Yes (one active)" : FACTS.antivirus.products.length === 0 ? "No AV" : "Multiple AVs"} status={FACTS.antivirus.products.length === 1 ? "pass" : "fail"} />
       </Card>
 
-      <Card icon="microphone" title="Audio" status={FACTS.audio.isWired ? "pass" : "warn"} sub={FACTS.audio.headsetClass}>
+      <Card icon="microphone" title="Audio" sub={FACTS.audio.headsetClass}>
         <KV k="Output" v={FACTS.audio.output} />
         <KV k="Input" v={FACTS.audio.input} />
-        <KV k="Connection" v={FACTS.audio.isWired ? "Wired" : "Wireless/built-in"} status={FACTS.audio.isWired ? "pass" : "warn"} />
-        <KV k="Sample rate" v={FACTS.audio.sampleRate ? `${FACTS.audio.sampleRate} Hz` : "Unknown"} />
+        <KV k="Connection" v={FACTS.audio.isWired ? "Wired" : "Wireless/built-in"} />
       </Card>
 
-      <Card icon="phone" title="Power" status={FACTS.power.plugged ? "pass" : "warn"} sub={`${FACTS.power.batteryLevel}% · ${FACTS.power.plugged ? "Plugged in" : "On battery"}`}>
-        <KV k="Battery" v={`${FACTS.power.batteryLevel}%`} status="pass" />
-        <KV k="Power source" v={FACTS.power.plugged ? "AC adapter" : "Battery"} status={FACTS.power.plugged ? "pass" : "warn"} />
-        <KV k="Lid closed" v={FACTS.power.lidClosed == null ? "Unknown" : FACTS.power.lidClosed ? "Yes" : "No"} />
+      <Card icon="phone" title="Power" sub={`${FACTS.power.batteryLevel}% · ${FACTS.power.plugged ? "Plugged in" : "On battery"}`}>
+        <KV k="Battery" v={`${FACTS.power.batteryLevel}%`} />
+        <KV k="Power source" v={FACTS.power.plugged ? "AC adapter" : "Battery"} />
       </Card>
     </div>
   );
-}
-
-// Latency/jitter quality: lower is better. good ≤ thresholds[0], ok ≤ [1].
-function qualityLabel(v, good, ok) {
-  if (v == null) return "—";
-  if (v <= good) return "Excellent";
-  if (v <= ok) return "Good";
-  return "High";
-}
-function qualityClass(v, good, ok) {
-  if (v == null) return "";
-  if (v <= good) return "pass";
-  if (v <= ok) return "warn";
-  return "fail";
 }
 
 // ============================================================================
@@ -440,26 +336,20 @@ function NetworkScreen() {
         <div className="sh-col">
           <div className="sh-label">Download</div>
           <div className="sh-value">{b.downMbps == null ? "—" : b.downMbps}<span className="sh-unit">Mbps</span></div>
-          {b.downMbps == null
-            ? <div className="sh-tag">{testing ? "Testing…" : "—"}</div>
-            : <div className={`sh-tag ${b.approvedDown ? "pass" : "fail"}`}>{b.approvedDown ? "≥ 100 ✓" : "Below 100"}</div>}
+          {b.downMbps == null && <div className="sh-tag">{testing ? "Testing…" : "—"}</div>}
         </div>
         <div className="sh-col">
           <div className="sh-label">Upload</div>
           <div className="sh-value">{b.upMbps == null ? "—" : b.upMbps}<span className="sh-unit">Mbps</span></div>
-          {b.upMbps == null
-            ? <div className="sh-tag">{testing ? "Testing…" : "—"}</div>
-            : <div className={`sh-tag ${b.approvedUp ? "pass" : "fail"}`}>{b.approvedUp ? "≥ 10 ✓" : "Below 10"}</div>}
+          {b.upMbps == null && <div className="sh-tag">{testing ? "Testing…" : "—"}</div>}
         </div>
         <div className="sh-col">
           <div className="sh-label">Ping</div>
           <div className="sh-value">{b.ping == null ? "—" : b.ping}<span className="sh-unit">ms</span></div>
-          <div className={`sh-tag ${qualityClass(b.ping, 50, 100)}`}>{qualityLabel(b.ping, 50, 100)}</div>
         </div>
         <div className="sh-col">
           <div className="sh-label">Jitter</div>
           <div className="sh-value">{b.jitter == null ? "—" : b.jitter}<span className="sh-unit">ms</span></div>
-          <div className={`sh-tag ${qualityClass(b.jitter, 5, 20)}`}>{qualityLabel(b.jitter, 5, 20)}</div>
         </div>
         <div className="sh-action">
           <button className="send-btn" onClick={runTest} disabled={testing}>
@@ -471,27 +361,27 @@ function NetworkScreen() {
       </div>
 
       <div className="card-grid card-grid-2">
-        <Card icon="globe" title="Network interface" status={FACTS.network.approved ? "pass" : "warn"} sub={FACTS.network.type}>
-          <KV k="Connection type" v={FACTS.network.isWired ? "Wired Ethernet" : "Wireless"} status={FACTS.network.isWired ? "pass" : "warn"} />
+        <Card icon="globe" title="Network interface" sub={FACTS.network.type}>
+          <KV k="Connection type" v={FACTS.network.isWired ? "Wired Ethernet" : "Wireless"} />
           <KV k="Interface" v={`${FACTS.network.interface} · ${FACTS.network.linkSpeed}`} />
           <KV k="MAC address" v={FACTS.network.mac} />
           <KV k="MTU" v={FACTS.network.mtu} />
         </Card>
 
-        <Card icon="cloud" title="Routing" status="pass" sub="IPv4, gateway, DNS">
+        <Card icon="cloud" title="Routing" sub="IPv4, gateway, DNS">
           <KV k="IPv4" v={FACTS.network.ipv4} />
           <KV k="Gateway" v={FACTS.network.gateway} />
           <KV k="DNS" v={FACTS.network.dns.join(", ")} />
-          <KV k="IPv6" v={FACTS.network.ipv6Disabled ? "Disabled" : "Enabled"} status={FACTS.network.ipv6Disabled ? "pass" : "warn"} />
+          <KV k="IPv6" v={FACTS.network.ipv6Disabled ? "Disabled" : "Enabled"} />
         </Card>
 
-        <Card icon="circle-check" title="VPN" status={FACTS.vpn.detected ? "warn" : "pass"} sub="Traditional VPNs may add jitter">
-          <KV k="Detected" v={FACTS.vpn.detected ? FACTS.vpn.name || "Unknown VPN" : "None"} status={FACTS.vpn.detected ? "warn" : "pass"} />
+        <Card icon="circle-check" title="VPN" sub="Traditional VPNs may add jitter">
+          <KV k="Detected" v={FACTS.vpn.detected ? FACTS.vpn.name || "Unknown VPN" : "None"} />
         </Card>
 
-        <Card icon="users" title="Background apps" status="info" sub="Apps that may compete for bandwidth or CPU">
+        <Card icon="users" title="Background apps" sub="Apps that may compete for bandwidth or CPU">
           <KV k="Running" v={FACTS.backgroundApps.runningApps.length === 0 ? "None detected" : FACTS.backgroundApps.runningApps.join(", ")} />
-          <KV k="Browser extensions" v={`${FACTS.backgroundApps.browserExtensions} installed`} status={FACTS.backgroundApps.browserExtensions > 15 ? "warn" : "pass"} />
+          <KV k="Browser extensions" v={`${FACTS.backgroundApps.browserExtensions} installed`} />
         </Card>
       </div>
     </>
@@ -530,8 +420,7 @@ function Frame({ children }) {
 }
 
 // Shown until startup checks finish. The network speed test MUST complete before
-// the dashboard renders, otherwise the verdict would briefly show a false
-// "bandwidth fail" while the test is still running.
+// the dashboard renders, so results are never shown half-measured.
 function LoadingScreen({ status, progress }) {
   return (
     <div style={{ minHeight: 600, background: "#f7f8f9", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
@@ -576,7 +465,6 @@ function App() {
     const speedP = SpeedTest.run();
 
     Promise.all([deferredP, speedP]).then(() => {
-      recomputeVerdict(); // bandwidth + SSD now final
       setStatus("Finishing up…");
       setReady(true);
     });

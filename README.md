@@ -1,11 +1,12 @@
 # Workstation Health Dashboard
 
-A cross-platform Electron desktop app that checks a computer's health — CPU,
-RAM, disk, OS, network, antivirus, and audio — and runs a real network speed
-test. Everything is collected from real local system data (via
+A cross-platform Electron desktop app that reports on a computer's health —
+CPU, RAM, disk, OS, network, antivirus, and audio — and runs a real network
+speed test. Everything is collected from real local system data (via
 [`systeminformation`](https://github.com/sebhildebrandt/systeminformation)
-and native OS APIs), shown as a pass/warn/fail verdict across three tabs —
-**Overview, System, and Network**.
+and native OS APIs) and shown as plain facts across three tabs —
+**Overview, System, and Network**. No grading, no pass/fail — just what's
+actually on the machine.
 
 ---
 
@@ -17,7 +18,7 @@ npm start
 ```
 
 On launch the app gathers system facts and runs a network speed test. Results
-are only shown once the speed test completes, so the verdict is never
+are only shown once the speed test completes, so the dashboard is never
 displayed half-measured.
 
 ---

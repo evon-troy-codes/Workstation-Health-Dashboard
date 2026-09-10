@@ -37,10 +37,10 @@
 
 :root {
   /* ---- Brand ---- */
-  --whd-cyan: #0ec2e2;        /* primary brand — logo, links, CTAs */
-  --whd-cyan-hover: #69dff7;  /* button hover bg */
-  --whd-cyan-dark: #0a91af;   /* hover text-shadow partner */
-  --whd-blue: #00adf2;        /* secondary blue */
+  --whd-cyan: #0041d9;        /* primary brand — logo, links, CTAs */
+  --whd-cyan-hover: #3d68e0;  /* button hover bg */
+  --whd-cyan-dark: #002e99;   /* hover text-shadow partner */
+  --whd-blue: #335fe0;        /* secondary blue */
   --whd-ink: #232323;         /* primary button bg */
 
   /* ---- Foreground / Neutral ---- */

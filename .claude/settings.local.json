@@ -7,7 +7,24 @@
       "Bash(git commit:*)",
       "Bash(git push:*)",
       "Bash(git checkout:*)",
-      "Bash(gh auth:*)"
+      "Bash(gh auth:*)",
+      "Bash(sed -i 's/--kau-cyan/--whc-cyan/g' app/renderer/helper.css app/renderer/assets/colors_and_type.css)",
+      "Bash(sed -i '1s/.*/\\\\/* helper.css — styles for the Workstation Health Checker UI *\\\\//' app/renderer/helper.css)",
+      "Bash(node -e \"console.log\\(require.resolve\\('playwright'\\)\\)\")",
+      "Bash(npx --no-install playwright --version)",
+      "PowerShell(node --version)",
+      "PowerShell(npm --version)",
+      "PowerShell(Get-Command node -ErrorAction SilentlyContinue; Get-ChildItem \"$env:ProgramFiles\\\\nodejs\" -ErrorAction SilentlyContinue; where.exe node 2>$null; where.exe npm 2>$null; Test-Path \".\\\\node_modules\\\\.bin\\\\electron.cmd\")",
+      "PowerShell(Get-Command node -ErrorAction SilentlyContinue)",
+      "Bash(powershell.exe -NoProfile -Command \"Get-ChildItem 'C:\\\\Users\\\\evonc\\\\AppData\\\\Local\\\\Microsoft\\\\WindowsApps' -ErrorAction SilentlyContinue | Select-Object Name\")",
+      "Bash(powershell.exe -NoProfile -Command \"python.exe -c \\\\\"import json; json.load\\(open\\('package.json'\\)\\); json.load\\(open\\('package-lock.json'\\)\\); print\\('JSON OK'\\)\\\\\"\")",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "PowerShell(Get-Command gh -ErrorAction SilentlyContinue)",
+      "Bash(powershell.exe -NoProfile -Command \"Get-ChildItem -Path 'C:\\\\Program Files\\\\GitHub CLI','C:\\\\Program Files \\(x86\\)\\\\GitHub CLI' -ErrorAction SilentlyContinue\")",
+      "Bash(git remote *)",
+      "Bash(npm --version)",
+      "PowerShell(Get-Command npm -ErrorAction SilentlyContinue)"
     ]
   }
 }
