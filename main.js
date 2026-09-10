@@ -23,6 +23,7 @@ function createWindow() {
     minWidth: 920,
     minHeight: 680,
     title: "Workstation Health Dashboard",
+    backgroundColor: "#e8e8e8", // avoid the default white flash on open/resize
     webPreferences: {
       preload: path.join(APP_DIR, "preload.js"),
       contextIsolation: true, // required — preload uses contextBridge

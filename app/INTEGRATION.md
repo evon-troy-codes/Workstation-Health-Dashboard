@@ -49,9 +49,9 @@ Network tab's speed test and merged into `FACTS` after the app collects it.
 
 1. Add the raw fact to the shape returned by `collectFacts()` in
    `main/system-facts.js`.
-2. Add a `pass`/`warn`/`fail` rule for it in `computeVerdict()` in
-   `helper-app.jsx`.
-3. Surface it in a `<Card>`/`<KV>` on whichever screen makes sense.
+2. Surface it in a `<Card>`/`<KV>` on whichever screen makes sense in
+   `helper-app.jsx`. The app is purely informational — it reports facts,
+   it doesn't grade them.
 
 ## Optional report endpoint
 

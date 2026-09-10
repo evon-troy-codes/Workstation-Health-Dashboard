@@ -1,11 +1,15 @@
 {
   "name": "workstation-health-dashboard",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "description": "Workstation Health Dashboard — an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win",
+    "dist:mac": "electron-builder --mac",
+    "dist:linux": "electron-builder --linux"
   },
   "repository": {
     "type": "git",
@@ -25,9 +29,33 @@
   },
   "homepage": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard#readme",
   "devDependencies": {
-    "electron": "^42.4.0"
+    "electron": "^42.4.0",
+    "electron-builder": "^25.1.8"
   },
   "dependencies": {
     "systeminformation": "^5.31.7"
+  },
+  "build": {
+    "appId": "com.evontroy.workstation-health-dashboard",
+    "productName": "Workstation Health Dashboard",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "main.js",
+      "app/**/*",
+      "!app/**/*.test.js"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.utilities"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Utility"
+    }
   }
 }
