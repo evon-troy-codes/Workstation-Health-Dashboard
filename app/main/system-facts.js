@@ -13,24 +13,15 @@ const si = require("systeminformation");
 const { execFile } = require("child_process");
 
 // App version for display. Resolved from the project's package.json.
-let APP_VERSION = "1.0.0";
+let APP_VERSION = "1.1.0";
 try {
   APP_VERSION = require("../../package.json").version || APP_VERSION;
 } catch (_) {
   /* keep default */
 }
 
-// Recommended CPU families (substring match, case-insensitive). Edit this list
-// to whatever spec you want the "approved" checks to compare against.
-const APPROVED_CPU = ["Apple M", "Core i5", "Core i7", "Core i9", "Ryzen 5", "Ryzen 7", "Ryzen 9"];
-
 const GB = 1024 * 1024 * 1024;
 const round1 = (n) => Math.round(n * 10) / 10;
-
-function cpuApproved(brand, list) {
-  const b = (brand || "").toLowerCase();
-  return list.some((p) => b.includes(p.toLowerCase()));
-}
 
 async function collectFacts() {
   // Everything fast runs in one parallel batch. si.diskLayout() (SSD flag) is
@@ -80,7 +71,6 @@ async function collectFacts() {
       family: cpu.manufacturer,
       arch: os.arch(),
       series: cpu.brand,
-      approved: cpuApproved(cpu.brand, APPROVED_CPU),
     },
     machineType: `${osInfo.manufacturer || ""} ${osInfo.model || os.platform()}`.trim(),
     ram: {
@@ -88,21 +78,18 @@ async function collectFacts() {
       freeGB: round1(mem.available / GB),
       type: memType,
       pressure: ramPressure(mem),
-      approved: mem.total / GB >= 16,
     },
     disk: {
       totalGB: Math.round(primaryFs.size / GB) || 0,
       freeGB: Math.round(primaryFs.available / GB) || 0,
       usedPercent: Math.round(primaryFs.use || 0),
       ssd: null, // resolved lazily (slow Windows storage provider)
-      approved: (primaryFs.available / GB) >= 50,
     },
     display: {
       resolution: main.resolutionX ? `${main.resolutionX} × ${main.resolutionY}` : "Unknown",
       external,
       externalSize: ext && ext.sizeX ? `${Math.round(Math.hypot(ext.sizeX, ext.sizeY) / 25.4)}"` : null,
       externalConnection: ext ? (ext.connection || "External") : null,
-      approved: external,
     },
     os: {
       name: osInfo.distro || os.type(),
@@ -110,7 +97,6 @@ async function collectFacts() {
       build: osInfo.build || "",
       lastUpdateCheck: "Checking…", // filled in by the lazy get-updates call
       pendingUpdates: null, // number once the lazy update check resolves
-      approved: osApproved(osInfo),
     },
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
@@ -124,13 +110,12 @@ async function collectFacts() {
       dns: getDnsServers(osInfo),
       ssid: isWired ? null : (iface.ssid || null),
       isWired,
-      approved: isWired,
     },
     // Bandwidth is a measurement, not a static fact — filled in once the
     // renderer's speed test completes.
     bandwidth: {
       downMbps: null, upMbps: null, ping: null, jitter: null,
-      measuredAt: "not yet run", approvedDown: false, approvedUp: false,
+      measuredAt: "not yet run",
     },
     vpn: detectVpn(net),
     antivirus,
@@ -139,7 +124,6 @@ async function collectFacts() {
       onBattery: battery.hasBattery ? !battery.acConnected : false,
       batteryLevel: battery.hasBattery ? battery.percent : 100,
       plugged: battery.hasBattery ? battery.acConnected : true,
-      lidClosed: null, // not reliably detectable across platforms
     },
     audio: {
       output: pickAudio(audio, "out"),
@@ -147,7 +131,6 @@ async function collectFacts() {
       isWired: /usb|wired/i.test(JSON.stringify(audio || [])),
       headsetConnected: (audio || []).length > 0,
       headsetClass: classifyHeadset(audio),
-      sampleRate: null, // not exposed by the OS without device-specific APIs
     },
   };
 
@@ -157,7 +140,7 @@ async function collectFacts() {
 // Antivirus detection. systeminformation has no AV API, so this queries the
 // platform directly: Windows Security Center (where McAfee/Norton/etc register)
 // on Windows, and known app bundles on macOS. Returns the FACTS.antivirus shape:
-//   { products: [{ name, version, running, updated, definitionsAge }], approved }
+//   { products: [{ name, version, running, updated, definitionsAge }] }
 function detectAntivirus() {
   const plat = process.platform;
 
@@ -185,7 +168,7 @@ function detectAntivirus() {
             (p) => !/windows defender|microsoft defender/i.test(p.name),
           );
           if (thirdParty.length) products = thirdParty;
-          resolve({ products, approved: products.some((p) => p.running) });
+          resolve({ products });
         },
       );
     });
@@ -216,10 +199,10 @@ function detectAntivirus() {
         updated: true,
         definitionsAge: null,
       }));
-    return Promise.resolve({ products, approved: products.length > 0 });
+    return Promise.resolve({ products });
   }
 
-  return Promise.resolve({ products: [], approved: false });
+  return Promise.resolve({ products: [] });
 }
 
 function parseWindowsAv(stdout) {
@@ -257,7 +240,7 @@ function humanAge(ts) {
 
 // Slow detections, fetched lazily after first paint: OS update status and the
 // SSD flag (both hit slow Windows providers). Returned together so the renderer
-// merges once and recomputes the verdict once.
+// merges both into FACTS in a single re-render.
 async function detectDeferred() {
   const [updates, ssd] = await Promise.all([detectUpdates(), detectSsd()]);
   return { ...updates, ssd };
@@ -400,17 +383,9 @@ function detectVpn(net) {
     return up && !!n.ip4 && VPN_RE.test(name);
   });
   if (active) {
-    return { detected: true, name: active.ifaceName || active.iface, approved: true };
+    return { detected: true, name: active.ifaceName || active.iface };
   }
-  return { detected: false, name: null, approved: true };
-}
-
-function osApproved(osInfo) {
-  const p = (osInfo.platform || "").toLowerCase();
-  const rel = parseFloat(osInfo.release) || 0;
-  if (p.includes("win")) return rel >= 10;        // refine: Win 11 build ≥ 22000
-  if (p.includes("darwin") || p.includes("mac")) return rel >= 13;
-  return true;
+  return { detected: false, name: null };
 }
 
 function pickAudio(audio, dir) {
@@ -434,4 +409,15 @@ function humanUptime(sec) {
   return `${h} hour${h !== 1 ? "s" : ""}, ${m} min`;
 }
 
-module.exports = { collectFacts, detectDeferred };
+module.exports = {
+  collectFacts,
+  detectDeferred,
+  // Exported for unit tests — pure helpers with no OS/process dependency.
+  classifyHeadset,
+  detectVpn,
+  pickAudio,
+  ramPressure,
+  humanUptime,
+  humanAge,
+  parseWindowsAv,
+};

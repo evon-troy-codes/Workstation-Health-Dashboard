@@ -3,14 +3,11 @@
 // window.whdSpeedTest. Uses Cloudflare's speed-test endpoints, with added
 // ping/jitter sampling.
 //
-// run(onProgress) → Promise<{ downMbps, upMbps, ping, jitter, measuredAt,
-//                             approvedDown, approvedUp }>
+// run(onProgress) → Promise<{ downMbps, upMbps, ping, jitter, measuredAt }>
 // onProgress(percent 0–100) is called throughout.
 
 (function () {
   const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  const DOWN_THRESHOLD = 100; // Mbps
-  const UP_THRESHOLD = 10; // Mbps
 
   // ── Latency / jitter: a handful of tiny requests ──────────────────
   async function measureLatency(onProgress) {
@@ -122,8 +119,6 @@
       ping,
       jitter,
       measuredAt: "just now",
-      approvedDown: down >= DOWN_THRESHOLD,
-      approvedUp: up >= UP_THRESHOLD,
     };
   }
 
