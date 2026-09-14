@@ -8,6 +8,7 @@ const os = require("os");
 
 const {
   classifyHeadset,
+  cleanAudioName,
   detectVpn,
   pickAudio,
   pickPrimaryFs,
@@ -21,20 +22,38 @@ const {
 
 test("classifyHeadset", async (t) => {
   await t.test("detects bluetooth from AirPods name", () => {
-    assert.equal(classifyHeadset([{ name: "AirPods Pro", type: "out" }]), "Bluetooth");
+    assert.equal(classifyHeadset("Headphones (AirPods Pro)"), "Bluetooth");
   });
 
   await t.test("detects USB headset from known brand", () => {
-    assert.equal(classifyHeadset([{ name: "Jabra Evolve 65", type: "out" }]), "USB headset");
+    assert.equal(classifyHeadset("Headset (Jabra Evolve 65)"), "USB headset");
   });
 
   await t.test("falls back to built-in when nothing matches", () => {
-    assert.equal(classifyHeadset([{ name: "Realtek High Definition Audio", type: "out" }]), "Built-in");
+    assert.equal(classifyHeadset("Speakers (Realtek High Definition Audio)"), "Built-in");
   });
 
-  await t.test("handles empty/missing audio list", () => {
-    assert.equal(classifyHeadset([]), "Built-in");
+  await t.test("handles a missing device name", () => {
+    assert.equal(classifyHeadset(""), "Built-in");
     assert.equal(classifyHeadset(null), "Built-in");
+  });
+});
+
+test("cleanAudioName", async (t) => {
+  // Windows disambiguates repeated device names with a "2- " prefix.
+  await t.test("strips the duplicate-device numbering prefix", () => {
+    assert.equal(cleanAudioName("Mic In (2- Elgato Wave:3)"), "Mic In (Elgato Wave:3)");
+    assert.equal(cleanAudioName("Headphones (10- Some Device)"), "Headphones (Some Device)");
+  });
+
+  await t.test("leaves an unprefixed name untouched", () => {
+    assert.equal(cleanAudioName("Speakers (CS42L43 AMP Speaker)"), "Speakers (CS42L43 AMP Speaker)");
+  });
+
+  await t.test("returns null for missing or non-string input", () => {
+    assert.equal(cleanAudioName(null), null);
+    assert.equal(cleanAudioName(""), null);
+    assert.equal(cleanAudioName(42), null);
   });
 });
 
