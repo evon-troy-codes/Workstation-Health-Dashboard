@@ -4,10 +4,15 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
+const os = require("os");
+
 const {
   classifyHeadset,
   detectVpn,
   pickAudio,
+  pickPrimaryFs,
+  isExternalDisplay,
+  formatLinkSpeed,
   ramPressure,
   humanUptime,
   humanAge,
@@ -69,6 +74,64 @@ test("pickAudio", async (t) => {
 
   await t.test("falls back to System default when list is empty", () => {
     assert.equal(pickAudio([], "out"), "System default");
+  });
+});
+
+test("pickPrimaryFs", async (t) => {
+  // The volume the user runs on, even when a larger empty drive is present.
+  const root = os.homedir().split(/[\\/]/)[0] || "/";
+
+  await t.test("prefers the volume holding the user profile over the largest", () => {
+    const picked = pickPrimaryFs([
+      { mount: root, size: 474 * 1e9, available: 296 * 1e9, use: 37.5 },
+      { mount: "Z:", size: 931 * 1e9, available: 931 * 1e9, use: 0.01 },
+    ]);
+    assert.equal(picked.mount, root);
+  });
+
+  await t.test("falls back to the largest volume when none matches", () => {
+    const picked = pickPrimaryFs([
+      { mount: "Y:", size: 100, available: 10, use: 90 },
+      { mount: "Z:", size: 500, available: 50, use: 90 },
+    ]);
+    assert.equal(picked.mount, "Z:");
+  });
+
+  await t.test("returns an empty object for no volumes", () => {
+    assert.deepEqual(pickPrimaryFs([]), {});
+    assert.deepEqual(pickPrimaryFs(null), {});
+  });
+});
+
+test("isExternalDisplay", async (t) => {
+  await t.test("treats a built-in panel as internal even when it is not primary", () => {
+    assert.equal(isExternalDisplay({ builtin: true, main: false, connection: "INTERNAL" }), false);
+  });
+
+  await t.test("treats an attached monitor as external even when it is primary", () => {
+    assert.equal(isExternalDisplay({ builtin: false, main: true, connection: "DP" }), true);
+  });
+
+  await t.test("falls back to the connection name when builtin is missing", () => {
+    assert.equal(isExternalDisplay({ connection: "INTERNAL" }), false);
+    assert.equal(isExternalDisplay({ connection: "HDMI" }), true);
+  });
+});
+
+test("formatLinkSpeed", async (t) => {
+  await t.test("rounds sub-gigabit speeds to whole Mbps", () => {
+    assert.equal(formatLinkSpeed(100), "100 Mbps");
+  });
+
+  await t.test("rounds gigabit speeds to one decimal", () => {
+    assert.equal(formatLinkSpeed(3218.6), "3.2 Gbps");
+    assert.equal(formatLinkSpeed(1000), "1 Gbps");
+  });
+
+  await t.test("reports unknown for missing or sentinel speeds", () => {
+    assert.equal(formatLinkSpeed(null), "Unknown");
+    assert.equal(formatLinkSpeed(0), "Unknown");
+    assert.equal(formatLinkSpeed(-1), "Unknown");
   });
 });
 

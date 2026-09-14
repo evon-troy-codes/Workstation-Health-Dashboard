@@ -27,10 +27,10 @@ async function collectFacts() {
   // Everything fast runs in one parallel batch. si.diskLayout() (SSD flag) is
   // deliberately excluded — it hits a ~7s Windows storage provider, so the
   // SSD flag is resolved lazily alongside OS updates (see detectDeferred).
-  const [cpu, mem, memLayout, osInfo, fsSize, net, gateway,
+  const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, graphics, audio, defIfaceName,
          antivirus, background] = await Promise.all([
-    si.cpu(), si.mem(), si.memLayout(), si.osInfo(), si.fsSize(),
+    si.cpu(), si.mem(), si.memLayout(), si.osInfo(), si.system(), si.fsSize(),
     si.networkInterfaces(), si.networkGatewayDefault(),
     si.battery(), si.graphics(), si.audio(),
     si.networkInterfaceDefault(),
@@ -42,19 +42,21 @@ async function collectFacts() {
   const isWired = /ethernet|wired|thunderbolt|usb/i.test(iface.type || "") ||
                   (!/wifi|wireless|wi-fi/i.test(iface.type || "") && (iface.speed || 0) >= 100);
 
-  // --- disk (primary volume); ssd flag filled in lazily (null = checking) ---
-  const primaryFs = (fsSize || []).sort((a, b) => b.size - a.size)[0] || {};
+  // --- disk (system volume); ssd flag filled in lazily (null = checking) ---
+  const primaryFs = pickPrimaryFs(fsSize);
 
   // --- display ---
   const displays = (graphics && graphics.displays) || [];
   const main = displays.find((d) => d.main) || displays[0] || {};
-  const external = displays.some((d) => !d.main);
-  const ext = displays.find((d) => !d.main);
+  const externals = displays.filter(isExternalDisplay);
+  const external = externals.length > 0;
+  const ext = externals[0];
 
   // --- memory type ---
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
 
   const inputName = pickAudio(audio, "in");
+  const headsetClass = classifyHeadset(audio);
 
   const facts = {
     hostname: os.hostname(),
@@ -72,7 +74,7 @@ async function collectFacts() {
       arch: os.arch(),
       series: cpu.brand,
     },
-    machineType: `${osInfo.manufacturer || ""} ${osInfo.model || os.platform()}`.trim(),
+    machineType: `${system.manufacturer || ""} ${system.model || os.platform()}`.trim(),
     ram: {
       totalGB: Math.round(mem.total / GB),
       freeGB: round1(mem.available / GB),
@@ -88,7 +90,8 @@ async function collectFacts() {
     display: {
       resolution: main.resolutionX ? `${main.resolutionX} × ${main.resolutionY}` : "Unknown",
       external,
-      externalSize: ext && ext.sizeX ? `${Math.round(Math.hypot(ext.sizeX, ext.sizeY) / 25.4)}"` : null,
+      // sizeX/sizeY come back in centimetres, not millimetres.
+      externalSize: ext && ext.sizeX ? `${Math.round(Math.hypot(ext.sizeX, ext.sizeY) / 2.54)}"` : null,
       externalConnection: ext ? (ext.connection || "External") : null,
     },
     os: {
@@ -101,7 +104,7 @@ async function collectFacts() {
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
       type: iface.type || (isWired ? "Wired" : "Wireless"),
-      linkSpeed: iface.speed ? `${iface.speed >= 1000 ? iface.speed / 1000 + " Gbps" : iface.speed + " Mbps"}` : "Unknown",
+      linkSpeed: formatLinkSpeed(iface.speed),
       mtu: iface.mtu || null,
       mac: iface.mac || "",
       ipv4: iface.ip4 || "",
@@ -128,9 +131,11 @@ async function collectFacts() {
     audio: {
       output: pickAudio(audio, "out"),
       input: inputName,
-      isWired: /usb|wired/i.test(JSON.stringify(audio || [])),
+      // Derived from the same device classifyHeadset looked at, so the card
+      // can't report "Bluetooth" and "Wired" at the same time.
+      isWired: headsetClass === "USB headset",
       headsetConnected: (audio || []).length > 0,
-      headsetClass: classifyHeadset(audio),
+      headsetClass,
     },
   };
 
@@ -361,6 +366,29 @@ function getDnsServers(osInfo) {
   return osInfo.servers || [];
 }
 
+// The volume the user actually runs on. Picking the biggest volume instead
+// reports a large empty data/backup drive as "the" disk, which reads as 0% used.
+function pickPrimaryFs(fsSize) {
+  const list = (fsSize || []).filter((f) => f && f.mount && f.size);
+  const home = os.homedir().toLowerCase();
+  const onHome = list
+    .filter((f) => home.startsWith(f.mount.toLowerCase()))
+    .sort((a, b) => b.mount.length - a.mount.length)[0];
+  return onHome || [...list].sort((a, b) => b.size - a.size)[0] || {};
+}
+
+// "External" means a physically separate panel, not "not the primary one" —
+// an external monitor is very often the main display on a docked laptop.
+function isExternalDisplay(d) {
+  if (typeof d.builtin === "boolean") return !d.builtin;
+  return !/internal|built-?in|lvds|edp/i.test(d.connection || "");
+}
+
+function formatLinkSpeed(speed) {
+  if (!speed || speed < 0) return "Unknown";
+  return speed >= 1000 ? `${round1(speed / 1000)} Gbps` : `${Math.round(speed)} Mbps`;
+}
+
 function ramPressure(mem) {
   const ratio = mem.total ? mem.available / mem.total : 1;
   if (ratio < 0.1) return "High";
@@ -394,8 +422,10 @@ function pickAudio(audio, dir) {
   return d.name || "System default";
 }
 
+// Classify the selected output device only. Scanning every device instead
+// matches any Bluetooth/USB driver that happens to be installed.
 function classifyHeadset(audio) {
-  const s = JSON.stringify(audio || []).toLowerCase();
+  const s = pickAudio(audio, "out").toLowerCase();
   if (/airpod|bluetooth|wireless/.test(s)) return "Bluetooth";
   if (/usb|headset|plantronics|jabra|logitech|sennheiser/.test(s)) return "USB headset";
   return "Built-in";
@@ -416,6 +446,9 @@ module.exports = {
   classifyHeadset,
   detectVpn,
   pickAudio,
+  pickPrimaryFs,
+  isExternalDisplay,
+  formatLinkSpeed,
   ramPressure,
   humanUptime,
   humanAge,

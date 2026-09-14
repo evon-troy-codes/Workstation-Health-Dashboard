@@ -300,7 +300,7 @@ function NetworkScreen() {
           <KV k="Connection type" v={FACTS.network.isWired ? "Wired Ethernet" : "Wireless"} />
           <KV k="Interface" v={`${FACTS.network.interface} · ${FACTS.network.linkSpeed}`} />
           <KV k="MAC address" v={FACTS.network.mac} />
-          <KV k="MTU" v={FACTS.network.mtu} />
+          <KV k="MTU" v={FACTS.network.mtu || "Unknown"} />
         </Card>
 
         <Card icon="cloud" title="Routing" sub="IPv4, gateway, DNS">
