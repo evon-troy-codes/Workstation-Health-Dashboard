@@ -1,77 +1,10 @@
 /* global React, ReactDOM, Icon */
-// Renderer entry. In the Electron build, real workstation facts are injected
-// as window.__WHD_FACTS__ by bootstrap (which calls the preload bridge)
-// BEFORE this file runs. If that global is absent (e.g. opened in a plain
-// browser for design work), we fall back to the mock object below so the
-// UI always renders.
+// Renderer entry. Real workstation facts are injected as window.__WHD_FACTS__
+// by bootstrap (which calls the preload bridge) BEFORE this file runs.
 
 const { useState, useEffect, useRef } = React;
 
-// ---- Mock fallback (used only when no live facts were injected) ------------
-const MOCK_FACTS = {
-  hostname: "logan-macbook-pro",
-  user: "logan",
-  uptime: "3 days, 4 hours",
-  appVersion: "1.1.0",
-
-  cpu: {
-    model: "Apple M4 Pro",
-    cores: 14,
-    perfCores: 10,
-    effCores: 4,
-    ghz: 4.5,
-    family: "Apple Silicon",
-    arch: "arm64",
-    series: "M-series",
-  },
-  machineType: "Apple MacBook Pro 16\" (2024)",
-  ram: { totalGB: 32, freeGB: 14.2, type: "LPDDR5" },
-  disk: { totalGB: 1024, freeGB: 614, usedPercent: 40, ssd: true },
-  display: { resolution: "1728 × 1117", external: true, externalSize: "27\"", externalConnection: "Thunderbolt (DisplayPort)" },
-  os: {
-    name: "macOS",
-    version: "26.1",
-    build: "26A123",
-    lastUpdateCheck: "2 hours ago",
-    pendingUpdates: 0,
-  },
-  network: {
-    interface: "en0",
-    type: "Ethernet (Thunderbolt → USB-C)",
-    linkSpeed: "1 Gbps",
-    mtu: 1500,
-    mac: "F8:4D:89:••:••:••",
-    ipv4: "192.168.1.42",
-    ipv6Disabled: true,
-    gateway: "192.168.1.1",
-    dns: ["1.1.1.1", "8.8.8.8"],
-    ssid: null,
-    isWired: true,
-  },
-  bandwidth: {
-    downMbps: 487,
-    upMbps: 38,
-    ping: 7,
-    jitter: 0.4,
-    measuredAt: "3 minutes ago",
-  },
-  vpn: { detected: false, name: null },
-  antivirus: {
-    products: [{ name: "Microsoft Defender for Endpoint", version: "101.24112.0001", running: true, definitionsAge: "12 hours" }],
-  },
-  backgroundApps: { browserExtensions: 4, runningApps: ["Slack", "Dropbox"] },
-  power: { onBattery: false, batteryLevel: 100, plugged: true },
-  audio: {
-    output: "Plantronics Blackwire 5220 (USB)",
-    input: "Plantronics Blackwire 5220 (USB)",
-    isWired: true,
-    headsetConnected: true,
-    headsetClass: "USB headset",
-  },
-};
-
-// Live facts are injected by the Electron bootstrap; fall back to the mock.
-const FACTS = (typeof window !== "undefined" && window.__WHD_FACTS__) || MOCK_FACTS;
+const FACTS = window.__WHD_FACTS__;
 
 // Shared speed-test controller. Auto-runs once at startup and can be re-run from
 // the Network tab. Holds testing/progress so every screen can reflect it, and
@@ -81,7 +14,7 @@ const SpeedTest = {
   progress: 0,
   hasRun: false,
   async run() {
-    if (this.testing || !window.whdSpeedTest) return;
+    if (this.testing) return;
     this.testing = true;
     this.progress = 0;
     window.dispatchEvent(new CustomEvent("speedtest-progress"));
@@ -104,14 +37,17 @@ const SpeedTest = {
 
 // ---- UI --------------------------------------------------------------------
 
+function Logo({ size }) {
+  return <img src="assets/logo/logo-mark.svg" alt="" width={size} height={size} style={{ display: "block" }} />;
+}
+
 function Header({ syncedAgo }) {
   return (
     <div className="helper-head">
       <div className="brand">
-        <img src="assets/logo/logo-mark.svg" alt="" width={26} height={26} style={{ display: "block" }} />
+        <Logo size={26} />
         <div>
-          <div className="brand-name">Workstation Health Dashboard</div>
-          <div className="brand-sub">Local diagnostics · v{FACTS.appVersion}</div>
+          <div className="brand-name">Zillow Workstation Health Dashboard</div>
         </div>
       </div>
       <div className="head-right">
@@ -185,7 +121,7 @@ function HelperApp() {
             </div>
           </div>
           <div className="foot-actions">
-            <button className="foot-btn" onClick={() => { if (window.whd && window.whd.rescan) { window.dispatchEvent(new CustomEvent("whd-toast", { detail: "Re-scanning workstation…" })); window.whd.rescan().then(() => location.reload()); } else { location.reload(); } }}><Icon name="arrow-rotate-right" size={12} /> Re-scan now</button>
+            <button className="foot-btn" onClick={() => { window.dispatchEvent(new CustomEvent("whd-toast", { detail: "Re-scanning workstation…" })); window.whd.rescan().then(() => location.reload()); }}><Icon name="arrow-rotate-right" size={12} /> Re-scan now</button>
           </div>
         </div>
       </div>
@@ -205,10 +141,9 @@ function Sidebar({ active, onChange }) {
   return (
     <aside className="helper-sidebar">
       <div className="sb-brand">
-        <img src="assets/logo/logo-mark.svg" alt="" width={22} height={22} style={{ display: "block" }} />
+        <Logo size={22} />
         <div>
           <div className="sb-name">Health Dashboard</div>
-          <div className="sb-sub">v{FACTS.appVersion}</div>
         </div>
       </div>
       <nav className="sb-nav">
@@ -270,7 +205,7 @@ function SystemScreen() {
         <KV k="Cores" v={`${FACTS.cpu.cores} (${FACTS.cpu.perfCores}P + ${FACTS.cpu.effCores}E)`} />
       </Card>
 
-      <Card icon="grip" title="Memory" sub={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`}>
+      <Card icon="grip" title="Memory" sub={`${FACTS.ram.totalGB} GB · ${FACTS.ram.freeGB} GB free`}>
         <KV k="Total" v={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`} />
         <KV k="Free" v={`${FACTS.ram.freeGB} GB`} />
         <KV k="Pressure" v={FACTS.ram.pressure} />
@@ -299,7 +234,7 @@ function SystemScreen() {
         )}
         {FACTS.antivirus.products.map((p, i) => (
           <KV key={i} k={p.name} v={
-            [p.version ? `v${p.version}` : null, p.definitionsAge ? `defs ${p.definitionsAge}` : null]
+            [p.version ? `v${p.version}` : null, p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
               .filter(Boolean).join(" · ") || (p.running ? "Active" : "Inactive")
           } />
         ))}
@@ -399,18 +334,13 @@ function Frame({ children }) {
           display: "flex", alignItems: "center", padding: "0 14px",
           position: "relative",
         }}>
-          <div style={{ display: "flex", gap: 8 }}>
-            <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#ff5f57", border: "0.5px solid rgba(0,0,0,0.18)" }}></span>
-            <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#febc2e", border: "0.5px solid rgba(0,0,0,0.18)" }}></span>
-            <span style={{ width: 12, height: 12, borderRadius: "50%", background: "#28c840", border: "0.5px solid rgba(0,0,0,0.18)" }}></span>
-          </div>
           <div style={{
             position: "absolute", left: "50%", top: "50%",
             transform: "translate(-50%, -50%)",
             fontSize: 13, fontWeight: 600, color: "#3a3a3a",
             fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
           }}>
-            Workstation Health Dashboard
+            Zillow Workstation Health Dashboard
           </div>
         </div>
         {children}
@@ -452,15 +382,13 @@ function App() {
     const onProg = () => setProgress(SpeedTest.progress);
     window.addEventListener("speedtest-progress", onProg);
 
-    const deferredP = (window.whd && window.whd.getDeferred)
-      ? window.whd.getDeferred().then((d) => {
-          if (d) {
-            FACTS.os.pendingUpdates = d.pendingUpdates;
-            FACTS.os.lastUpdateCheck = d.lastUpdateCheck;
-            FACTS.disk.ssd = d.ssd;
-          }
-        }).catch(() => {})
-      : Promise.resolve();
+    const deferredP = window.whd.getDeferred().then((d) => {
+      if (d) {
+        FACTS.os.pendingUpdates = d.pendingUpdates;
+        FACTS.os.lastUpdateCheck = d.lastUpdateCheck;
+        FACTS.disk.ssd = d.ssd;
+      }
+    }).catch(() => {});
 
     const speedP = SpeedTest.run();
 
