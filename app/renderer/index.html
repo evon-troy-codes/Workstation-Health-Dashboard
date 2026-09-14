@@ -31,7 +31,26 @@
 -->
 <script>
 (async function bootstrap() {
-  window.__WHD_FACTS__ = await window.whd.getFacts();
+  try {
+    window.__WHD_FACTS__ = await window.whd.getFacts();
+  } catch (e) {
+    // Without this the injection below never runs and the app sits on
+    // "Scanning workstation…" forever with only a console error.
+    var root = document.getElementById("root");
+    root.textContent = "";
+    var box = document.createElement("div");
+    box.style.cssText = "font-family: system-ui, sans-serif; padding: 40px;";
+    var title = document.createElement("div");
+    title.style.cssText = "font-weight: 700; color: #b94a48; margin-bottom: 8px;";
+    title.textContent = "Couldn't scan this workstation.";
+    var detail = document.createElement("div");
+    detail.style.cssText = "font-size: 13px; color: #616161;";
+    detail.textContent = String((e && e.message) || e);
+    box.appendChild(title);
+    box.appendChild(detail);
+    root.appendChild(box);
+    return;
+  }
   ["icons.jsx", "toast.jsx", "helper-app.jsx"].forEach(function (src) {
     var s = document.createElement("script");
     s.type = "text/babel";
