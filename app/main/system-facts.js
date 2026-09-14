@@ -29,12 +29,12 @@ async function collectFacts() {
   // SSD flag is resolved lazily alongside OS updates (see detectDeferred).
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, graphics, audio, defIfaceName,
-         antivirus, background] = await Promise.all([
+         antivirus, background, defaultAudio] = await Promise.all([
     si.cpu(), si.mem(), si.memLayout(), si.osInfo(), si.system(), si.fsSize(),
     si.networkInterfaces(), si.networkGatewayDefault(),
     si.battery(), si.graphics(), si.audio(),
     si.networkInterfaceDefault(),
-    detectAntivirus(), detectBackgroundApps(),
+    detectAntivirus(), detectBackgroundApps(), detectDefaultAudio(),
   ]).catch((e) => { throw new Error("systeminformation failed: " + e.message); });
 
   // --- default network interface ---
@@ -55,8 +55,10 @@ async function collectFacts() {
   // --- memory type ---
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
 
-  const inputName = pickAudio(audio, "in");
-  const headsetClass = classifyHeadset(audio);
+  // Prefer the real endpoint names; fall back to the driver list off Windows.
+  const outputName = (defaultAudio && defaultAudio.output) || pickAudio(audio, "out");
+  const inputName = (defaultAudio && defaultAudio.input) || pickAudio(audio, "in");
+  const headsetClass = classifyHeadset(outputName);
 
   const facts = {
     hostname: os.hostname(),
@@ -129,7 +131,7 @@ async function collectFacts() {
       plugged: battery.hasBattery ? battery.acConnected : true,
     },
     audio: {
-      output: pickAudio(audio, "out"),
+      output: outputName,
       input: inputName,
       // Derived from the same device classifyHeadset looked at, so the card
       // can't report "Bluetooth" and "Wired" at the same time.
@@ -140,6 +142,69 @@ async function collectFacts() {
   };
 
   return facts;
+}
+
+// The default playback/recording endpoints, via the Windows MMDevice API.
+// systeminformation only lists sound *drivers* (Win32_SoundDevice), so it
+// reports e.g. "Intel® Smart Sound Technology for USB Audio" rather than the
+// headset the user actually selected. Resolves null when unavailable, so
+// callers fall back to the driver list.
+const PS_DEFAULT_AUDIO = [
+  "$ErrorActionPreference='SilentlyContinue';",
+  "Add-Type -TypeDefinition @'",
+  "using System;",
+  "using System.Runtime.InteropServices;",
+  "public static class WhdAudio {",
+  '  [ComImport, Guid("BCDE0395-E52F-467C-8E3D-C4579291692E")] internal class DevEnum { }',
+  '  [ComImport, Guid("A95664D2-9614-4F35-A746-DE8DB63617E6"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "  internal interface IEnum { int F1(); int GetDefault(int flow, int role, out IDev dev); }",
+  '  [ComImport, Guid("D666063F-1587-4E43-81F1-B948E807363F"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "  internal interface IDev { int F1(); int OpenPropertyStore(int access, out IStore store); }",
+  '  [ComImport, Guid("886d8eeb-8cf2-4446-8d02-cdba1dbdcf99"), InterfaceType(ComInterfaceType.InterfaceIsIUnknown)]',
+  "  internal interface IStore { int GetCount(out int c); int GetAt(int i, out PK k); int GetValue(ref PK k, out PV v); }",
+  "  [StructLayout(LayoutKind.Sequential)] internal struct PK { public Guid fmtid; public int pid; }",
+  "  [StructLayout(LayoutKind.Explicit)] internal struct PV { [FieldOffset(0)] public short vt; [FieldOffset(8)] public IntPtr p; }",
+  "  public static string Name(int flow) {",
+  "    IDev d = null; var e = (IEnum)(new DevEnum());",
+  "    if (e.GetDefault(flow, 0, out d) != 0 || d == null) return null;",
+  "    IStore s; if (d.OpenPropertyStore(0, out s) != 0) return null;",
+  '    var k = new PK(); k.fmtid = new Guid("a45c254e-df1c-4efd-8020-67d146a850e0"); k.pid = 14;',
+  "    PV v; if (s.GetValue(ref k, out v) != 0 || v.p == IntPtr.Zero) return null;",
+  "    return Marshal.PtrToStringUni(v.p);",
+  "  }",
+  "}",
+  "'@;",
+  "[pscustomobject]@{output=[WhdAudio]::Name(0);input=[WhdAudio]::Name(1)} | ConvertTo-Json -Compress",
+].join("\n");
+
+function detectDefaultAudio() {
+  if (process.platform !== "win32") return Promise.resolve(null);
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", PS_DEFAULT_AUDIO],
+      { timeout: 15000, windowsHide: true },
+      (err, stdout) => {
+        if (err) return resolve(null);
+        let o;
+        try {
+          o = JSON.parse((stdout || "").trim());
+        } catch (_) {
+          return resolve(null);
+        }
+        const output = cleanAudioName(o && o.output);
+        const input = cleanAudioName(o && o.input);
+        resolve(output || input ? { output, input } : null);
+      },
+    );
+  });
+}
+
+// Windows disambiguates repeated device names with a "2- " prefix:
+// "Mic In (2- Elgato Wave:3)" → "Mic In (Elgato Wave:3)".
+function cleanAudioName(name) {
+  if (!name || typeof name !== "string") return null;
+  return name.replace(/\(\s*\d+-\s*/g, "(").trim() || null;
 }
 
 // Antivirus detection. systeminformation has no AV API, so this queries the
@@ -424,8 +489,8 @@ function pickAudio(audio, dir) {
 
 // Classify the selected output device only. Scanning every device instead
 // matches any Bluetooth/USB driver that happens to be installed.
-function classifyHeadset(audio) {
-  const s = pickAudio(audio, "out").toLowerCase();
+function classifyHeadset(outputName) {
+  const s = (outputName || "").toLowerCase();
   if (/airpod|bluetooth|wireless/.test(s)) return "Bluetooth";
   if (/usb|headset|plantronics|jabra|logitech|sennheiser/.test(s)) return "USB headset";
   return "Built-in";
@@ -444,6 +509,7 @@ module.exports = {
   detectDeferred,
   // Exported for unit tests — pure helpers with no OS/process dependency.
   classifyHeadset,
+  cleanAudioName,
   detectVpn,
   pickAudio,
   pickPrimaryFs,
