@@ -6,10 +6,7 @@
   "scripts": {
     "start": "electron .",
     "test": "node --test",
-    "dist": "electron-builder",
-    "dist:win": "electron-builder --win",
-    "dist:mac": "electron-builder --mac",
-    "dist:linux": "electron-builder --linux"
+    "dist": "electron-builder"
   },
   "repository": {
     "type": "git",
@@ -43,8 +40,9 @@
     },
     "files": [
       "main.js",
-      "app/**/*",
-      "!app/**/*.test.js"
+      "app/preload.js",
+      "app/main/system-facts.js",
+      "app/renderer/**/*"
     ],
     "win": {
       "target": "nsis"
