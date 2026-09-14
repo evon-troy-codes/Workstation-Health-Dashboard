@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<title>Workstation Health Dashboard</title>
+<title>Zillow Workstation Health Dashboard</title>
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <!--
   Content-Security-Policy: allow the CDN scripts + inline Babel-compiled code.
@@ -27,18 +27,11 @@
 <!--
   bootstrap: fetch live facts from the preload bridge, stash them on
   window.__WHD_FACTS__, THEN inject the Babel app scripts so helper-app.jsx
-  sees real data at module-eval time. Falls back to the mock if the bridge is
-  absent (plain browser / design preview).
+  sees real data at module-eval time.
 -->
 <script>
 (async function bootstrap() {
-  try {
-    if (window.whd && window.whd.getFacts) {
-      window.__WHD_FACTS__ = await window.whd.getFacts();
-    }
-  } catch (e) {
-    console.warn("[Workstation Health Dashboard] live facts unavailable, using mock:", e);
-  }
+  window.__WHD_FACTS__ = await window.whd.getFacts();
   ["icons.jsx", "toast.jsx", "helper-app.jsx"].forEach(function (src) {
     var s = document.createElement("script");
     s.type = "text/babel";

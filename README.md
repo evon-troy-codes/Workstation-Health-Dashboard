@@ -1,12 +1,11 @@
-# Workstation Health Dashboard
+# Zillow Workstation Health Dashboard
 
-A cross-platform Electron desktop app that reports on a computer's health —
+This application reports on a computer's health —
 CPU, RAM, disk, OS, network, antivirus, and audio — and runs a real network
 speed test. Everything is collected from real local system data (via
 [`systeminformation`](https://github.com/sebhildebrandt/systeminformation)
 and native OS APIs) and shown as plain facts across three tabs —
-**Overview, System, and Network**. No grading, no pass/fail — just what's
-actually on the machine.
+**Overview, System, and Network**.
 
 ---
 
@@ -25,14 +24,14 @@ displayed half-measured.
 
 ## What it checks
 
-| Area | Source |
-| ---- | ------ |
-| CPU, RAM + pressure, disk, OS, display, power, uptime | `systeminformation` + Node `os` |
-| Antivirus | Windows Security Center / macOS app bundles |
-| VPN | active tunnel-interface scan |
-| DNS, background apps, browser-extension count | Node `dns` + process/file scans |
-| OS pending updates, SSD flag | Windows providers (fetched after first paint) |
-| Network speed (download/upload/ping/jitter) | Cloudflare speed test |
+| Area                                                  | Source                                        |
+| ----------------------------------------------------- | --------------------------------------------- |
+| CPU, RAM + pressure, disk, OS, display, power, uptime | `systeminformation` + Node `os`               |
+| Antivirus                                             | Windows Security Center / macOS app bundles   |
+| VPN                                                   | active tunnel-interface scan                  |
+| DNS, background apps, browser-extension count         | Node `dns` + process/file scans               |
+| OS pending updates, SSD flag                          | Windows providers (fetched after first paint) |
+| Network speed (download/upload/ping/jitter)           | Cloudflare speed test                         |
 
 ---
 
@@ -52,18 +51,6 @@ Workstation-Health-Dashboard/
         ├── icons.jsx, toast.jsx
         └── assets/            # design tokens + brand font
 ```
-
----
-
-## Optional: report endpoint
-
-The app can POST the collected facts (as JSON) to a backend of your own —
-call `window.whd.sendReport(facts)` from the renderer and set `WHD_REPORT_URL`
-in the main process. Neither is wired to the UI by default, so the app is
-fully self-contained and works offline with no configuration.
-
-See [app/INTEGRATION.md](app/INTEGRATION.md) for the full data flow and how
-to add new checks.
 
 ---
 

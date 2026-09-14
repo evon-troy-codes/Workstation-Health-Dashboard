@@ -30,9 +30,8 @@ renderer/index.html (bootstrap)
    → injects helper-app.jsx, which reads that global
 ```
 
-`helper-app.jsx` reads `window.__WHD_FACTS__` and falls back to a mock object
-if it's absent — so the same file still renders in a plain browser for design
-work.
+`helper-app.jsx` reads `window.__WHD_FACTS__`, which bootstrap always
+populates before injecting the app scripts.
 
 ## What's real vs. what's a static default
 
