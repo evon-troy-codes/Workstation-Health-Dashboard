@@ -1,0 +1,45 @@
+/* theme.css — semantic surface/text tokens.
+ *
+ * colors_and_type.css holds the brand palette (raw values). This file maps
+ * that palette onto the roles the UI actually asks for — "the card surface",
+ * "muted text" — so a component never names a hex directly.
+ *
+ * The app is dark only. There is no light palette and no theme switching:
+ * one set of values, declared once, so there is no second appearance to keep
+ * in sync when a component is added.
+ */
+
+:root {
+  /* Tells the engine to render native UI — scrollbars, focus rings, form
+     controls — against a dark background. */
+  color-scheme: dark;
+
+  --surface-page: #12161c;
+  --surface-card: #1a212b;
+  --surface-sidebar: #151b23;
+  --surface-raised: #222b37; /* buttons, quick-jump tiles */
+  --surface-track: #2b3542; /* progress + tag backgrounds */
+  --surface-hover: rgba(255, 255, 255, 0.06);
+
+  --line-soft: #273040;
+  --line-strong: #323d4d;
+  --line-hairline: #222b37; /* between key/value rows */
+
+  --text-strong: #eef2f7;
+  --text-body: #c2ccd9;
+  --text-muted: #8795a6;
+
+  /* The brand violet (#523ae8) is too dark to read on these surfaces; the
+     palette's lighter tint is its accessible partner. */
+  --accent: #7d6bee;
+  --accent-hover: #9c8ef3;
+  --accent-contrast: #12161c;
+  --accent-wash: rgba(125, 107, 238, 0.16); /* card icon chips */
+
+  --danger: #ef8476;
+
+  --toast-bg: #eef2f7;
+  --toast-fg: #12161c;
+
+  --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.3);
+}

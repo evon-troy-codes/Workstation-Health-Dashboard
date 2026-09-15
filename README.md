@@ -9,6 +9,24 @@ and native OS APIs) and shown as plain facts across three tabs —
 
 ---
 
+## Screenshots
+
+### Overview
+
+![Overview tab: quick specs and session details](docs/screenshots/overview.png)
+
+### System and Network
+
+| System | Network |
+| --- | --- |
+| [![System tab](docs/screenshots/system.png)](docs/screenshots/system.png) | [![Network tab](docs/screenshots/network.png)](docs/screenshots/network.png) |
+
+> Screenshots are generated from the running app by `npm run screenshots`.
+> Network identifiers are replaced with documentation-range placeholders
+> (RFC 5737 / RFC 7042) before capture.
+
+---
+
 ## Running
 
 ```bash
@@ -72,5 +90,10 @@ Workstation-Health-Dashboard/
 - React ships with the app and the JSX is precompiled, so `index.html` enforces
   a strict CSP with no remote origins and no `unsafe-eval`. The one network
   allowance is `connect-src https://speed.cloudflare.com` for the speed test.
+- The UI is dark only, by design — there is no theme switch and no second
+  palette to keep in sync. Every surface and text colour resolves from the
+  tokens in `app/renderer/assets/theme.css`; no component names a hex directly.
+- The app icon is generated from the brand mark by `npm run icons`, which emits
+  `build/icon.ico` (7 sizes), `build/icon.png` and a Linux PNG set.
 - Code-sign the build before distribution to avoid SmartScreen / Gatekeeper
   warnings.

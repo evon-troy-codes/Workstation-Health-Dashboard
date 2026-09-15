@@ -23,7 +23,10 @@ function createWindow() {
     minWidth: 920,
     minHeight: 680,
     title: "Zillow Workstation Health Dashboard",
-    backgroundColor: "#f7f8f9", // matches the page, so open/resize don't flash
+    // Packaged builds take the icon from electron-builder; setting it here is
+    // what gives `npm start` a branded window and taskbar entry too.
+    icon: path.join(APP_DIR, "renderer", "assets", "logo", "icon-256.png"),
+    backgroundColor: "#12161c", // matches --surface-page, so open/resize don't flash
     webPreferences: {
       preload: path.join(APP_DIR, "preload.js"),
       contextIsolation: true, // required — preload uses contextBridge
