@@ -314,8 +314,13 @@ function humanAge(ts) {
   const sec = (Date.now() - d.getTime()) / 1000;
   if (sec < 0) return "just now";
   if (sec < 3600) return Math.max(1, Math.round(sec / 60)) + " min";
-  if (sec < 86400) return Math.round(sec / 3600) + " hours";
-  return Math.round(sec / 86400) + " days";
+  if (sec < 86400) return plural(Math.round(sec / 3600), "hour");
+  return plural(Math.round(sec / 86400), "day");
+}
+
+// "1 day" rather than "1 days" — this string is rendered straight onto a card.
+function plural(n, unit) {
+  return `${n} ${unit}${n === 1 ? "" : "s"}`;
 }
 
 // Slow detections, fetched lazily after first paint: OS update status, the SSD

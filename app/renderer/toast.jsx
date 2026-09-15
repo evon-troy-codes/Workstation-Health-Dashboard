@@ -23,7 +23,7 @@ function Toast() {
   return (
     <div role="status" aria-live="polite" style={{
       position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
-      background: "#18222d", color: "#fff",
+      background: "var(--toast-bg)", color: "var(--toast-fg)",
       padding: "10px 18px", borderRadius: 999,
       fontSize: 13, fontWeight: 600, fontFamily: "var(--font-sans)",
       boxShadow: "0 8px 24px rgba(0,0,0,0.25)",

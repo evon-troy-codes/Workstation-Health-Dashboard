@@ -12,6 +12,7 @@ app/
     ├── index.html            ← window entry (loads the vendored React + bundle)
     ├── helper-app.jsx        ← bundle entry: the 3-screen UI + app state
     ├── helper.css
+    ├── assets/theme.css      ← semantic surface/text tokens (dark only)
     ├── react-globals.js      ← re-exports the React/ReactDOM UMD globals
     ├── icons.jsx
     ├── speedtest.js          ← real Cloudflare-based speed test
@@ -53,6 +54,17 @@ detection, background apps, browser-extension count, OS pending updates.
 
 **Filled in at runtime, not from the OS**: `bandwidth` — measured live by the
 Network tab's speed test and merged into `FACTS` after the app collects it.
+
+## Colour
+
+`assets/colors_and_type.css` holds the raw brand palette; `assets/theme.css`
+maps it onto the roles the UI asks for (`--surface-card`, `--text-muted`,
+`--accent`). Components reference those roles and never a literal hex, so a
+palette change happens in one file.
+
+The app is dark only. That is a deliberate constraint rather than a missing
+feature: one set of values means there is no second appearance to verify
+whenever a component is added.
 
 ## Adding a new check
 

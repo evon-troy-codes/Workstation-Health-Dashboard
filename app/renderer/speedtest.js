@@ -12,6 +12,11 @@ const HARD_CAP_MS = 75000; // absolute ceiling for a full run
 const REQUEST_TIMEOUT_MS = 20000; // ceiling for any single request
 const DOWN_STREAMS = 4; // one stream cannot saturate a fast link
 const UP_STREAMS = 3;
+// Cloudflare rate-limits by bytes requested, not just request count, and
+// answers 429 once a client has pulled too much too quickly — which a user
+// re-running the test will hit. Step down the chunk size rather than reporting
+// a failure: a smaller chunk still measures the link, just with more overhead.
+const CHUNK_LADDER = [25_000_000, 10_000_000, 5_000_000, 1_000_000];
 
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
@@ -87,7 +92,8 @@ async function measureLatency(onProgress, signal) {
 // link badly when latency is high.
 async function measureDownload(onProgress, signal) {
   const DURATION_MS = 12000;
-  const CHUNK_BYTES = 25_000_000;
+  // Shared across streams: once one of them is throttled, they all step down.
+  let rung = 0;
   const start = performance.now();
   const deadline = start + DURATION_MS;
   let totalBytes = 0;
@@ -101,10 +107,15 @@ async function measureDownload(onProgress, signal) {
   async function stream() {
     while (performance.now() < deadline && !signal.aborted) {
       const res = await fetchWithTimeout(
-        "https://speed.cloudflare.com/__down?bytes=" + CHUNK_BYTES,
+        "https://speed.cloudflare.com/__down?bytes=" + CHUNK_LADDER[rung],
         { cache: "no-store" },
         signal,
       );
+      if (res.status === 429 && rung < CHUNK_LADDER.length - 1) {
+        rung++; // throttled: ask for less and try again
+        await sleep(250);
+        continue;
+      }
       if (!res.ok || !res.body) break;
       // Read incrementally so bytes still count when the deadline cuts a
       // chunk short — an abandoned chunk was still real traffic.
@@ -126,8 +137,12 @@ async function measureDownload(onProgress, signal) {
     stream().catch(() => {}),
   );
   await Promise.all(streams);
+  // No bytes at all means every stream was refused (a rate limit, a blocked
+  // endpoint, no route). That is a failed measurement, not a 0 Mbps link, and
+  // reporting it as a number would be a lie the UI cannot distinguish.
+  if (totalBytes === 0) return null;
   const elapsedSec = (Math.min(performance.now(), deadline) - start) / 1000;
-  return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : 0;
+  return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : null;
 }
 
 // ── Upload ────────────────────────────────────────────────────────
@@ -162,8 +177,9 @@ async function measureUpload(onProgress, signal) {
     stream().catch(() => {}),
   );
   await Promise.all(streams);
+  if (totalBytes === 0) return null;
   const elapsedSec = (Math.min(performance.now(), deadline) - start) / 1000;
-  return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : 0;
+  return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : null;
 }
 
 async function run(onProgress, opts = {}) {
@@ -183,28 +199,30 @@ async function run(onProgress, opts = {}) {
   try {
     cb(0);
     const { ping, jitter } = await measureLatency(cb, signal);
-    let down = 0;
-    let up = 0;
+    let down = null;
+    let up = null;
     try {
       down = await measureDownload(cb, signal);
     } catch {
-      down = 0;
+      down = null;
     }
     try {
       up = await measureUpload(cb, signal);
     } catch {
-      up = 0;
+      up = null;
     }
     cb(100);
     return {
-      downMbps: Math.round(down),
-      upMbps: Math.round(up),
+      // null (not 0) when the measurement failed — the hero renders it as "—".
+      downMbps: down == null ? null : Math.round(down),
+      upMbps: up == null ? null : Math.round(up),
       ping,
       jitter,
       measuredAt: Date.now(),
       // A run the hard cap cut short still reports what it managed to measure,
       // flagged so the UI can say so rather than quietly showing a low number.
       partial: signal.aborted,
+      failed: down == null || up == null,
     };
   } finally {
     clearTimeout(capTimer);

@@ -52,6 +52,7 @@ function useSpeedTest(onResult) {
       });
       onResult(res);
       if (res.partial) toast("Speed test timed out — showing partial results");
+      else if (res.failed) toast("Couldn't measure throughput — check the connection");
     } catch (e) {
       toast("Speed test failed");
     } finally {
@@ -158,8 +159,8 @@ function HelperApp() {
         </div>
         <div className="helper-foot">
           <div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: "#18222d" }}>Data source</div>
-            <div style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 2 }}>
+            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Data source</div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
               Collected locally via native OS APIs. Nothing leaves this machine
               unless you configure a report endpoint.
             </div>
@@ -348,7 +349,7 @@ function NetworkScreen() {
         </div>
         <div className="sh-action">
           <button className="send-btn" onClick={run} disabled={testing}>
-            {testing ? <Spinner size={14} color="#fff" /> : <Icon name="arrow-rotate-right" />}
+            {testing ? <Spinner size={14} color="var(--accent-contrast)" /> : <Icon name="arrow-rotate-right" />}
             {testing ? ` Testing… ${progress}%` : " Run speed test"}
           </button>
           <div className="sh-meta">
@@ -396,7 +397,7 @@ function NetworkScreen() {
 // native one from BrowserWindow.
 function Frame({ children }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#f7f8f9", display: "flex", flexDirection: "column" }}>
+    <div style={{ minHeight: "100vh", background: "var(--surface-page)", display: "flex", flexDirection: "column" }}>
       {children}
     </div>
   );
@@ -407,11 +408,11 @@ function Frame({ children }) {
 // fills the measurements in when they arrive.
 function LoadingScreen({ status }) {
   return (
-    <div style={{ flex: 1, background: "#f7f8f9", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
-      <Icon name="cloud" size={42} color="var(--whd-cyan)" />
-      <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: "#18222d", marginTop: 16 }}>Checking your workstation…</div>
-      <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8 }}>
-        <Spinner size={14} color="var(--whd-cyan)" /> {status}
+    <div style={{ flex: 1, background: "var(--surface-page)", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+      <Icon name="cloud" size={42} color="var(--accent)" />
+      <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: "var(--text-strong)", marginTop: 16 }}>Checking your workstation…</div>
+      <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8 }}>
+        <Spinner size={14} color="var(--accent)" /> {status}
       </div>
     </div>
   );
@@ -420,11 +421,11 @@ function LoadingScreen({ status }) {
 function ErrorScreen({ message, onRetry }) {
   return (
     <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
-      <Icon name="triangle-exclamation" size={38} color="#b94a48" />
-      <div style={{ fontWeight: 700, color: "#b94a48", marginTop: 14, fontSize: 16 }}>
+      <Icon name="triangle-exclamation" size={38} color="var(--danger)" />
+      <div style={{ fontWeight: 700, color: "var(--danger)", marginTop: 14, fontSize: 16 }}>
         Couldn&apos;t scan this workstation.
       </div>
-      <div style={{ fontSize: 13, color: "var(--fg-3)", marginTop: 8, maxWidth: 460 }}>{message}</div>
+      <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8, maxWidth: 460 }}>{message}</div>
       <button className="send-btn" style={{ marginTop: 20 }} onClick={onRetry}>
         <Icon name="arrow-rotate-right" size={14} /> Try again
       </button>
