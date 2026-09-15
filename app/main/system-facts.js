@@ -23,19 +23,31 @@ try {
 const GB = 1024 * 1024 * 1024;
 const round1 = (n) => Math.round(n * 10) / 10;
 
+// Run a probe that must never take the whole scan down with it. A machine with
+// no battery, a VM with no display adapter or a locked-down security policy
+// should cost one blank card, not the entire dashboard.
+function probe(promise, fallback) {
+  return Promise.resolve(promise).then(
+    (v) => (v == null ? fallback : v),
+    () => fallback,
+  );
+}
+
 async function collectFacts() {
-  // Everything fast runs in one parallel batch. si.diskLayout() (SSD flag) is
-  // deliberately excluded — it hits a ~7s Windows storage provider, so the
-  // SSD flag is resolved lazily alongside OS updates (see detectDeferred).
+  // Everything fast runs in one parallel batch. Deliberately excluded and
+  // resolved lazily instead (see detectDeferred): si.diskLayout() (SSD flag,
+  // ~7s Windows storage provider), the OS update check, and si.processes(),
+  // which is among the slowest calls on Windows.
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, graphics, audio, defIfaceName,
-         antivirus, background, defaultAudio] = await Promise.all([
-    si.cpu(), si.mem(), si.memLayout(), si.osInfo(), si.system(), si.fsSize(),
-    si.networkInterfaces(), si.networkGatewayDefault(),
-    si.battery(), si.graphics(), si.audio(),
-    si.networkInterfaceDefault(),
-    detectAntivirus(), detectBackgroundApps(), detectDefaultAudio(),
-  ]).catch((e) => { throw new Error("systeminformation failed: " + e.message); });
+         antivirus, defaultAudio] = await Promise.all([
+    probe(si.cpu(), {}), probe(si.mem(), {}), probe(si.memLayout(), []),
+    probe(si.osInfo(), {}), probe(si.system(), {}), probe(si.fsSize(), []),
+    probe(si.networkInterfaces(), []), probe(si.networkGatewayDefault(), ""),
+    probe(si.battery(), {}), probe(si.graphics(), {}), probe(si.audio(), []),
+    probe(si.networkInterfaceDefault(), ""),
+    probe(detectAntivirus(), { products: [] }), probe(detectDefaultAudio(), null),
+  ]);
 
   // --- default network interface ---
   const iface = (Array.isArray(net) ? net : [net]).find((n) => n.iface === defIfaceName) || {};
@@ -67,19 +79,19 @@ async function collectFacts() {
     appVersion: APP_VERSION,
 
     cpu: {
-      model: `${cpu.manufacturer} ${cpu.brand}`.trim(),
-      cores: cpu.cores,
-      perfCores: cpu.performanceCores || cpu.physicalCores || cpu.cores,
+      model: [cpu.manufacturer, cpu.brand].filter(Boolean).join(" ") || "Unknown",
+      cores: cpu.cores || 0,
+      perfCores: cpu.performanceCores || cpu.physicalCores || cpu.cores || 0,
       effCores: cpu.efficiencyCores || 0,
       ghz: round1(cpu.speedMax || cpu.speed || 0),
-      family: cpu.manufacturer,
+      family: cpu.manufacturer || "Unknown",
       arch: os.arch(),
-      series: cpu.brand,
+      series: cpu.brand || "Unknown",
     },
     machineType: `${system.manufacturer || ""} ${system.model || os.platform()}`.trim(),
     ram: {
-      totalGB: Math.round(mem.total / GB),
-      freeGB: round1(mem.available / GB),
+      totalGB: Math.round((mem.total || 0) / GB),
+      freeGB: round1((mem.available || 0) / GB),
       type: memType,
       pressure: ramPressure(mem),
     },
@@ -98,7 +110,7 @@ async function collectFacts() {
     },
     os: {
       name: osInfo.distro || os.type(),
-      version: osInfo.release,
+      version: osInfo.release || os.release(),
       build: osInfo.build || "",
       lastUpdateCheck: "Checking…", // filled in by the lazy get-updates call
       pendingUpdates: null, // number once the lazy update check resolves
@@ -120,11 +132,11 @@ async function collectFacts() {
     // renderer's speed test completes.
     bandwidth: {
       downMbps: null, upMbps: null, ping: null, jitter: null,
-      measuredAt: "not yet run",
+      measuredAt: null, // millisecond timestamp once the renderer measures
     },
     vpn: detectVpn(net),
     antivirus,
-    backgroundApps: background,
+    backgroundApps: null, // filled in by detectDeferred (si.processes is slow)
     power: {
       onBattery: battery.hasBattery ? !battery.acConnected : false,
       batteryLevel: battery.hasBattery ? battery.percent : 100,
@@ -245,8 +257,6 @@ function detectAntivirus() {
   }
 
   if (plat === "darwin") {
-    const fs = require("fs");
-    const path = require("path");
     const apps = [
       "/Applications/McAfee Endpoint Security for Mac.app",
       "/Applications/McAfee LiveSafe.app",
@@ -308,12 +318,17 @@ function humanAge(ts) {
   return Math.round(sec / 86400) + " days";
 }
 
-// Slow detections, fetched lazily after first paint: OS update status and the
-// SSD flag (both hit slow Windows providers). Returned together so the renderer
-// merges both into FACTS in a single re-render.
+// Slow detections, fetched lazily after first paint: OS update status, the SSD
+// flag (both hit slow Windows providers) and the running-process scan. Returned
+// together so the renderer merges them in a single re-render. Each is wrapped
+// so one slow provider cannot strand the others.
 async function detectDeferred() {
-  const [updates, ssd] = await Promise.all([detectUpdates(), detectSsd()]);
-  return { ...updates, ssd };
+  const [updates, ssd, backgroundApps] = await Promise.all([
+    probe(detectUpdates(), { pendingUpdates: null, lastUpdateCheck: "Unknown" }),
+    probe(detectSsd(), null),
+    probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }),
+  ]);
+  return { ...updates, ssd, backgroundApps };
 }
 
 // Is the primary disk an SSD? si.diskLayout() is the reliable source but slow.
@@ -371,7 +386,8 @@ async function detectBackgroundApps() {
     zoom: "Zoom", teams: "Microsoft Teams", "ms-teams": "Microsoft Teams",
     skype: "Skype", webex: "Webex", discord: "Discord", slack: "Slack",
     dropbox: "Dropbox", onedrive: "OneDrive", steam: "Steam",
-    spotify: "Spotify", chrome: "Chrome", code: "VS Code",
+    spotify: "Spotify", chrome: "Chrome", msedge: "Microsoft Edge",
+    firefox: "Firefox", code: "VS Code",
   };
 
   let runningApps = [];

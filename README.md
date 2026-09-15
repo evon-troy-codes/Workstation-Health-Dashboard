@@ -16,9 +16,16 @@ npm install
 npm start
 ```
 
-On launch the app gathers system facts and runs a network speed test. Results
-are only shown once the speed test completes, so the dashboard is never
-displayed half-measured.
+`npm start` compiles the renderer first (`npm run build`): it vendors React's
+production build into `app/renderer/dist/vendor` and precompiles the JSX with
+esbuild. Nothing is fetched from a CDN at runtime, so the app launches on a
+machine with no working network — which is exactly the machine you are most
+likely to be diagnosing.
+
+On launch the dashboard appears as soon as the system scan lands (about a
+second or two). The network speed test runs in the background and fills in the
+Network tab when it finishes; the slower OS-update, SSD and process scans do
+the same.
 
 ---
 
@@ -29,7 +36,8 @@ displayed half-measured.
 | CPU, RAM + pressure, disk, OS, display, power, uptime | `systeminformation` + Node `os`               |
 | Antivirus                                             | Windows Security Center / macOS app bundles   |
 | VPN                                                   | active tunnel-interface scan                  |
-| DNS, background apps, browser-extension count         | Node `dns` + process/file scans               |
+| DNS                                                   | Node `dns`                                    |
+| Background apps, browser-extension count              | process/file scans (fetched after first paint) |
 | OS pending updates, SSD flag                          | Windows providers (fetched after first paint) |
 | Network speed (download/upload/ping/jitter)           | Cloudflare speed test                         |
 
@@ -46,17 +54,23 @@ Workstation-Health-Dashboard/
     ├── INTEGRATION.md        # Architecture notes + how to extend it
     └── renderer/              # React UI (loaded by main.js)
         ├── index.html
-        ├── helper-app.jsx    # 3-screen dashboard
+        ├── helper-app.jsx    # 3-screen dashboard (entry point)
         ├── speedtest.js      # Cloudflare speed test
+        ├── react-globals.js  # React/ReactDOM from the vendored UMD builds
         ├── icons.jsx, toast.jsx
-        └── assets/            # design tokens + brand font
+        ├── assets/            # design tokens + brand font
+        └── dist/              # build output (git-ignored, made by build.js)
 ```
+
+`build.js` at the repo root produces `app/renderer/dist`. Run it with
+`npm run build`; `npm start` and `npm run dist` do it for you.
 
 ---
 
 ## Notes
 
-- React/Babel currently load from a CDN for development. For production,
-  bundle them offline and tighten the CSP (see INTEGRATION.md).
+- React ships with the app and the JSX is precompiled, so `index.html` enforces
+  a strict CSP with no remote origins and no `unsafe-eval`. The one network
+  allowance is `connect-src https://speed.cloudflare.com` for the speed test.
 - Code-sign the build before distribution to avoid SmartScreen / Gatekeeper
   warnings.

@@ -1,22 +1,27 @@
-/* global React */
+import { React } from "./react-globals.js";
+
 // Toast.jsx — tiny global toast listener.
 // Any button can dispatch:  window.dispatchEvent(new CustomEvent("whd-toast", {detail: "..."}))
 // and a single floating toast will pop. Self-dismisses after 2.5s.
 
 function Toast() {
   const [msg, setMsg] = React.useState(null);
+  const timer = React.useRef(null);
   React.useEffect(() => {
     const onToast = (e) => {
       setMsg(e.detail);
-      window.clearTimeout(window.__toastTimer);
-      window.__toastTimer = window.setTimeout(() => setMsg(null), 2500);
+      window.clearTimeout(timer.current);
+      timer.current = window.setTimeout(() => setMsg(null), 2500);
     };
     window.addEventListener("whd-toast", onToast);
-    return () => window.removeEventListener("whd-toast", onToast);
+    return () => {
+      window.removeEventListener("whd-toast", onToast);
+      window.clearTimeout(timer.current);
+    };
   }, []);
   if (!msg) return null;
   return (
-    <div style={{
+    <div role="status" aria-live="polite" style={{
       position: "fixed", bottom: 24, left: "50%", transform: "translateX(-50%)",
       background: "#18222d", color: "#fff",
       padding: "10px 18px", borderRadius: 999,
@@ -27,4 +32,5 @@ function Toast() {
     }}>{msg}</div>
   );
 }
-window.WhdToast = Toast;
+
+export { Toast };

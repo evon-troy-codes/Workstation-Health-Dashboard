@@ -1,39 +1,71 @@
-/* global React, ReactDOM, Icon */
-// Renderer entry. Real workstation facts are injected as window.__WHD_FACTS__
-// by bootstrap (which calls the preload bridge) BEFORE this file runs.
+// Renderer entry. Pulls real workstation facts over the preload bridge, then
+// renders the dashboard. Slow scans and the network speed test fill themselves
+// in afterwards — the dashboard never waits on them.
 
-const { useState, useEffect, useRef } = React;
+import { React, ReactDOM } from "./react-globals.js";
+import { Icon, Spinner } from "./icons.jsx";
+import { Toast } from "./toast.jsx";
+import * as speedtest from "./speedtest.js";
 
-const FACTS = window.__WHD_FACTS__;
+const {
+  useState, useEffect, useRef, useCallback, useContext, createContext,
+} = React;
 
-// Shared speed-test controller. Auto-runs once at startup and can be re-run from
-// the Network tab. Holds testing/progress so every screen can reflect it, and
-// dispatches "speedtest-progress" (re-render) + "facts-updated" (data refresh) events.
-const SpeedTest = {
-  testing: false,
-  progress: 0,
-  hasRun: false,
-  async run() {
-    if (this.testing) return;
-    this.testing = true;
-    this.progress = 0;
-    window.dispatchEvent(new CustomEvent("speedtest-progress"));
+// ---- shared state ----------------------------------------------------------
+
+// Facts are React state, not a mutated module global: every screen reads them
+// through this context, so a re-scan or a finished speed test re-renders the
+// tree the ordinary way instead of via a forced tick.
+const AppContext = createContext(null);
+const useApp = () => useContext(AppContext);
+
+const toast = (detail) =>
+  window.dispatchEvent(new CustomEvent("whd-toast", { detail }));
+
+// "just now" / "4 min ago" from a millisecond timestamp.
+function agoLabel(ts) {
+  if (ts == null) return "never";
+  const sec = Math.max(0, (Date.now() - ts) / 1000);
+  if (sec < 45) return `${Math.round(sec)}s ago`;
+  if (sec < 3600) return `${Math.round(sec / 60)} min ago`;
+  if (sec < 86400) return `${Math.round(sec / 3600)} hr ago`;
+  return `${Math.round(sec / 86400)} days ago`;
+}
+
+// Drives the speed test for the whole app rather than for one screen, so
+// switching tabs mid-run neither restarts nor loses it.
+function useSpeedTest(onResult) {
+  const [testing, setTesting] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const running = useRef(false);
+  const abort = useRef(null);
+
+  const run = useCallback(async () => {
+    if (running.current) return;
+    running.current = true;
+    abort.current = new AbortController();
+    setTesting(true);
+    setProgress(0);
     try {
-      const res = await window.whdSpeedTest.run((pct) => {
-        this.progress = pct;
-        window.dispatchEvent(new CustomEvent("speedtest-progress"));
+      const res = await speedtest.run((pct) => setProgress(pct), {
+        signal: abort.current.signal,
       });
-      FACTS.bandwidth = { ...FACTS.bandwidth, ...res };
-      this.hasRun = true;
+      onResult(res);
+      if (res.partial) toast("Speed test timed out — showing partial results");
     } catch (e) {
-      window.dispatchEvent(new CustomEvent("whd-toast", { detail: "Speed test failed" }));
+      toast("Speed test failed");
     } finally {
-      this.testing = false;
-      window.dispatchEvent(new CustomEvent("speedtest-progress"));
-      window.dispatchEvent(new CustomEvent("facts-updated"));
+      running.current = false;
+      abort.current = null;
+      setTesting(false);
     }
-  },
-};
+  }, [onResult]);
+
+  // A run still in flight when the app closes should not keep sockets open.
+  useEffect(() => () => abort.current && abort.current.abort(), []);
+
+  return { testing, progress, run };
+}
 
 // ---- UI --------------------------------------------------------------------
 
@@ -41,7 +73,15 @@ function Logo({ size }) {
   return <img src="assets/logo/logo-mark.svg" alt="" width={size} height={size} style={{ display: "block" }} />;
 }
 
-function Header({ syncedAgo }) {
+function Header() {
+  const { facts, scannedAt } = useApp();
+  const [, tick] = useState(0);
+  // The "last scan" label is derived from the real scan time, so it stays
+  // honest instead of counting up on its own; this only nudges a repaint.
+  useEffect(() => {
+    const id = setInterval(() => tick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
   return (
     <div className="helper-head">
       <div className="brand">
@@ -52,8 +92,8 @@ function Header({ syncedAgo }) {
       </div>
       <div className="head-right">
         <div>
-          <div className="syncline">{FACTS.hostname}</div>
-          <div className="syncsub">Last scan {syncedAgo}s ago</div>
+          <div className="syncline">{facts.hostname}</div>
+          <div className="syncsub">Last scan {agoLabel(scannedAt)}</div>
         </div>
       </div>
     </div>
@@ -86,27 +126,31 @@ function KV({ k, v }) {
 
 function HelperApp() {
   const [screen, setScreen] = useState("overview"); // overview | system | network
-  const [syncedAgo, setSyncedAgo] = useState(2);
-  const [, setTick] = useState(0); // bumped on "facts-updated" to re-render with new data
-  useEffect(() => {
-    // Startup data (deferred scans + speed test) is gathered by <App> before
-    // this dashboard mounts; here we only keep the UI in sync with re-runs.
-    const id = setInterval(() => setSyncedAgo((s) => (s >= 60 ? 0 : s + 1)), 1000);
-    const onUpdate = () => setTick((t) => t + 1);
-    window.addEventListener("facts-updated", onUpdate);
-    window.addEventListener("speedtest-progress", onUpdate);
-    return () => {
-      clearInterval(id);
-      window.removeEventListener("facts-updated", onUpdate);
-      window.removeEventListener("speedtest-progress", onUpdate);
-    };
-  }, []);
+  const { facts, rescan, rescanning } = useApp();
+  const [sending, setSending] = useState(false);
+
+  // Posts the report to WHD_REPORT_URL. With no endpoint configured the main
+  // process reports back skipped, and the button says so rather than claiming
+  // it sent anything.
+  const sendReport = async () => {
+    setSending(true);
+    try {
+      const res = await window.whd.sendReport(facts);
+      if (res && res.skipped) toast("No report endpoint configured");
+      else if (res && res.ok) toast("Report sent");
+      else toast(`Report failed${res && res.status ? ` (${res.status})` : ""}`);
+    } catch (e) {
+      toast("Report failed");
+    } finally {
+      setSending(false);
+    }
+  };
 
   return (
     <div className="helper-shell">
       <Sidebar active={screen} onChange={setScreen} />
       <div className="helper-main">
-        <Header syncedAgo={syncedAgo} />
+        <Header />
         <div className="screen-wrap">
           {screen === "overview" && <OverviewScreen onJump={setScreen} />}
           {screen === "system"   && <SystemScreen />}
@@ -121,7 +165,16 @@ function HelperApp() {
             </div>
           </div>
           <div className="foot-actions">
-            <button className="foot-btn" onClick={() => { window.dispatchEvent(new CustomEvent("whd-toast", { detail: "Re-scanning workstation…" })); window.whd.rescan().then(() => location.reload()); }}><Icon name="arrow-rotate-right" size={12} /> Re-scan now</button>
+            <button className="foot-btn" onClick={sendReport} disabled={sending}>
+              {sending
+                ? <><Spinner size={12} /> Sending…</>
+                : <><Icon name="envelope" size={12} /> Send report</>}
+            </button>
+            <button className="foot-btn" onClick={rescan} disabled={rescanning}>
+              {rescanning
+                ? <><Spinner size={12} /> Re-scanning…</>
+                : <><Icon name="arrow-rotate-right" size={12} /> Re-scan now</>}
+            </button>
           </div>
         </div>
       </div>
@@ -133,6 +186,7 @@ function HelperApp() {
 // Sidebar nav
 // ============================================================================
 function Sidebar({ active, onChange }) {
+  const { facts } = useApp();
   const items = [
     { id: "overview", label: "Overview", icon: "house" },
     { id: "system",   label: "System",   icon: "cog" },
@@ -146,17 +200,22 @@ function Sidebar({ active, onChange }) {
           <div className="sb-name">Health Dashboard</div>
         </div>
       </div>
-      <nav className="sb-nav">
+      <nav className="sb-nav" aria-label="Dashboard sections">
         {items.map((it) => (
-          <button key={it.id} className={`sb-item ${active === it.id ? "active" : ""}`} onClick={() => onChange(it.id)}>
+          <button
+            key={it.id}
+            className={`sb-item ${active === it.id ? "active" : ""}`}
+            aria-current={active === it.id ? "page" : undefined}
+            onClick={() => onChange(it.id)}
+          >
             <Icon name={it.icon} size={15} />
             <span className="sb-label">{it.label}</span>
           </button>
         ))}
       </nav>
       <div className="sb-foot">
-        <div className="sb-foot-name">{FACTS.user}</div>
-        <div className="sb-foot-sub">{FACTS.hostname}</div>
+        <div className="sb-foot-name">{facts.user}</div>
+        <div className="sb-foot-sub">{facts.hostname}</div>
       </div>
     </aside>
   );
@@ -166,27 +225,28 @@ function Sidebar({ active, onChange }) {
 // Screen 1 — Overview
 // ============================================================================
 function OverviewScreen({ onJump }) {
+  const { facts } = useApp();
   return (
     <>
       <div className="card-grid card-grid-2">
-        <Card icon="cog" title="Quick specs" sub={FACTS.machineType || FACTS.os.name}>
-          <KV k="CPU" v={FACTS.cpu.model} />
-          <KV k="RAM" v={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`} />
-          <KV k="Storage" v={`${FACTS.disk.totalGB} GB ${FACTS.disk.ssd == null ? "" : FACTS.disk.ssd ? "SSD" : "HDD"}`.trim()} />
-          <KV k="OS" v={`${FACTS.os.name} ${FACTS.os.version}`} />
+        <Card icon="cog" title="Quick specs" sub={facts.machineType || facts.os.name}>
+          <KV k="CPU" v={facts.cpu.model} />
+          <KV k="RAM" v={`${facts.ram.totalGB} GB ${facts.ram.type}`} />
+          <KV k="Storage" v={`${facts.disk.totalGB} GB ${facts.disk.ssd == null ? "" : facts.disk.ssd ? "SSD" : "HDD"}`.trim()} />
+          <KV k="OS" v={`${facts.os.name} ${facts.os.version}`} />
         </Card>
 
         <Card icon="cloud" title="Session" sub="This scan">
-          <KV k="Hostname" v={FACTS.hostname} />
-          <KV k="User" v={FACTS.user} />
-          <KV k="Uptime" v={FACTS.uptime} />
-          <KV k="App version" v={`v${FACTS.appVersion}`} />
+          <KV k="Hostname" v={facts.hostname} />
+          <KV k="User" v={facts.user} />
+          <KV k="Uptime" v={facts.uptime} />
+          <KV k="App version" v={`v${facts.appVersion}`} />
         </Card>
       </div>
 
       <div className="quick-jump">
         <button className="qj-btn" onClick={() => onJump("system")}><Icon name="cog" size={13} /> System details</button>
-        <button className="qj-btn" onClick={() => onJump("network")}><Icon name="globe" size={13} /> Network & speed</button>
+        <button className="qj-btn" onClick={() => onJump("network")}><Icon name="globe" size={13} /> Network &amp; speed</button>
       </div>
     </>
   );
@@ -196,43 +256,45 @@ function OverviewScreen({ onJump }) {
 // Screen 2 — System
 // ============================================================================
 function SystemScreen() {
+  const { facts } = useApp();
+  const driveType = facts.disk.ssd == null ? "Checking…" : facts.disk.ssd ? "SSD" : "HDD";
   return (
     <div className="card-grid card-grid-2">
-      <Card icon="cog" title="Processor" sub={`${FACTS.cpu.cores} cores · ${FACTS.cpu.ghz} GHz · ${FACTS.cpu.arch}`}>
-        <KV k="Model" v={FACTS.cpu.model} />
-        <KV k="Machine" v={FACTS.machineType} />
-        <KV k="Family / series" v={`${FACTS.cpu.family} · ${FACTS.cpu.series}`} />
-        <KV k="Cores" v={`${FACTS.cpu.cores} (${FACTS.cpu.perfCores}P + ${FACTS.cpu.effCores}E)`} />
+      <Card icon="cog" title="Processor" sub={`${facts.cpu.cores} cores · ${facts.cpu.ghz} GHz · ${facts.cpu.arch}`}>
+        <KV k="Model" v={facts.cpu.model} />
+        <KV k="Machine" v={facts.machineType} />
+        <KV k="Family / series" v={`${facts.cpu.family} · ${facts.cpu.series}`} />
+        <KV k="Cores" v={`${facts.cpu.cores} (${facts.cpu.perfCores}P + ${facts.cpu.effCores}E)`} />
       </Card>
 
-      <Card icon="grip" title="Memory" sub={`${FACTS.ram.totalGB} GB · ${FACTS.ram.freeGB} GB free`}>
-        <KV k="Total" v={`${FACTS.ram.totalGB} GB ${FACTS.ram.type}`} />
-        <KV k="Free" v={`${FACTS.ram.freeGB} GB`} />
-        <KV k="Pressure" v={FACTS.ram.pressure} />
+      <Card icon="grip" title="Memory" sub={`${facts.ram.totalGB} GB · ${facts.ram.freeGB} GB free`}>
+        <KV k="Total" v={`${facts.ram.totalGB} GB ${facts.ram.type}`} />
+        <KV k="Free" v={`${facts.ram.freeGB} GB`} />
+        <KV k="Pressure" v={facts.ram.pressure} />
       </Card>
 
-      <Card icon="briefcase" title="Hard drive" sub={`${FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.ssd ? "SSD" : "HDD"} · ${FACTS.disk.totalGB} GB total`}>
-        <KV k="Total" v={`${FACTS.disk.totalGB} GB`} />
-        <KV k="Free" v={`${FACTS.disk.freeGB} GB`} />
-        <KV k="Used" v={`${FACTS.disk.usedPercent}%`} />
-        <KV k="Drive type" v={FACTS.disk.ssd == null ? "Checking…" : FACTS.disk.ssd ? "SSD" : "HDD"} />
+      <Card icon="briefcase" title="Hard drive" sub={`${driveType} · ${facts.disk.totalGB} GB total`}>
+        <KV k="Total" v={`${facts.disk.totalGB} GB`} />
+        <KV k="Free" v={`${facts.disk.freeGB} GB`} />
+        <KV k="Used" v={`${facts.disk.usedPercent}%`} />
+        <KV k="Drive type" v={driveType} />
       </Card>
 
-      <Card icon="house" title="Operating system" sub={`${FACTS.os.name} ${FACTS.os.version}`}>
-        <KV k="Computer name" v={FACTS.hostname} />
-        <KV k="Version" v={`${FACTS.os.version} (${FACTS.os.build})`} />
+      <Card icon="house" title="Operating system" sub={`${facts.os.name} ${facts.os.version}`}>
+        <KV k="Computer name" v={facts.hostname} />
+        <KV k="Version" v={`${facts.os.version} (${facts.os.build})`} />
       </Card>
 
-      <Card icon="circle-info" title="OS updates" sub={`Last checked ${FACTS.os.lastUpdateCheck}`}>
-        <KV k="Pending updates" v={FACTS.os.pendingUpdates == null ? "Unknown" : FACTS.os.pendingUpdates === 0 ? "None" : `${FACTS.os.pendingUpdates} pending`} />
-        <KV k="Last check" v={FACTS.os.lastUpdateCheck} />
+      <Card icon="circle-info" title="OS updates" sub={`Last checked ${facts.os.lastUpdateCheck}`}>
+        <KV k="Pending updates" v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
+        <KV k="Last check" v={facts.os.lastUpdateCheck} />
       </Card>
 
-      <Card icon="circle-check" title="Antivirus" sub={`${FACTS.antivirus.products.length} product${FACTS.antivirus.products.length === 1 ? "" : "s"} detected`}>
-        {FACTS.antivirus.products.length === 0 && (
+      <Card icon="circle-check" title="Antivirus" sub={`${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
+        {facts.antivirus.products.length === 0 && (
           <KV k="Status" v="No antivirus detected" />
         )}
-        {FACTS.antivirus.products.map((p, i) => (
+        {facts.antivirus.products.map((p, i) => (
           <KV key={i} k={p.name} v={
             [p.version ? `v${p.version}` : null, p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
               .filter(Boolean).join(" · ") || (p.running ? "Active" : "Inactive")
@@ -240,15 +302,15 @@ function SystemScreen() {
         ))}
       </Card>
 
-      <Card icon="microphone" title="Audio" sub={FACTS.audio.headsetClass}>
-        <KV k="Output" v={FACTS.audio.output} />
-        <KV k="Input" v={FACTS.audio.input} />
-        <KV k="Connection" v={FACTS.audio.isWired ? "Wired" : "Wireless/built-in"} />
+      <Card icon="microphone" title="Audio" sub={facts.audio.headsetClass}>
+        <KV k="Output" v={facts.audio.output} />
+        <KV k="Input" v={facts.audio.input} />
+        <KV k="Connection" v={facts.audio.isWired ? "Wired" : "Wireless/built-in"} />
       </Card>
 
-      <Card icon="phone" title="Power" sub={`${FACTS.power.batteryLevel}% · ${FACTS.power.plugged ? "Plugged in" : "On battery"}`}>
-        <KV k="Battery" v={`${FACTS.power.batteryLevel}%`} />
-        <KV k="Power source" v={FACTS.power.plugged ? "AC adapter" : "Battery"} />
+      <Card icon="phone" title="Power" sub={`${facts.power.batteryLevel}% · ${facts.power.plugged ? "Plugged in" : "On battery"}`}>
+        <KV k="Battery" v={`${facts.power.batteryLevel}%`} />
+        <KV k="Power source" v={facts.power.plugged ? "AC adapter" : "Battery"} />
       </Card>
     </div>
   );
@@ -258,73 +320,79 @@ function SystemScreen() {
 // Screen 3 — Network
 // ============================================================================
 function NetworkScreen() {
-  // State lives in the shared SpeedTest controller (auto-started at app launch);
-  // this screen reflects it and can re-trigger a run.
-  const testing = SpeedTest.testing;
-  const progress = SpeedTest.progress;
-  const runTest = () => SpeedTest.run();
-  const b = FACTS.bandwidth;
+  const { facts, speed } = useApp();
+  const { testing, progress, run } = speed;
+  const b = facts.bandwidth;
+  const value = (v) => (v == null ? "—" : v);
   return (
     <>
       {/* Big speed card */}
       <div className="speed-hero">
         <div className="sh-col">
           <div className="sh-label">Download</div>
-          <div className="sh-value">{b.downMbps == null ? "—" : b.downMbps}<span className="sh-unit">Mbps</span></div>
+          <div className="sh-value">{value(b.downMbps)}<span className="sh-unit">Mbps</span></div>
           {b.downMbps == null && <div className="sh-tag">{testing ? "Testing…" : "—"}</div>}
         </div>
         <div className="sh-col">
           <div className="sh-label">Upload</div>
-          <div className="sh-value">{b.upMbps == null ? "—" : b.upMbps}<span className="sh-unit">Mbps</span></div>
+          <div className="sh-value">{value(b.upMbps)}<span className="sh-unit">Mbps</span></div>
           {b.upMbps == null && <div className="sh-tag">{testing ? "Testing…" : "—"}</div>}
         </div>
         <div className="sh-col">
           <div className="sh-label">Ping</div>
-          <div className="sh-value">{b.ping == null ? "—" : b.ping}<span className="sh-unit">ms</span></div>
+          <div className="sh-value">{value(b.ping)}<span className="sh-unit">ms</span></div>
         </div>
         <div className="sh-col">
           <div className="sh-label">Jitter</div>
-          <div className="sh-value">{b.jitter == null ? "—" : b.jitter}<span className="sh-unit">ms</span></div>
+          <div className="sh-value">{value(b.jitter)}<span className="sh-unit">ms</span></div>
         </div>
         <div className="sh-action">
-          <button className="send-btn" onClick={runTest} disabled={testing}>
+          <button className="send-btn" onClick={run} disabled={testing}>
             {testing ? <Spinner size={14} color="#fff" /> : <Icon name="arrow-rotate-right" />}
             {testing ? ` Testing… ${progress}%` : " Run speed test"}
           </button>
-          <div className="sh-meta">Measured {testing ? "now…" : b.measuredAt}</div>
+          <div className="sh-meta">
+            Measured {testing ? "now…" : b.measuredAt == null ? "not yet run" : agoLabel(b.measuredAt)}
+          </div>
         </div>
       </div>
 
       <div className="card-grid card-grid-2">
-        <Card icon="globe" title="Network interface" sub={FACTS.network.type}>
-          <KV k="Connection type" v={FACTS.network.isWired ? "Wired Ethernet" : "Wireless"} />
-          <KV k="Interface" v={`${FACTS.network.interface} · ${FACTS.network.linkSpeed}`} />
-          <KV k="MAC address" v={FACTS.network.mac} />
-          <KV k="MTU" v={FACTS.network.mtu || "Unknown"} />
+        <Card icon="globe" title="Network interface" sub={facts.network.type}>
+          <KV k="Connection type" v={facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
+          <KV k="Interface" v={`${facts.network.interface} · ${facts.network.linkSpeed}`} />
+          <KV k="MAC address" v={facts.network.mac} />
+          <KV k="MTU" v={facts.network.mtu || "Unknown"} />
         </Card>
 
         <Card icon="cloud" title="Routing" sub="IPv4, gateway, DNS">
-          <KV k="IPv4" v={FACTS.network.ipv4} />
-          <KV k="Gateway" v={FACTS.network.gateway} />
-          <KV k="DNS" v={FACTS.network.dns.join(", ")} />
-          <KV k="IPv6" v={FACTS.network.ipv6Disabled ? "Disabled" : "Enabled"} />
+          <KV k="IPv4" v={facts.network.ipv4} />
+          <KV k="Gateway" v={facts.network.gateway} />
+          <KV k="DNS" v={facts.network.dns.join(", ")} />
+          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
         </Card>
 
         <Card icon="circle-check" title="VPN" sub="Traditional VPNs may add jitter">
-          <KV k="Detected" v={FACTS.vpn.detected ? FACTS.vpn.name || "Unknown VPN" : "None"} />
+          <KV k="Detected" v={facts.vpn.detected ? facts.vpn.name || "Unknown VPN" : "None"} />
         </Card>
 
         <Card icon="users" title="Background apps" sub="Apps that may compete for bandwidth or CPU">
-          <KV k="Running" v={FACTS.backgroundApps.runningApps.length === 0 ? "None detected" : FACTS.backgroundApps.runningApps.join(", ")} />
-          <KV k="Browser extensions" v={`${FACTS.backgroundApps.browserExtensions} installed`} />
+          <KV k="Running" v={
+            facts.backgroundApps == null ? "Checking…"
+              : facts.backgroundApps.runningApps.length === 0 ? "None detected"
+              : facts.backgroundApps.runningApps.join(", ")
+          } />
+          <KV k="Browser extensions" v={
+            facts.backgroundApps == null ? "Checking…" : `${facts.backgroundApps.browserExtensions} installed`
+          } />
         </Card>
       </div>
     </>
   );
 }
 
-// Full-height page wrapper. Holds whatever is showing — the loading screen
-// during startup, then the dashboard. The window's own title bar is the
+// Full-height page wrapper. Holds whatever is showing — the startup screen
+// during the first scan, then the dashboard. The window's own title bar is the
 // native one from BrowserWindow.
 function Frame({ children }) {
   return (
@@ -334,62 +402,116 @@ function Frame({ children }) {
   );
 }
 
-// Shown until startup checks finish. The network speed test MUST complete before
-// the dashboard renders, so results are never shown half-measured.
-function LoadingScreen({ status, progress }) {
+// Shown only while the first scan is in flight (about a second). The speed test
+// no longer gates this — the dashboard renders as soon as the facts land and
+// fills the measurements in when they arrive.
+function LoadingScreen({ status }) {
   return (
-    <div style={{ minHeight: 600, background: "#f7f8f9", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+    <div style={{ flex: 1, background: "#f7f8f9", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
       <Icon name="cloud" size={42} color="var(--whd-cyan)" />
       <div style={{ fontFamily: "var(--font-display)", fontSize: 22, fontWeight: 600, color: "#18222d", marginTop: 16 }}>Checking your workstation…</div>
       <div style={{ fontSize: 13, color: "var(--fg-2)", marginTop: 10, display: "inline-flex", alignItems: "center", gap: 8 }}>
         <Spinner size={14} color="var(--whd-cyan)" /> {status}
       </div>
-      <div style={{ width: 340, maxWidth: "80%", marginTop: 22 }}>
-        <div style={{ height: 8, background: "#e3e6e9", borderRadius: 999, overflow: "hidden" }}>
-          <div style={{ height: "100%", width: progress + "%", background: "var(--whd-cyan)", borderRadius: 999, transition: "width 200ms ease" }}></div>
-        </div>
-        <div style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 8 }}>Network speed test · {progress}%</div>
-      </div>
-      <div style={{ fontSize: 12, color: "var(--fg-3)", marginTop: 22, maxWidth: 380 }}>
-        Please wait — the speed test must finish before your results are shown.
-      </div>
     </div>
   );
 }
 
-// Gates the dashboard: collects the deferred scans and runs the speed test to
-// completion, then renders results once — so they're never shown half-measured.
-function App() {
-  const [ready, setReady] = useState(false);
-  const [progress, setProgress] = useState(0);
-  const [status, setStatus] = useState("Running network speed test…");
-  useEffect(() => {
-    const onProg = () => setProgress(SpeedTest.progress);
-    window.addEventListener("speedtest-progress", onProg);
-
-    const deferredP = window.whd.getDeferred().then((d) => {
-      if (d) {
-        FACTS.os.pendingUpdates = d.pendingUpdates;
-        FACTS.os.lastUpdateCheck = d.lastUpdateCheck;
-        FACTS.disk.ssd = d.ssd;
-      }
-    }).catch(() => {});
-
-    const speedP = SpeedTest.run();
-
-    Promise.all([deferredP, speedP]).then(() => {
-      setStatus("Finishing up…");
-      setReady(true);
-    });
-
-    return () => window.removeEventListener("speedtest-progress", onProg);
-  }, []);
-
+function ErrorScreen({ message, onRetry }) {
   return (
-    <Frame>
-      {ready ? <HelperApp /> : <LoadingScreen status={status} progress={progress} />}
-    </Frame>
+    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+      <Icon name="triangle-exclamation" size={38} color="#b94a48" />
+      <div style={{ fontWeight: 700, color: "#b94a48", marginTop: 14, fontSize: 16 }}>
+        Couldn&apos;t scan this workstation.
+      </div>
+      <div style={{ fontSize: 13, color: "var(--fg-3)", marginTop: 8, maxWidth: 460 }}>{message}</div>
+      <button className="send-btn" style={{ marginTop: 20 }} onClick={onRetry}>
+        <Icon name="arrow-rotate-right" size={14} /> Try again
+      </button>
+    </div>
   );
 }
 
-ReactDOM.createRoot(document.getElementById("root")).render(<><App /><window.WhdToast /></>);
+// Owns the facts, the deferred scans and the speed test, and hands them to the
+// tree through AppContext.
+function App() {
+  const [facts, setFacts] = useState(null);
+  const [scannedAt, setScannedAt] = useState(null);
+  const [error, setError] = useState(null);
+  const [rescanning, setRescanning] = useState(false);
+  const [status, setStatus] = useState("Reading system facts…");
+
+  const onSpeedResult = useCallback((res) => {
+    setFacts((f) => (f ? { ...f, bandwidth: { ...f.bandwidth, ...res } } : f));
+  }, []);
+  const speed = useSpeedTest(onSpeedResult);
+
+  // Slow scans (OS updates, SSD flag, process list) land after first paint.
+  const loadDeferred = useCallback(() => {
+    window.whd.getDeferred().then((d) => {
+      if (!d) return;
+      setFacts((f) => f && ({
+        ...f,
+        os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck },
+        disk: { ...f.disk, ssd: d.ssd },
+        backgroundApps: d.backgroundApps || f.backgroundApps,
+      }));
+    }).catch(() => {});
+  }, []);
+
+  const scan = useCallback(async () => {
+    setError(null);
+    try {
+      const f = await window.whd.getFacts();
+      setFacts(f);
+      setScannedAt(Date.now());
+      loadDeferred();
+      return true;
+    } catch (e) {
+      setError(String((e && e.message) || e));
+      return false;
+    }
+  }, [loadDeferred]);
+
+  // Re-scan in place. Reloading the window instead would throw away the speed
+  // test and re-run the whole startup sequence.
+  const rescan = useCallback(async () => {
+    setRescanning(true);
+    toast("Re-scanning workstation…");
+    try {
+      const f = await window.whd.rescan();
+      setFacts((prev) => ({ ...f, bandwidth: prev ? prev.bandwidth : f.bandwidth }));
+      setScannedAt(Date.now());
+      loadDeferred();
+      toast("Scan complete");
+    } catch (e) {
+      toast("Re-scan failed");
+    } finally {
+      setRescanning(false);
+    }
+  }, [loadDeferred]);
+
+  const started = useRef(false);
+  const speedRun = speed.run;
+  useEffect(() => {
+    if (started.current) return; // guard against a double effect invocation
+    started.current = true;
+    scan().then((ok) => {
+      if (ok) {
+        setStatus("Running network speed test…");
+        speedRun();
+      }
+    });
+  }, [scan, speedRun]);
+
+  if (error) return <Frame><ErrorScreen message={error} onRetry={scan} /></Frame>;
+  if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
+
+  return (
+    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed }}>
+      <Frame><HelperApp /></Frame>
+    </AppContext.Provider>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<><App /><Toast /></>);

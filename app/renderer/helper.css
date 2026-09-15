@@ -2,6 +2,15 @@
 @import url("assets/colors_and_type.css");
 
 * { box-sizing: border-box; }
+
+/* Referenced by Spinner (icons.jsx) and Toast (toast.jsx). Without these the
+   animation properties silently resolve to nothing. */
+@keyframes spin { to { transform: rotate(360deg); } }
+@keyframes whd-toast-in {
+  from { opacity: 0; transform: translate(-50%, 8px); }
+  to   { opacity: 1; transform: translate(-50%, 0); }
+}
+
 html, body { height: 100%; }
 body { margin: 0; background: #f7f8f9; font-family: var(--font-sans); color: var(--fg-1); }
 #root { min-height: 100%; }
