@@ -8,7 +8,9 @@
     "prestart": "npm run build",
     "start": "electron .",
     "test": "node --test",
-    "dist": "npm run build && electron-builder"
+    "dist": "npm run build && electron-builder",
+    "icons": "electron tools/make-icons.js",
+    "screenshots": "npm run build && electron tools/make-screenshots.js"
   },
   "repository": {
     "type": "git",
@@ -41,7 +43,8 @@
     "appId": "com.evontroy.workstation-health-dashboard",
     "productName": "Zillow Workstation Health Dashboard",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "main.js",
@@ -53,15 +56,18 @@
       "app/renderer/dist/**/*"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "build/icon.ico"
     },
     "mac": {
       "target": "dmg",
-      "category": "public.app-category.utilities"
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.png"
     },
     "linux": {
       "target": "AppImage",
-      "category": "Utility"
+      "category": "Utility",
+      "icon": "build/icons"
     }
   }
 }
