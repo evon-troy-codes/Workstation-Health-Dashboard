@@ -7,6 +7,8 @@ const assert = require("node:assert/strict");
 const os = require("os");
 
 const {
+  collectFacts,
+  detectDeferred,
   classifyHeadset,
   cleanAudioName,
   detectVpn,
@@ -205,4 +207,65 @@ test("parseWindowsAv", async (t) => {
   await t.test("returns empty array on empty input", () => {
     assert.deepEqual(parseWindowsAv(""), []);
   });
+});
+
+// ---------------------------------------------------------------------------
+// Contract between the collector and the renderer.
+//
+// The renderer indexes straight into the facts object (facts.cpu.model,
+// facts.network.dns.join(...), and so on). A rename on this side shows up
+// there as "undefined" on a card rather than as an error, so assert the shape
+// the UI relies on. This one does touch the live machine.
+// ---------------------------------------------------------------------------
+test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, async () => {
+  const facts = await collectFacts();
+
+  // Scalars the header, sidebar and Overview screen read.
+  for (const key of ["hostname", "user", "uptime", "appVersion", "machineType"]) {
+    assert.equal(typeof facts[key], "string", `${key} should be a string`);
+  }
+
+  // Nested groups, with the leaf keys each screen indexes into.
+  const groups = {
+    cpu: ["model", "cores", "perfCores", "effCores", "ghz", "family", "arch", "series"],
+    ram: ["totalGB", "freeGB", "type", "pressure"],
+    disk: ["totalGB", "freeGB", "usedPercent", "ssd"],
+    display: ["resolution", "external"],
+    os: ["name", "version", "build", "lastUpdateCheck", "pendingUpdates"],
+    network: ["interface", "type", "linkSpeed", "mtu", "mac", "ipv4",
+              "ipv6Disabled", "gateway", "dns", "ssid", "isWired"],
+    bandwidth: ["downMbps", "upMbps", "ping", "jitter", "measuredAt"],
+    vpn: ["detected", "name"],
+    power: ["onBattery", "batteryLevel", "plugged"],
+    audio: ["output", "input", "isWired", "headsetConnected", "headsetClass"],
+  };
+  for (const [group, keys] of Object.entries(groups)) {
+    assert.equal(typeof facts[group], "object", `${group} should be an object`);
+    assert.notEqual(facts[group], null, `${group} should not be null`);
+    for (const key of keys) {
+      assert.ok(key in facts[group], `facts.${group}.${key} is missing`);
+    }
+  }
+
+  // Types the renderer calls methods on.
+  assert.ok(Array.isArray(facts.network.dns), "network.dns must be an array");
+  assert.ok(Array.isArray(facts.antivirus.products), "antivirus.products must be an array");
+
+  // Filled in by detectDeferred after first paint; null means "still checking".
+  assert.equal(facts.backgroundApps, null);
+  assert.equal(facts.disk.ssd, null);
+  assert.equal(facts.bandwidth.measuredAt, null);
+
+  // A fallen-back probe must not surface as the string "undefined".
+  assert.ok(!/undefined/.test(facts.cpu.model), "cpu.model leaked undefined");
+  assert.ok(!/undefined/.test(facts.machineType), "machineType leaked undefined");
+});
+
+test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
+  const d = await detectDeferred();
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "ssd", "backgroundApps"]) {
+    assert.ok(key in d, `deferred.${key} is missing`);
+  }
+  assert.ok(Array.isArray(d.backgroundApps.runningApps));
+  assert.equal(typeof d.backgroundApps.browserExtensions, "number");
 });

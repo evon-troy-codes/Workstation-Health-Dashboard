@@ -6,7 +6,7 @@
 //  facts via systeminformation and exposes them to the
 //  renderer over the `window.whd` bridge (see app/preload.js).
 // ═══════════════════════════════════════════════════════
-const { app, BrowserWindow, ipcMain } = require("electron");
+const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
 
@@ -23,47 +23,79 @@ function createWindow() {
     minWidth: 920,
     minHeight: 680,
     title: "Zillow Workstation Health Dashboard",
-    backgroundColor: "#e8e8e8", // avoid the default white flash on open/resize
+    backgroundColor: "#f7f8f9", // matches the page, so open/resize don't flash
     webPreferences: {
       preload: path.join(APP_DIR, "preload.js"),
       contextIsolation: true, // required — preload uses contextBridge
       nodeIntegration: false, // keep the renderer sandboxed
+      sandbox: true, // the preload only needs ipcRenderer, which survives it
     },
   });
 
+  // The renderer has no reason to navigate anywhere or spawn windows. Anything
+  // that tries is either a bug or something hostile, so send external links to
+  // the real browser and refuse the rest.
+  win.webContents.setWindowOpenHandler(({ url }) => {
+    if (/^https:\/\//.test(url)) shell.openExternal(url);
+    return { action: "deny" };
+  });
+  win.webContents.on("will-navigate", (event) => event.preventDefault());
+
   win.setMenuBarVisibility(false);
   win.loadFile(path.join(APP_DIR, "renderer", "index.html"));
+  return win;
 }
 
-app.whenReady().then(() => {
-  ipcMain.handle("whd:get-facts", async () => collectFacts());
-
-  // Slow scans (OS updates + SSD flag), fetched lazily after first paint.
-  ipcMain.handle("whd:get-deferred", () => detectDeferred());
-
-  // POST the health report to an optional backend. No-ops when REPORT_ENDPOINT is unset.
-  ipcMain.handle("whd:send-report", async (_evt, facts) => {
-    if (!REPORT_ENDPOINT) {
-      return { ok: true, skipped: true, reason: "No WHD_REPORT_URL configured" };
-    }
-    try {
-      const res = await fetch(REPORT_ENDPOINT, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(facts),
-      });
-      return { ok: res.ok, status: res.status };
-    } catch (err) {
-      return { ok: false, error: String(err) };
+// A second launch should surface the window that already exists rather than
+// starting a duplicate scan.
+const gotLock = app.requestSingleInstanceLock();
+if (!gotLock) {
+  app.quit();
+} else {
+  app.on("second-instance", () => {
+    const [win] = BrowserWindow.getAllWindows();
+    if (win) {
+      if (win.isMinimized()) win.restore();
+      win.focus();
     }
   });
 
-  createWindow();
+  app.whenReady().then(() => {
+    ipcMain.handle("whd:get-facts", async () => collectFacts());
 
-  app.on("activate", () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    // Slow scans (OS updates, SSD flag, process list), fetched after first paint.
+    ipcMain.handle("whd:get-deferred", () => detectDeferred());
+
+    // POST the health report to an optional backend. No-ops when REPORT_ENDPOINT is unset.
+    ipcMain.handle("whd:send-report", async (_evt, facts) => {
+      if (!REPORT_ENDPOINT) {
+        return { ok: true, skipped: true, reason: "No WHD_REPORT_URL configured" };
+      }
+      // The report carries hostname, username, MAC and IP — refuse to put that
+      // on the wire in the clear, however the endpoint was configured.
+      if (!/^https:\/\//i.test(REPORT_ENDPOINT)) {
+        return { ok: false, error: "WHD_REPORT_URL must be an https:// URL" };
+      }
+      try {
+        const res = await fetch(REPORT_ENDPOINT, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(facts),
+          signal: AbortSignal.timeout(15000),
+        });
+        return { ok: res.ok, status: res.status };
+      } catch (err) {
+        return { ok: false, error: String(err) };
+      }
+    });
+
+    createWindow();
+
+    app.on("activate", () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
-});
+}
 
 app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
