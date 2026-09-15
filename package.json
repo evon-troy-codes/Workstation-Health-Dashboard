@@ -1,12 +1,14 @@
 {
   "name": "workstation-health-dashboard",
   "version": "1.1.0",
-  "description": "Zillow Workstation Health Dashboard — an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
+  "description": "Zillow Workstation Health Dashboard \u2014 an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
   "main": "main.js",
   "scripts": {
+    "build": "node build.js",
+    "prestart": "npm run build",
     "start": "electron .",
     "test": "node --test",
-    "dist": "electron-builder"
+    "dist": "npm run build && electron-builder"
   },
   "repository": {
     "type": "git",
@@ -27,7 +29,10 @@
   "homepage": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard#readme",
   "devDependencies": {
     "electron": "^42.4.0",
-    "electron-builder": "^25.1.8"
+    "electron-builder": "^25.1.8",
+    "esbuild": "^0.28.2",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
   "dependencies": {
     "systeminformation": "^5.31.7"
@@ -42,7 +47,10 @@
       "main.js",
       "app/preload.js",
       "app/main/system-facts.js",
-      "app/renderer/**/*"
+      "app/renderer/index.html",
+      "app/renderer/helper.css",
+      "app/renderer/assets/**/*",
+      "app/renderer/dist/**/*"
     ],
     "win": {
       "target": "nsis"

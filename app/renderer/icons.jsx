@@ -1,4 +1,5 @@
-/* global React */
+import { React } from "./react-globals.js";
+
 // Icon.jsx — minimal inline-SVG icon set (avoids relying on an external icon CDN).
 // Path data adapted from Phosphor-style/Heroicons-style 24×24 strokes.
 
@@ -88,6 +89,4 @@ function Spinner({ size = 14, color = "currentColor" }) {
   );
 }
 
-window.WhdIcon = { Icon, Spinner, ICONS };
-window.Icon = Icon;
-window.Spinner = Spinner;
+export { Icon, Spinner, ICONS };

@@ -9,29 +9,39 @@ app/
 │   └── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
 ├── preload.js               ← contextBridge → window.whd.getFacts()
 └── renderer/
-    ├── index.html            ← window entry (bootstrap fetches facts, then mounts)
-    ├── helper-app.jsx        ← the 3-screen UI (Overview / System / Network)
+    ├── index.html            ← window entry (loads the vendored React + bundle)
+    ├── helper-app.jsx        ← bundle entry: the 3-screen UI + app state
     ├── helper.css
+    ├── react-globals.js      ← re-exports the React/ReactDOM UMD globals
     ├── icons.jsx
     ├── speedtest.js          ← real Cloudflare-based speed test
     ├── toast.jsx
-    └── assets/               ← design tokens + brand font
+    ├── assets/               ← design tokens + brand font
+    └── dist/                 ← build output, git-ignored (see ../../build.js)
 ```
+
+The `.jsx` sources are ES modules bundled by `build.js` (esbuild) into
+`dist/app.js`. React is not bundled — its production UMD build is copied to
+`dist/vendor` and loaded by a plain `<script>`, which `react-globals.js`
+re-exports so source files can `import` it normally.
 
 ## How the data flows
 
 ```
-renderer/index.html (bootstrap)
-   └─ window.whd.getFacts()          [preload.js]
+<App> mounts                       [helper-app.jsx]
+   └─ window.whd.getFacts()        [preload.js]
         └─ ipcRenderer.invoke("whd:get-facts")
-             └─ collectFacts()        [main/system-facts.js]  ← REAL OS data
-        ← FACTS object
-   window.__WHD_FACTS__ = facts
-   → injects helper-app.jsx, which reads that global
+             └─ collectFacts()      [main/system-facts.js]  ← REAL OS data
+        ← facts object  → React state, published on AppContext
+   ├─ window.whd.getDeferred()     → merges OS updates, SSD flag, process scan
+   └─ speedtest.run()              → merges facts.bandwidth
 ```
 
-`helper-app.jsx` reads `window.__WHD_FACTS__`, which bootstrap always
-populates before injecting the app scripts.
+Facts live in `<App>`'s React state and reach every screen through
+`AppContext` (`useApp()`), so a re-scan or a finished speed test re-renders
+the tree normally. Slow work never blocks first paint: the dashboard renders
+as soon as `collectFacts()` returns, and `getDeferred()` and the speed test
+merge their results in when they land.
 
 ## What's real vs. what's a static default
 
@@ -54,17 +64,29 @@ Network tab's speed test and merged into `FACTS` after the app collects it.
 
 ## Optional report endpoint
 
-Calling `window.whd.sendReport(FACTS)` from the renderer POSTs the FACTS
-object as JSON to the `WHD_REPORT_URL` environment variable if one is set
-(see `main.js`). Neither is currently wired to a UI element — with no env
-var configured, it no-ops gracefully, and the app works fully offline.
+The footer's **Send report** button calls `window.whd.sendReport(facts)`,
+which POSTs the facts object as JSON to the `WHD_REPORT_URL` environment
+variable if one is set (see `main.js`). The endpoint must be `https://` — the
+report carries hostname, username, MAC and IP. With no variable configured the
+handler returns `{ skipped: true }` and the button says so, so the app works
+fully offline.
 
-## Production hardening (before shipping)
+## Production hardening
 
-- **Bundle React/Babel** instead of CDN: either vendor the UMD files locally,
-  or convert the `.jsx` to a real build step (Vite/esbuild) and drop Babel.
-  The UI has no other runtime deps.
-- **Tighten CSP** in `index.html` — remove the CDN allowances once self-hosted.
+Done:
+
+- **React is vendored and the JSX precompiled** (`build.js`), so there is no
+  CDN dependency at launch and no in-browser Babel transform.
+- **CSP** in `index.html` is `default-src 'none'` with `script-src 'self'`;
+  the only remote allowance is `connect-src https://speed.cloudflare.com`.
+- **Renderer lockdown** in `main.js`: `sandbox: true`, navigation blocked, and
+  window-open requests denied (https links go to the system browser).
+
+Still open:
+
 - **Code-sign** the app (Apple Developer ID + Microsoft Authenticode) to avoid
   SmartScreen / Gatekeeper warnings.
 - **Auto-update** via `electron-updater`.
+- **First-scan latency**: `collectFacts()` takes ~6s on Windows because the
+  `systeminformation` probes contend on WMI. Splitting the batch so the
+  Overview card can paint from a couple of fast probes would cut the wait.
