@@ -2,7 +2,9 @@
 @import url("assets/colors_and_type.css");
 
 * { box-sizing: border-box; }
-body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var(--fg-1); }
+html, body { height: 100%; }
+body { margin: 0; background: #f7f8f9; font-family: var(--font-sans); color: var(--fg-1); }
+#root { min-height: 100%; }
 
 .helper-wrap {
   padding: 22px 26px;
@@ -98,7 +100,7 @@ body { margin: 0; background: #e8e8e8; font-family: var(--font-sans); color: var
 /* ============================================================
    4-screen layout: sidebar + main
    ============================================================ */
-.helper-shell { display: flex; min-height: 100%; }
+.helper-shell { display: flex; flex: 1; min-height: 100%; }
 .helper-sidebar {
   width: 200px; flex-shrink: 0;
   background: #f3f4f5;
