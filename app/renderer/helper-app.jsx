@@ -323,28 +323,13 @@ function NetworkScreen() {
   );
 }
 
-// macOS-style window frame (traffic lights + title). Wraps whatever is showing —
-// the loading screen during startup, then the dashboard.
+// Full-height page wrapper. Holds whatever is showing — the loading screen
+// during startup, then the dashboard. The window's own title bar is the
+// native one from BrowserWindow.
 function Frame({ children }) {
   return (
-    <div style={{ minHeight: "100vh", background: "#e8e8e8", display: "flex", justifyContent: "center", alignItems: "flex-start" }}>
-      <div style={{ width: "100%", background: "#e8e8e8", overflow: "hidden" }}>
-        <div style={{
-          height: 38, background: "#ededed", borderBottom: "1px solid #d6d6d6",
-          display: "flex", alignItems: "center", padding: "0 14px",
-          position: "relative",
-        }}>
-          <div style={{
-            position: "absolute", left: "50%", top: "50%",
-            transform: "translate(-50%, -50%)",
-            fontSize: 13, fontWeight: 600, color: "#3a3a3a",
-            fontFamily: "-apple-system, BlinkMacSystemFont, 'SF Pro Text', sans-serif",
-          }}>
-            Zillow Workstation Health Dashboard
-          </div>
-        </div>
-        {children}
-      </div>
+    <div style={{ minHeight: "100vh", background: "#f7f8f9", display: "flex", flexDirection: "column" }}>
+      {children}
     </div>
   );
 }
