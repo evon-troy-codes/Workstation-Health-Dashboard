@@ -74,6 +74,13 @@ test("chunkLadder", async (t) => {
     assert.ok(floorWait >= 900, `floor wait ${floorWait} ms`);
   });
 
+  await t.test("never waits past the deadline it is given", async () => {
+    const ladder = chunkLadder([2, 1]);
+    const t0 = performance.now();
+    await ladder.throttled(1, noSignal(), t0 + 50); // a 1000 ms floor wait
+    assert.ok(performance.now() - t0 < 500);
+  });
+
   await t.test("an abort cuts the wait short", async () => {
     const ladder = chunkLadder([2, 1]);
     const ctrl = new AbortController();
@@ -109,8 +116,25 @@ test("measureDownload", async (t) => {
       // would ask only once.
       const mbps = await measureDownload(null, noSignal(), 3000);
       assert.deepEqual(sizesSeen(f.calls, "/__down"), [25_000_000, 10_000_000, 5_000_000, 1_000_000]);
-      assert.ok(countAt(f.calls, "/__down", 1_000_000) >= 8, `${countAt(f.calls, "/__down", 1_000_000)} retries at 1 MB`);
+      // ...and no more than about three: a wait that collapsed to nothing
+      // would send thousands.
+      const atFloor = countAt(f.calls, "/__down", 1_000_000);
+      assert.ok(atFloor >= 8 && atFloor < 20, `${atFloor} retries at 1 MB`);
       assert.equal(mbps, null);
+    } finally {
+      f.restore();
+    }
+  });
+
+  await t.test("ends when its window closes, even mid-backoff", async () => {
+    const f = stubFetch(() => 429);
+    try {
+      // The streams reach 1 MB at about 750 ms and start a 1 s wait; before
+      // the deadline cut that wait short, the phase ran on to about 1750 ms.
+      const t0 = performance.now();
+      await measureDownload(null, noSignal(), 900);
+      const elapsed = performance.now() - t0;
+      assert.ok(elapsed < 1400, `download phase took ${Math.round(elapsed)} ms for a 900 ms window`);
     } finally {
       f.restore();
     }
@@ -139,6 +163,19 @@ test("measureUpload", async (t) => {
     }
   });
 
+  await t.test("ends when its window closes, even mid-backoff", async () => {
+    const f = stubFetch(() => 429);
+    try {
+      // 250 KB is reached at about 500 ms, then a 1 s wait would run to 1500.
+      const t0 = performance.now();
+      await measureUpload(null, noSignal(), 700);
+      const elapsed = performance.now() - t0;
+      assert.ok(elapsed < 1200, `upload phase took ${Math.round(elapsed)} ms for a 700 ms window`);
+    } finally {
+      f.restore();
+    }
+  });
+
   await t.test("steps 2 MB -> 1 MB on a throttle and counts only accepted chunks", async () => {
     const f = stubFetch((_p, size) => (size > 1_000_000 ? 429 : 200));
     try {
@@ -157,7 +194,8 @@ test("measureUpload", async (t) => {
       // three streams asks there at least twice, as the download does at 1 MB.
       const mbps = await measureUpload(null, noSignal(), 2500);
       assert.deepEqual(sizesSeen(f.calls, "/__up"), [2_000_000, 1_000_000, 250_000]);
-      assert.ok(countAt(f.calls, "/__up", 250_000) >= 6, `${countAt(f.calls, "/__up", 250_000)} retries at 250 KB`);
+      const atFloor = countAt(f.calls, "/__up", 250_000);
+      assert.ok(atFloor >= 6 && atFloor < 15, `${atFloor} retries at 250 KB`);
       assert.equal(mbps, null);
     } finally {
       f.restore();

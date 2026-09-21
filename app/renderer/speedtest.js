@@ -57,11 +57,14 @@ function chunkLadder(sizes) {
     get rung() { return rung; },
     size: (r) => sizes[r],
     // Steps down if this stream's size is still current, then waits: briefly
-    // while there is a smaller size to try, longer once there is not.
-    throttled(asked, signal) {
+    // while there is a smaller size to try, longer once there is not. The wait
+    // never runs past `deadline` (a performance.now() time), so a stream backing
+    // off when its window closes stops then, not up to a second later.
+    throttled(asked, signal, deadline = Infinity) {
       const floor = sizes.length - 1;
       if (rung === asked && rung < floor) rung++;
-      return sleep(asked === floor ? FLOOR_BACKOFF_MS : THROTTLE_BACKOFF_MS, signal);
+      const wait = asked === floor ? FLOOR_BACKOFF_MS : THROTTLE_BACKOFF_MS;
+      return sleep(Math.max(0, Math.min(wait, deadline - performance.now())), signal);
     },
   };
 }
@@ -158,7 +161,7 @@ async function measureDownload(onProgress, signal, durationMs = 12000) {
       );
       if (res.status === 429) {
         discard(res);
-        await ladder.throttled(asked, signal);
+        await ladder.throttled(asked, signal, deadline);
         report(); // the window is still running; keep the bar moving
         continue;
       }
@@ -228,7 +231,7 @@ async function measureUpload(onProgress, signal, durationMs = 10000) {
       // "upload speed". A 429 is Cloudflare throttling a re-run, not a dead
       // endpoint: step down and keep measuring, as the download does.
       if (res.status === 429) {
-        await ladder.throttled(asked, signal);
+        await ladder.throttled(asked, signal, deadline);
         report(); // the window is still running; keep the bar moving
         continue;
       }
