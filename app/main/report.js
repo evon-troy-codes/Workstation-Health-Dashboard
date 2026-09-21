@@ -3,8 +3,8 @@
 // tested without Electron.
 //
 // Every result carries `ok`. A skipped or failed send also carries `reason`, a
-// short code the renderer turns into a readable toast; `error` keeps the raw
-// text for anyone debugging the endpoint.
+// short code the renderer turns into a readable toast. A failure adds `error`,
+// the raw text for anyone debugging the endpoint.
 
 const REPORT_TIMEOUT_MS = 15000;
 
@@ -15,9 +15,21 @@ function classifyReportError(err) {
   return "unreachable";
 }
 
+// The text worth keeping from a rejected fetch. undici wraps the real failure
+// as `cause` under a generic "fetch failed"; and when a host resolves to both
+// IPv6 and IPv4 and every address refuses, that cause is an AggregateError
+// whose own message is empty, with the per-address errors inside it.
+function errorDetail(err) {
+  const cause = (err && err.cause) || err;
+  if (cause && Array.isArray(cause.errors) && cause.errors.length) {
+    return cause.errors.map(String).join("; ");
+  }
+  return String(cause);
+}
+
 async function sendReport(endpoint, facts, fetchImpl = fetch) {
   if (!endpoint) {
-    return { ok: true, skipped: true, reason: "no-endpoint", error: "No WHD_REPORT_URL configured" };
+    return { ok: true, skipped: true, reason: "no-endpoint" };
   }
   // The report carries hostname, username, MAC and IP — refuse to put that
   // on the wire in the clear, however the endpoint was configured.
@@ -38,8 +50,8 @@ async function sendReport(endpoint, facts, fetchImpl = fetch) {
       ? { ok: true, status: res.status }
       : { ok: false, reason: "http", status: res.status };
   } catch (err) {
-    return { ok: false, reason: classifyReportError(err), error: String((err && err.cause) || err) };
+    return { ok: false, reason: classifyReportError(err), error: errorDetail(err) };
   }
 }
 
-module.exports = { sendReport, classifyReportError };
+module.exports = { sendReport, classifyReportError, errorDetail };

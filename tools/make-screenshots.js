@@ -43,7 +43,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("whd:get-facts", async () => facts);
   ipcMain.handle("whd:get-deferred", () => deferred);
-  ipcMain.handle("whd:send-report", async () => ({ ok: true, skipped: true }));
+  ipcMain.handle("whd:send-report", async () => ({ ok: true, skipped: true, reason: "no-endpoint" }));
 
   const win = new BrowserWindow({
     width: 1100,
