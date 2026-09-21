@@ -10,20 +10,23 @@ with test scripts on every request.
 Run the requests in order; each one logs its measurement to the Postman
 console.
 
-**From the command line** (uses [Newman](https://github.com/postmanlabs/newman),
-Postman's CLI runner; nothing to install first):
+**From the command line** with [Newman](https://github.com/postmanlabs/newman),
+Postman's CLI runner. It is not a project dependency: the script runs a pinned
+version (6.2.2) through `npx`, which downloads it on first use and caches it.
+Only Newman's own version is pinned; it ships no lockfile, so its dependencies
+are resolved when npx first downloads it.
 
 ```bash
 npm run test:postman
 ```
 
-A full run downloads about 27 MB, most of it in request 4.
+A full run downloads about 26 MB, most of it in request 4, and uploads 1 MB.
 
 ## What each request checks
 
 | Request | Endpoint | Tests |
 | --- | --- | --- |
-| 1. Latency probe | `GET /__down?bytes=1000` | 200; exactly 1000 bytes; `application/octet-stream`; answers within 2 s; `Server-Timing` includes Cloudflare's TCP RTT |
+| 1. Latency probe | `GET /__down?bytes=1000` | 200; `Content-Length` of 1000; `application/octet-stream`; answers within 2 s; `Server-Timing` includes Cloudflare's TCP RTT |
 | 2. Download chunk | `GET /__down?bytes=1000000` | 200; full chunk delivered; logs rough throughput |
 | 3. Upload chunk | `POST /__up` | 200; empty reply body; logs rough throughput |
 | 4. Download with 429 fallback | `GET /__down?bytes=…` | Steps down through the app's download sizes, 25 → 10 → 5 → 1 MB, one size per 429 until Cloudflare accepts. Unlike the app, it stops and fails if 1 MB is refused too |
@@ -34,10 +37,12 @@ A full run downloads about 27 MB, most of it in request 4.
   connection, and Postman's response time includes connection setup and
   time-to-first-byte. The app runs parallel streams and counts only bytes moved
   over the measurement window, which is why it reports much higher figures.
-- **Request 1 logs two latencies.** Postman's round trip includes HTTP and TLS
-  overhead; the `Server-Timing` RTT is Cloudflare's measurement of the bare TCP
-  connection. The gap between the two is protocol overhead, not network
-  distance.
+- **Request 1 logs two latencies.** As the run's first request, Postman's round
+  trip includes the DNS lookup, the TCP and TLS handshakes and the HTTP
+  exchange; the `Server-Timing` RTT is Cloudflare's measurement of one round
+  trip on the bare TCP connection. The gap is connection setup, which costs
+  several round trips, so it grows with network distance rather than
+  measuring it.
 - **Request 4 usually succeeds on the first try.** Cloudflare only returns 429
   after a client has pulled a lot of data recently. Run the collection a few
   times in a row to see it step down. The retry uses `setNextRequest`, so it only
@@ -53,7 +58,7 @@ To test the fallback without waiting on Cloudflare, point `baseUrl` at a server
 that returns 429 for large requests:
 
 ```bash
-npx newman run postman/Cloudflare-Speed-Test.postman_collection.json \
+npx --yes newman@6.2.2 run postman/Cloudflare-Speed-Test.postman_collection.json \
   --folder "4. Download with 429 fallback" \
   --env-var "baseUrl=http://127.0.0.1:<port>"
 ```
