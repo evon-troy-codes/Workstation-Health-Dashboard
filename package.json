@@ -11,7 +11,7 @@
     "dist": "npm run build && electron-builder",
     "icons": "electron tools/make-icons.js",
     "screenshots": "npm run build && electron tools/make-screenshots.js",
-    "test:postman": "npx --yes newman@6 run postman/Cloudflare-Speed-Test.postman_collection.json"
+    "test:postman": "npx --yes newman@6.2.2 run postman/Cloudflare-Speed-Test.postman_collection.json"
   },
   "repository": {
     "type": "git",

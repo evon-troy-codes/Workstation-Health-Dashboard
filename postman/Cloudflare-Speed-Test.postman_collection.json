@@ -1,7 +1,7 @@
 {
   "info": {
     "name": "Workstation Health Dashboard — Cloudflare Speed Test",
-    "description": "The HTTP endpoints the dashboard's network speed test measures against (app/renderer/speedtest.js), with test scripts.\n\nRun the whole collection in the Collection Runner (or `npx newman run`), in order. Each request logs its measurement to the console.\n\nThese are single-request, single-stream measurements, and Postman's response time includes connection setup and time-to-first-byte. They are good for checking the endpoints' behaviour, not for benchmarking the link: the app itself uses parallel streams and counts only bytes moved over the streaming window.",
+    "description": "The HTTP endpoints the dashboard's network speed test measures against (app/renderer/speedtest.js), with test scripts.\n\nRun the whole collection in the Collection Runner (or `npm run test:postman`, which runs it through Newman), in order. Each request logs its measurement to the console.\n\nThese are single-request, single-stream measurements, and Postman's response time includes connection setup and time-to-first-byte. They are good for checking the endpoints' behaviour, not for benchmarking the link: the app itself uses parallel streams and counts only bytes moved over the streaming window.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
@@ -35,7 +35,7 @@
               "",
               "pm.test('responds 200', () => pm.response.to.have.status(200));",
               "",
-              "pm.test('returns exactly the bytes requested', () => {",
+              "pm.test('Content-Length matches the bytes requested', () => {",
               "  pm.expect(Number(pm.response.headers.get('Content-Length'))).to.eql(requested);",
               "});",
               "",
@@ -45,9 +45,11 @@
               "",
               "pm.test('answers within 2 s', () => pm.expect(pm.response.responseTime).to.be.below(2000));",
               "",
-              "// Cloudflare reports its own view of the TCP connection in Server-Timing.",
-              "// rtt there is in microseconds; it excludes the HTTP and TLS overhead that",
-              "// the app's ping (and Postman's response time) include.",
+              "// Cloudflare reports its own view of the TCP connection in Server-Timing:",
+              "// rtt there is in microseconds and covers one round trip on the bare",
+              "// connection. Postman's response time for this first request also includes",
+              "// DNS, the TCP and TLS handshakes and the HTTP exchange. The app's ping",
+              "// discards a warm-up request first, so it includes only the HTTP exchange.",
               "const timing = pm.response.headers.get('Server-Timing') || '';",
               "const rtt = /[?&]rtt=(\\d+)/.exec(timing);",
               "pm.test('reports connection timing in Server-Timing', () => pm.expect(rtt, 'rtt in Server-Timing').to.not.equal(null));",
