@@ -106,15 +106,23 @@ async function measureDownload(onProgress, signal) {
 
   async function stream() {
     while (performance.now() < deadline && !signal.aborted) {
+      const asked = rung;
       const res = await fetchWithTimeout(
-        "https://speed.cloudflare.com/__down?bytes=" + CHUNK_LADDER[rung],
+        "https://speed.cloudflare.com/__down?bytes=" + CHUNK_LADDER[asked],
         { cache: "no-store" },
         signal,
       );
-      if (res.status === 429 && rung < CHUNK_LADDER.length - 1) {
-        rung++; // throttled: ask for less and try again
-        await sleep(250);
-        continue;
+      if (res.status === 429) {
+        // Parallel streams are throttled together, so one throttle arrives as
+        // a 429 on each of them. Only the first steps the shared rung down;
+        // the rest just retry at the size it chose. Stepping once per 429
+        // skipped straight past the middle rungs, and the stream that found
+        // the ladder already exhausted gave up for good.
+        if (rung === asked && rung < CHUNK_LADDER.length - 1) rung++;
+        if (rung > asked) {
+          await sleep(250);
+          continue;
+        }
       }
       if (!res.ok || !res.body) break;
       // Read incrementally so bytes still count when the deadline cuts a
@@ -160,11 +168,20 @@ async function measureUpload(onProgress, signal) {
 
   async function stream() {
     while (performance.now() < deadline && !signal.aborted) {
-      await fetchWithTimeout(
+      const res = await fetchWithTimeout(
         "https://speed.cloudflare.com/__up",
         { method: "POST", body: blob, mode: "cors", cache: "no-store" },
         signal,
       );
+      // A refused upload moved nothing that counts. Counting it anyway turned
+      // an endpoint answering 503 as fast as it could into a multi-gigabit
+      // "upload speed". A 429 is Cloudflare throttling a re-run, not a dead
+      // endpoint, so back off and keep measuring as the download ladder does.
+      if (res.status === 429) {
+        await sleep(250);
+        continue;
+      }
+      if (!res.ok) break;
       totalBytes += CHUNK_BYTES;
       if (onProgress) {
         const frac = Math.min((performance.now() - start) / DURATION_MS, 1);
