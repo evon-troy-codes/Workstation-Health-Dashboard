@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { sendReport, classifyReportError } = require("./report");
+const { sendReport, classifyReportError, errorDetail } = require("./report");
 
 // A fetch stand-in that records its calls and answers with `respond()`.
 function fakeFetch(respond) {
@@ -22,9 +22,8 @@ test("sendReport", async (t) => {
   await t.test("skips when no endpoint is configured", async () => {
     const fetch = fakeFetch(() => new Response(null, { status: 200 }));
     const res = await sendReport("", { host: "x" }, fetch);
-    assert.equal(res.ok, true);
-    assert.equal(res.skipped, true);
-    assert.equal(res.reason, "no-endpoint");
+    // No `error` on a result that succeeded.
+    assert.deepEqual(res, { ok: true, skipped: true, reason: "no-endpoint" });
     assert.equal(fetch.calls.length, 0);
   });
 
@@ -76,5 +75,30 @@ test("classifyReportError", async (t) => {
     assert.equal(classifyReportError(causedBy("getaddrinfo ENOTFOUND example.test")), "unreachable");
     assert.equal(classifyReportError(new Error("boom")), "unreachable");
     assert.equal(classifyReportError(null), "unreachable");
+  });
+});
+
+test("errorDetail", async (t) => {
+  await t.test("keeps the cause rather than fetch's generic message", () => {
+    assert.equal(errorDetail(causedBy("connect ECONNREFUSED 127.0.0.1:443")), "Error: connect ECONNREFUSED 127.0.0.1:443");
+  });
+
+  await t.test("unpacks the per-address errors when every address refused", () => {
+    // What undici throws when a host resolves to IPv6 and IPv4 and both
+    // refuse: an AggregateError whose own message is empty.
+    const refused = new AggregateError([
+      new Error("connect ECONNREFUSED ::1:443"),
+      new Error("connect ECONNREFUSED 127.0.0.1:443"),
+    ]);
+    const err = Object.assign(new TypeError("fetch failed"), { cause: refused });
+    assert.equal(String(refused), "AggregateError"); // the detail that was being lost
+    assert.equal(
+      errorDetail(err),
+      "Error: connect ECONNREFUSED ::1:443; Error: connect ECONNREFUSED 127.0.0.1:443",
+    );
+  });
+
+  await t.test("falls back to the error itself when there is no cause", () => {
+    assert.equal(errorDetail(new Error("boom")), "Error: boom");
   });
 });
