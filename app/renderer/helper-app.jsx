@@ -474,7 +474,12 @@ function App() {
       loadDeferred();
       return true;
     } catch (e) {
-      setError(String((e && e.message) || e));
+      // ipcRenderer.invoke wraps the main-process error in plumbing the user
+      // has no use for: "Error invoking remote method 'whd:get-facts': Error: …".
+      const msg = String((e && e.message) || e);
+      // Fall back to the raw text: an empty error would read as "no error" and
+      // leave the app on the loading screen with no way to retry.
+      setError(msg.replace(/^Error invoking remote method '[^']*': (?:\w*Error: )?/, "") || msg);
       return false;
     }
   }, [loadDeferred]);
@@ -497,11 +502,10 @@ function App() {
     }
   }, [loadDeferred]);
 
-  const started = useRef(false);
+  // The startup sequence: scan, then measure. "Try again" on the error screen
+  // runs the same sequence, so a recovered scan gets its speed test too.
   const speedRun = speed.run;
-  useEffect(() => {
-    if (started.current) return; // guard against a double effect invocation
-    started.current = true;
+  const startup = useCallback(() => {
     scan().then((ok) => {
       if (ok) {
         setStatus("Running network speed test…");
@@ -510,7 +514,14 @@ function App() {
     });
   }, [scan, speedRun]);
 
-  if (error) return <Frame><ErrorScreen message={error} onRetry={scan} /></Frame>;
+  const started = useRef(false);
+  useEffect(() => {
+    if (started.current) return; // guard against a double effect invocation
+    started.current = true;
+    startup();
+  }, [startup]);
+
+  if (error) return <Frame><ErrorScreen message={error} onRetry={startup} /></Frame>;
   if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
 
   return (
