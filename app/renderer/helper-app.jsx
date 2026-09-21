@@ -32,6 +32,18 @@ function agoLabel(ts) {
   return `${Math.round(sec / 86400)} days ago`;
 }
 
+// A live agoLabel. The label is derived from the real timestamp, so it stays
+// honest instead of counting up on its own; the timer only nudges a repaint,
+// and only of this text rather than the whole screen around it.
+function Ago({ ts }) {
+  const [, tick] = useState(0);
+  useEffect(() => {
+    const id = setInterval(() => tick((t) => t + 1), 1000);
+    return () => clearInterval(id);
+  }, []);
+  return agoLabel(ts);
+}
+
 // Drives the speed test for the whole app rather than for one screen, so
 // switching tabs mid-run neither restarts nor loses it.
 function useSpeedTest(onResult) {
@@ -76,13 +88,6 @@ function Logo({ size }) {
 
 function Header() {
   const { facts, scannedAt } = useApp();
-  const [, tick] = useState(0);
-  // The "last scan" label is derived from the real scan time, so it stays
-  // honest instead of counting up on its own; this only nudges a repaint.
-  useEffect(() => {
-    const id = setInterval(() => tick((t) => t + 1), 1000);
-    return () => clearInterval(id);
-  }, []);
   return (
     <div className="helper-head">
       <div className="brand">
@@ -94,7 +99,7 @@ function Header() {
       <div className="head-right">
         <div>
           <div className="syncline">{facts.hostname}</div>
-          <div className="syncsub">Last scan {agoLabel(scannedAt)}</div>
+          <div className="syncsub">Last scan <Ago ts={scannedAt} /></div>
         </div>
       </div>
     </div>
@@ -353,7 +358,7 @@ function NetworkScreen() {
             {testing ? ` Testing… ${progress}%` : " Run speed test"}
           </button>
           <div className="sh-meta">
-            Measured {testing ? "now…" : b.measuredAt == null ? "not yet run" : agoLabel(b.measuredAt)}
+            Measured {testing ? "now…" : b.measuredAt == null ? "not yet run" : <Ago ts={b.measuredAt} />}
           </div>
         </div>
       </div>
