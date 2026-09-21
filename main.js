@@ -87,13 +87,18 @@ if (!gotLock) {
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(facts),
           signal: AbortSignal.timeout(15000),
+          // Following redirects would let an https endpoint bounce the POST,
+          // body and all, to a plain http:// URL, undoing the check above.
+          redirect: "error",
         });
         return res.ok
           ? { ok: true, status: res.status }
           : { ok: false, reason: "http", status: res.status };
       } catch (err) {
         const timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
-        return { ok: false, reason: timedOut ? "timeout" : "unreachable", error: String(err) };
+        const redirected = /redirect/i.test(String(err && err.cause && err.cause.message));
+        const reason = timedOut ? "timeout" : redirected ? "redirected" : "unreachable";
+        return { ok: false, reason, error: String((err && err.cause) || err) };
       }
     });
 
