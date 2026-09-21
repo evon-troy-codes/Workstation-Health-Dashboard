@@ -72,12 +72,14 @@ if (!gotLock) {
     // POST the health report to an optional backend. No-ops when REPORT_ENDPOINT is unset.
     ipcMain.handle("whd:send-report", async (_evt, facts) => {
       if (!REPORT_ENDPOINT) {
-        return { ok: true, skipped: true, reason: "No WHD_REPORT_URL configured" };
+        return { ok: true, skipped: true, reason: "no-endpoint", error: "No WHD_REPORT_URL configured" };
       }
       // The report carries hostname, username, MAC and IP — refuse to put that
       // on the wire in the clear, however the endpoint was configured.
+      // `reason` is a short code the renderer turns into a readable toast;
+      // `error` keeps the raw text for anyone debugging the endpoint.
       if (!/^https:\/\//i.test(REPORT_ENDPOINT)) {
-        return { ok: false, error: "WHD_REPORT_URL must be an https:// URL" };
+        return { ok: false, reason: "insecure-url", error: "WHD_REPORT_URL must be an https:// URL" };
       }
       try {
         const res = await fetch(REPORT_ENDPOINT, {
@@ -86,9 +88,12 @@ if (!gotLock) {
           body: JSON.stringify(facts),
           signal: AbortSignal.timeout(15000),
         });
-        return { ok: res.ok, status: res.status };
+        return res.ok
+          ? { ok: true, status: res.status }
+          : { ok: false, reason: "http", status: res.status };
       } catch (err) {
-        return { ok: false, error: String(err) };
+        const timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
+        return { ok: false, reason: timedOut ? "timeout" : "unreachable", error: String(err) };
       }
     });
 
