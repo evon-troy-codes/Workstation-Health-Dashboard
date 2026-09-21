@@ -6,6 +6,7 @@ import { React, ReactDOM } from "./react-globals.js";
 import { Icon, Spinner } from "./icons.jsx";
 import { Toast } from "./toast.jsx";
 import * as speedtest from "./speedtest.js";
+import { reportFailure } from "./report-messages.js";
 
 const {
   useState, useEffect, useRef, useCallback, useContext, createContext,
@@ -30,19 +31,6 @@ function agoLabel(ts) {
   if (sec < 3600) return `${Math.round(sec / 60)} min ago`;
   if (sec < 86400) return `${Math.round(sec / 3600)} hr ago`;
   return `${Math.round(sec / 86400)} days ago`;
-}
-
-// Why a report failed, in words, so a bad setting and a network problem don't
-// look alike. Codes come from the whd:send-report handler in main.js.
-function reportFailure(res) {
-  switch (res && res.reason) {
-    case "insecure-url": return "Report failed: endpoint must use https";
-    case "timeout":      return "Report failed: timed out";
-    case "unreachable":  return "Report failed: couldn't reach the server";
-    case "redirected":   return "Report failed: endpoint redirected, not sent";
-    case "http":         return `Report failed (HTTP ${res.status})`;
-    default:             return "Report failed";
-  }
 }
 
 // A live agoLabel. The label is derived from the real timestamp, so it stays

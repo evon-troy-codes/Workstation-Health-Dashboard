@@ -6,7 +6,8 @@ Dashboard. This doc covers how the pieces fit together and how to extend them.
 ```
 app/
 ├── main/
-│   └── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
+│   ├── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
+│   └── report.js           ← MAIN process: POSTs the report to WHD_REPORT_URL
 ├── preload.js               ← contextBridge → window.whd.getFacts()
 └── renderer/
     ├── index.html            ← window entry (loads the vendored React + bundle)
@@ -16,6 +17,7 @@ app/
     ├── react-globals.js      ← re-exports the React/ReactDOM UMD globals
     ├── icons.jsx
     ├── speedtest.js          ← real Cloudflare-based speed test
+    ├── report-messages.js    ← toast text for a failed report
     ├── toast.jsx
     ├── assets/               ← design tokens + brand font
     └── dist/                 ← build output, git-ignored (see ../../build.js)
@@ -78,7 +80,7 @@ whenever a component is added.
 
 The footer's **Send report** button calls `window.whd.sendReport(facts)`,
 which POSTs the facts object as JSON to the `WHD_REPORT_URL` environment
-variable if one is set (see `main.js`). The endpoint must be `https://` — the
+variable if one is set (see `main/report.js`). The endpoint must be `https://` — the
 report carries hostname, username, MAC and IP. With no variable configured the
 handler returns `{ skipped: true }` and the button says so, so the app works
 fully offline.
@@ -89,6 +91,10 @@ is `"insecure-url"`, `"timeout"`, `"unreachable"`, `"redirected"` or `"http"`
 for debugging. Redirects are refused rather than followed, so an https
 endpoint cannot bounce the report to a plain http:// URL; point
 `WHD_REPORT_URL` at the final address.
+
+A new `reason` code needs both ends: `main/report.js` produces it and
+`renderer/report-messages.js` words the toast, and each has a `.test.js` beside
+it that should cover the new code.
 
 ## Production hardening
 

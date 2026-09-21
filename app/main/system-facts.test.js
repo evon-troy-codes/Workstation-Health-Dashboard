@@ -15,6 +15,7 @@ const {
   pickAudio,
   pickPrimaryFs,
   isExternalDisplay,
+  interfaceType,
   formatLinkSpeed,
   ramPressure,
   humanUptime,
@@ -136,6 +137,19 @@ test("isExternalDisplay", async (t) => {
   await t.test("falls back to the connection name when builtin is missing", () => {
     assert.equal(isExternalDisplay({ connection: "INTERNAL" }), false);
     assert.equal(isExternalDisplay({ connection: "HDMI" }), true);
+  });
+});
+
+test("interfaceType", async (t) => {
+  await t.test("capitalises what systeminformation reports", () => {
+    assert.equal(interfaceType("wireless", false), "Wireless");
+    assert.equal(interfaceType("wired", true), "Wired");
+    assert.equal(interfaceType("virtual", false), "Virtual");
+  });
+
+  await t.test("falls back to the wired flag when the type is missing", () => {
+    assert.equal(interfaceType("", true), "Wired");
+    assert.equal(interfaceType(undefined, false), "Wireless");
   });
 });
 
