@@ -26,7 +26,7 @@ A full run downloads about 27 MB, most of it in request 4.
 | 1. Latency probe | `GET /__down?bytes=1000` | 200; exactly 1000 bytes; `application/octet-stream`; answers within 2 s; `Server-Timing` includes Cloudflare's TCP RTT |
 | 2. Download chunk | `GET /__down?bytes=1000000` | 200; full chunk delivered; logs rough throughput |
 | 3. Upload chunk | `POST /__up` | 200; empty reply body; logs rough throughput |
-| 4. Download with 429 fallback | `GET /__down?bytes=…` | Steps down 25 → 10 → 5 → 1 MB on each 429, the same way the app does, until Cloudflare accepts |
+| 4. Download with 429 fallback | `GET /__down?bytes=…` | Steps down through the app's download sizes, 25 → 10 → 5 → 1 MB, one size per 429 until Cloudflare accepts. Unlike the app, it stops and fails if 1 MB is refused too |
 
 ## Reading the results
 
@@ -43,6 +43,11 @@ A full run downloads about 27 MB, most of it in request 4.
   times in a row to see it step down. The retry uses `setNextRequest`, so it only
   works in the Collection Runner or Newman — sent alone from the request tab it
   makes one attempt.
+- **Request 4 checks the sizes, not the app's whole fallback.** The app runs
+  four download streams that share one size and step down once per throttle,
+  and at 1 MB it keeps retrying about once a second until its window closes
+  rather than failing. Upload has its own sizes (2 MB → 1 MB → 250 KB), which
+  the collection does not cover; request 3 sends a fixed `uploadBytes`.
 
 To test the fallback without waiting on Cloudflare, point `baseUrl` at a server
 that returns 429 for large requests:

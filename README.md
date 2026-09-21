@@ -65,8 +65,8 @@ the same.
 
 [`postman/`](postman/) holds a Postman collection for the Cloudflare endpoints
 the speed test measures against, with test scripts on every request —
-including one that reproduces the app's fallback when Cloudflare rate-limits a
-large download (HTTP 429). Import it into Postman, or run it from the command
+including one that steps down through the app's download sizes when Cloudflare
+rate-limits a large download (HTTP 429). Import it into Postman, or run it from the command
 line:
 
 ```bash
