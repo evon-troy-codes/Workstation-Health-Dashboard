@@ -17,8 +17,54 @@ const UP_STREAMS = 3;
 // re-running the test will hit. Step down the chunk size rather than reporting
 // a failure: a smaller chunk still measures the link, just with more overhead.
 const CHUNK_LADDER = [25_000_000, 10_000_000, 5_000_000, 1_000_000];
+// Upload gets its own, smaller ladder: its chunks are sent whether or not
+// Cloudflare accepts them, so retrying a throttled 2 MB body just burns uplink.
+const UP_LADDER = [2_000_000, 1_000_000, 250_000];
+const THROTTLE_BACKOFF_MS = 250;
+// Once the smallest size is refused too, nothing smaller is left to try, and
+// asking four times a second only feeds a limiter that counts bytes requested.
+const FLOOR_BACKOFF_MS = 1000;
 
-const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+// Resolves early if the signal aborts, so a backoff never holds a stream past
+// the hard cap or a cancelled run.
+const sleep = (ms, signal) =>
+  new Promise((r) => {
+    if (signal && signal.aborted) return r();
+    const done = () => {
+      clearTimeout(t);
+      if (signal) signal.removeEventListener("abort", done);
+      r();
+    };
+    const t = setTimeout(done, ms);
+    if (signal) signal.addEventListener("abort", done);
+  });
+
+// Release a response whose body is never read (a refusal, or an upload's empty
+// reply) rather than leave the connection holding it.
+const discard = (res) => {
+  if (res.body) res.body.cancel().catch(() => {});
+};
+
+// The chunk size one direction's parallel streams share. Streams are throttled
+// together, so one throttle arrives as a 429 on each of them: only a stream
+// that asked at the current size steps it down, and the rest retry at the size
+// it chose. Stepping once per 429 skipped straight past the middle sizes. At
+// the smallest size a 429 just waits and retries until the window closes —
+// the same policy in both directions, so no stream gives up on a throttle.
+function chunkLadder(sizes) {
+  let rung = 0;
+  return {
+    get rung() { return rung; },
+    size: (r) => sizes[r],
+    // Steps down if this stream's size is still current, then waits: briefly
+    // while there is a smaller size to try, longer once there is not.
+    throttled(asked, signal) {
+      const floor = sizes.length - 1;
+      if (rung === asked && rung < floor) rung++;
+      return sleep(asked === floor ? FLOOR_BACKOFF_MS : THROTTLE_BACKOFF_MS, signal);
+    },
+  };
+}
 
 // fetch + a deadline. Chains an outer signal so a cancelled run tears down
 // every in-flight request rather than leaving them to finish in the background.
@@ -92,8 +138,7 @@ async function measureLatency(onProgress, signal) {
 // link badly when latency is high.
 async function measureDownload(onProgress, signal) {
   const DURATION_MS = 12000;
-  // Shared across streams: once one of them is throttled, they all step down.
-  let rung = 0;
+  const ladder = chunkLadder(CHUNK_LADDER);
   const start = performance.now();
   const deadline = start + DURATION_MS;
   let totalBytes = 0;
@@ -106,25 +151,22 @@ async function measureDownload(onProgress, signal) {
 
   async function stream() {
     while (performance.now() < deadline && !signal.aborted) {
-      const asked = rung;
+      const asked = ladder.rung;
       const res = await fetchWithTimeout(
-        "https://speed.cloudflare.com/__down?bytes=" + CHUNK_LADDER[asked],
+        "https://speed.cloudflare.com/__down?bytes=" + ladder.size(asked),
         { cache: "no-store" },
         signal,
       );
       if (res.status === 429) {
-        // Parallel streams are throttled together, so one throttle arrives as
-        // a 429 on each of them. Only the first steps the shared rung down;
-        // the rest just retry at the size it chose. Stepping once per 429
-        // skipped straight past the middle rungs, and the stream that found
-        // the ladder already exhausted gave up for good.
-        if (rung === asked && rung < CHUNK_LADDER.length - 1) rung++;
-        if (rung > asked) {
-          await sleep(250);
-          continue;
-        }
+        discard(res);
+        await ladder.throttled(asked, signal);
+        report(); // the window is still running; keep the bar moving
+        continue;
       }
-      if (!res.ok || !res.body) break;
+      if (!res.ok || !res.body) {
+        discard(res);
+        break;
+      }
       // Read incrementally so bytes still count when the deadline cuts a
       // chunk short — an abandoned chunk was still real traffic.
       const reader = res.body.getReader();
@@ -156,37 +198,45 @@ async function measureDownload(onProgress, signal) {
 // ── Upload ────────────────────────────────────────────────────────
 async function measureUpload(onProgress, signal) {
   const DURATION_MS = 10000;
-  const CHUNK_BYTES = 2_000_000;
   // Repeating pattern — crypto.getRandomValues caps at 65 536 bytes/call.
-  const data = new Uint8Array(CHUNK_BYTES);
-  for (let i = 0; i < CHUNK_BYTES; i++) data[i] = i & 0xff;
+  // One buffer at the largest size; smaller rungs send a slice of it.
+  const data = new Uint8Array(UP_LADDER[0]);
+  for (let i = 0; i < data.length; i++) data[i] = i & 0xff;
   const blob = new Blob([data], { type: "application/octet-stream" });
+  const ladder = chunkLadder(UP_LADDER);
 
   const start = performance.now();
   const deadline = start + DURATION_MS;
   let totalBytes = 0;
 
+  const report = () => {
+    if (!onProgress) return;
+    const frac = Math.min((performance.now() - start) / DURATION_MS, 1);
+    onProgress(65 + Math.round(frac * 35)); // 65 → 100
+  };
+
   async function stream() {
     while (performance.now() < deadline && !signal.aborted) {
+      const asked = ladder.rung;
+      const size = ladder.size(asked);
       const res = await fetchWithTimeout(
         "https://speed.cloudflare.com/__up",
-        { method: "POST", body: blob, mode: "cors", cache: "no-store" },
+        { method: "POST", body: blob.slice(0, size, blob.type), mode: "cors", cache: "no-store" },
         signal,
       );
+      discard(res);
       // A refused upload moved nothing that counts. Counting it anyway turned
       // an endpoint answering 503 as fast as it could into a multi-gigabit
       // "upload speed". A 429 is Cloudflare throttling a re-run, not a dead
-      // endpoint, so back off and keep measuring as the download ladder does.
+      // endpoint: step down and keep measuring, as the download does.
       if (res.status === 429) {
-        await sleep(250);
+        await ladder.throttled(asked, signal);
+        report(); // the window is still running; keep the bar moving
         continue;
       }
       if (!res.ok) break;
-      totalBytes += CHUNK_BYTES;
-      if (onProgress) {
-        const frac = Math.min((performance.now() - start) / DURATION_MS, 1);
-        onProgress(65 + Math.round(frac * 35)); // 65 → 100
-      }
+      totalBytes += size;
+      report();
     }
   }
 

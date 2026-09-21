@@ -152,7 +152,7 @@
           "path": ["__down"],
           "query": [{ "key": "bytes", "value": "{{ladderBytes}}" }]
         },
-        "description": "Mirrors the app's chunk ladder (CHUNK_LADDER in speedtest.js). Cloudflare rate-limits by bytes requested, so a 25 MB request is refused with 429 once a client has pulled a lot recently. On a 429 this request steps down to the next size and runs itself again — 25 MB, 10 MB, 5 MB, 1 MB — until Cloudflare accepts.\n\nThe retry uses setNextRequest, which only works in the Collection Runner or Newman. Sent on its own from the request tab it makes a single attempt.\n\nIf the first attempt succeeds, you have not been rate-limited; run the collection a few times in a row to see the 429 path."
+        "description": "Steps through the app's download sizes (CHUNK_LADDER in speedtest.js). Cloudflare rate-limits by bytes requested, so a 25 MB request is refused with 429 once a client has pulled a lot recently. On a 429 this request steps down to the next size and runs itself again — 25 MB, 10 MB, 5 MB, 1 MB — until Cloudflare accepts. Unlike the app, which shares one size across four streams and keeps retrying at 1 MB until its window closes, this stops and fails if 1 MB is refused too.\n\nThe retry uses setNextRequest, which only works in the Collection Runner or Newman. Sent on its own from the request tab it makes a single attempt.\n\nIf the first attempt succeeds, you have not been rate-limited; run the collection a few times in a row to see the 429 path."
       },
       "event": [
         {
