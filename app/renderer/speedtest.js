@@ -136,16 +136,15 @@ async function measureLatency(onProgress, signal) {
 // window, across parallel streams. Timing each request separately and summing
 // counts DNS/TCP/TLS setup and TTFB as transfer time, which under-reports the
 // link badly when latency is high.
-async function measureDownload(onProgress, signal) {
-  const DURATION_MS = 12000;
+async function measureDownload(onProgress, signal, durationMs = 12000) {
   const ladder = chunkLadder(CHUNK_LADDER);
   const start = performance.now();
-  const deadline = start + DURATION_MS;
+  const deadline = start + durationMs;
   let totalBytes = 0;
 
   const report = () => {
     if (!onProgress) return;
-    const frac = Math.min((performance.now() - start) / DURATION_MS, 1);
+    const frac = Math.min((performance.now() - start) / durationMs, 1);
     onProgress(15 + Math.round(frac * 50)); // 15 → 65
   };
 
@@ -196,8 +195,7 @@ async function measureDownload(onProgress, signal) {
 }
 
 // ── Upload ────────────────────────────────────────────────────────
-async function measureUpload(onProgress, signal) {
-  const DURATION_MS = 10000;
+async function measureUpload(onProgress, signal, durationMs = 10000) {
   // Repeating pattern — crypto.getRandomValues caps at 65 536 bytes/call.
   // One buffer at the largest size; smaller rungs send a slice of it.
   const data = new Uint8Array(UP_LADDER[0]);
@@ -206,12 +204,12 @@ async function measureUpload(onProgress, signal) {
   const ladder = chunkLadder(UP_LADDER);
 
   const start = performance.now();
-  const deadline = start + DURATION_MS;
+  const deadline = start + durationMs;
   let totalBytes = 0;
 
   const report = () => {
     if (!onProgress) return;
-    const frac = Math.min((performance.now() - start) / DURATION_MS, 1);
+    const frac = Math.min((performance.now() - start) / durationMs, 1);
     onProgress(65 + Math.round(frac * 35)); // 65 → 100
   };
 
@@ -298,3 +296,7 @@ async function run(onProgress, opts = {}) {
 }
 
 export { run };
+
+// For unit tests: the ladder and each phase, with a shorter window than a real
+// run (the duration parameter), so the suite does not take 22 s per case.
+export { chunkLadder, measureDownload, measureUpload };

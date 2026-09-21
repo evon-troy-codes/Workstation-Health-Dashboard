@@ -51,6 +51,7 @@
       "main.js",
       "app/preload.js",
       "app/main/system-facts.js",
+      "app/main/report.js",
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",

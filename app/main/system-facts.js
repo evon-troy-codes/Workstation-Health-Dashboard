@@ -117,11 +117,7 @@ async function collectFacts() {
     },
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
-      // systeminformation reports "wired" / "wireless"; every other label in
-      // the app is capitalised.
-      type: iface.type
-        ? iface.type.charAt(0).toUpperCase() + iface.type.slice(1)
-        : isWired ? "Wired" : "Wireless",
+      type: interfaceType(iface.type, isWired),
       linkSpeed: formatLinkSpeed(iface.speed),
       mtu: iface.mtu || null,
       mac: iface.mac || "",
@@ -474,6 +470,13 @@ function isExternalDisplay(d) {
   return !/internal|built-?in|lvds|edp/i.test(d.connection || "");
 }
 
+// systeminformation reports "wired" / "wireless" (and "virtual" / "unknown" on
+// Linux); every other label in the app is capitalised.
+function interfaceType(type, isWired) {
+  if (!type) return isWired ? "Wired" : "Wireless";
+  return type.charAt(0).toUpperCase() + type.slice(1);
+}
+
 function formatLinkSpeed(speed) {
   if (!speed || speed < 0) return "Unknown";
   return speed >= 1000 ? `${round1(speed / 1000)} Gbps` : `${Math.round(speed)} Mbps`;
@@ -539,6 +542,7 @@ module.exports = {
   pickAudio,
   pickPrimaryFs,
   isExternalDisplay,
+  interfaceType,
   formatLinkSpeed,
   ramPressure,
   humanUptime,

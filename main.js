@@ -9,6 +9,7 @@
 const { app, BrowserWindow, ipcMain, shell } = require("electron");
 const path = require("path");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
+const { sendReport } = require("./app/main/report");
 
 const APP_DIR = path.join(__dirname, "app");
 
@@ -70,37 +71,8 @@ if (!gotLock) {
     ipcMain.handle("whd:get-deferred", () => detectDeferred());
 
     // POST the health report to an optional backend. No-ops when REPORT_ENDPOINT is unset.
-    ipcMain.handle("whd:send-report", async (_evt, facts) => {
-      if (!REPORT_ENDPOINT) {
-        return { ok: true, skipped: true, reason: "no-endpoint", error: "No WHD_REPORT_URL configured" };
-      }
-      // The report carries hostname, username, MAC and IP — refuse to put that
-      // on the wire in the clear, however the endpoint was configured.
-      // `reason` is a short code the renderer turns into a readable toast;
-      // `error` keeps the raw text for anyone debugging the endpoint.
-      if (!/^https:\/\//i.test(REPORT_ENDPOINT)) {
-        return { ok: false, reason: "insecure-url", error: "WHD_REPORT_URL must be an https:// URL" };
-      }
-      try {
-        const res = await fetch(REPORT_ENDPOINT, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(facts),
-          signal: AbortSignal.timeout(15000),
-          // Following redirects would let an https endpoint bounce the POST,
-          // body and all, to a plain http:// URL, undoing the check above.
-          redirect: "error",
-        });
-        return res.ok
-          ? { ok: true, status: res.status }
-          : { ok: false, reason: "http", status: res.status };
-      } catch (err) {
-        const timedOut = err && (err.name === "TimeoutError" || err.name === "AbortError");
-        const redirected = /redirect/i.test(String(err && err.cause && err.cause.message));
-        const reason = timedOut ? "timeout" : redirected ? "redirected" : "unreachable";
-        return { ok: false, reason, error: String((err && err.cause) || err) };
-      }
-    });
+    // https only, no redirects; see app/main/report.js.
+    ipcMain.handle("whd:send-report", (_evt, facts) => sendReport(REPORT_ENDPOINT, facts));
 
     createWindow();
 

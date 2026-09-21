@@ -89,12 +89,14 @@ Workstation-Health-Dashboard/
 ├── tools/                   # icon and screenshot generators
 └── app/
     ├── main/system-facts.js # Collects real workstation facts → FACTS object
+    ├── main/report.js        # Sends the optional health report (https only)
     ├── preload.js            # contextBridge → window.whd
     ├── INTEGRATION.md        # Architecture notes + how to extend it
     └── renderer/              # React UI (loaded by main.js)
         ├── index.html
         ├── helper-app.jsx    # 3-screen dashboard (entry point)
         ├── speedtest.js      # Cloudflare speed test
+        ├── report-messages.js # Toast text for a failed report
         ├── react-globals.js  # React/ReactDOM from the vendored UMD builds
         ├── icons.jsx, toast.jsx
         ├── assets/            # design tokens + brand font
@@ -103,6 +105,10 @@ Workstation-Health-Dashboard/
 
 `build.js` at the repo root produces `app/renderer/dist`. Run it with
 `npm run build`; `npm start` and `npm run dist` do it for you.
+
+Unit tests sit beside the code they cover (`*.test.js`) and run with
+`npm test` (Node's built-in `node --test`). They stub the network, so they need
+no connection, and take about ten seconds.
 
 ---
 
