@@ -39,6 +39,7 @@ function reportFailure(res) {
     case "insecure-url": return "Report failed: endpoint must use https";
     case "timeout":      return "Report failed: timed out";
     case "unreachable":  return "Report failed: couldn't reach the server";
+    case "redirected":   return "Report failed: endpoint redirected, not sent";
     case "http":         return `Report failed (HTTP ${res.status})`;
     default:             return "Report failed";
   }

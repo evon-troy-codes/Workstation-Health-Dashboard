@@ -84,8 +84,11 @@ handler returns `{ skipped: true }` and the button says so, so the app works
 fully offline.
 
 A failed send returns `{ ok: false, reason, status?, error? }`, where `reason`
-is `"insecure-url"`, `"timeout"`, `"unreachable"` or `"http"` (with `status`),
-and the toast names the cause. `error` carries the raw text for debugging.
+is `"insecure-url"`, `"timeout"`, `"unreachable"`, `"redirected"` or `"http"`
+(with `status`), and the toast names the cause. `error` carries the raw text
+for debugging. Redirects are refused rather than followed, so an https
+endpoint cannot bounce the report to a plain http:// URL; point
+`WHD_REPORT_URL` at the final address.
 
 ## Production hardening
 
