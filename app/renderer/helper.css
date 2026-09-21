@@ -98,8 +98,11 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   border: 1px solid var(--line-soft);
   border-radius: 12px;
 }
-.foot-actions { display: flex; gap: 8px; }
+/* The buttons keep their width and the "Data source" text wraps instead;
+   otherwise a narrow window broke "Re-scan now" over three lines. */
+.foot-actions { display: flex; gap: 8px; flex-shrink: 0; }
 .foot-btn {
+  white-space: nowrap;
   background: var(--surface-card); color: var(--text-body);
   border: 1px solid var(--line-strong);
   padding: 8px 12px; border-radius: 6px;
@@ -160,7 +163,9 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 /* Network screen — speed hero */
 .speed-hero {
   display: grid; grid-template-columns: repeat(4, 1fr) auto;
-  gap: 16px; align-items: center;
+  /* Top-aligned so the values stay level when only some columns carry a
+     "Testing…" tag; centring pushed those columns' values up. */
+  gap: 16px; align-items: start;
   background: var(--surface-card); border: 1px solid var(--line-soft);
   border-radius: 14px; padding: 22px 24px;
   margin-bottom: 18px;
@@ -175,7 +180,7 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
   background: var(--surface-track); color: var(--text-muted);
 }
-.sh-action { text-align: right; }
+.sh-action { text-align: right; align-self: center; }
 .sh-action .send-btn { white-space: nowrap; }
 .sh-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
 

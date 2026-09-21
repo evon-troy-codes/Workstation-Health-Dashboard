@@ -117,7 +117,11 @@ async function collectFacts() {
     },
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
-      type: iface.type || (isWired ? "Wired" : "Wireless"),
+      // systeminformation reports "wired" / "wireless"; every other label in
+      // the app is capitalised.
+      type: iface.type
+        ? iface.type.charAt(0).toUpperCase() + iface.type.slice(1)
+        : isWired ? "Wired" : "Wireless",
       linkSpeed: formatLinkSpeed(iface.speed),
       mtu: iface.mtu || null,
       mac: iface.mac || "",

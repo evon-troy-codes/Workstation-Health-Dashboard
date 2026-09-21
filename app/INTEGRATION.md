@@ -83,6 +83,10 @@ report carries hostname, username, MAC and IP. With no variable configured the
 handler returns `{ skipped: true }` and the button says so, so the app works
 fully offline.
 
+A failed send returns `{ ok: false, reason, status?, error? }`, where `reason`
+is `"insecure-url"`, `"timeout"`, `"unreachable"` or `"http"` (with `status`),
+and the toast names the cause. `error` carries the raw text for debugging.
+
 ## Production hardening
 
 Done:

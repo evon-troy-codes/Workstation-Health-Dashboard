@@ -32,6 +32,18 @@ function agoLabel(ts) {
   return `${Math.round(sec / 86400)} days ago`;
 }
 
+// Why a report failed, in words, so a bad setting and a network problem don't
+// look alike. Codes come from the whd:send-report handler in main.js.
+function reportFailure(res) {
+  switch (res && res.reason) {
+    case "insecure-url": return "Report failed: endpoint must use https";
+    case "timeout":      return "Report failed: timed out";
+    case "unreachable":  return "Report failed: couldn't reach the server";
+    case "http":         return `Report failed (HTTP ${res.status})`;
+    default:             return "Report failed";
+  }
+}
+
 // A live agoLabel. The label is derived from the real timestamp, so it stays
 // honest instead of counting up on its own; the timer only nudges a repaint,
 // and only of this text rather than the whole screen around it.
@@ -144,7 +156,7 @@ function HelperApp() {
       const res = await window.whd.sendReport(facts);
       if (res && res.skipped) toast("No report endpoint configured");
       else if (res && res.ok) toast("Report sent");
-      else toast(`Report failed${res && res.status ? ` (${res.status})` : ""}`);
+      else toast(reportFailure(res));
     } catch (e) {
       toast("Report failed");
     } finally {
@@ -325,11 +337,26 @@ function SystemScreen() {
 // ============================================================================
 // Screen 3 — Network
 // ============================================================================
+
+// Always rendered, only hidden: a tag that came and went resized the hero, so
+// the whole screen, and the button just clicked, jumped when a run started.
+function TestingTag({ show }) {
+  return (
+    <div className="sh-tag" style={{ visibility: show ? "visible" : "hidden" }} aria-hidden={!show}>
+      Testing…
+    </div>
+  );
+}
+
 function NetworkScreen() {
   const { facts, speed } = useApp();
   const { testing, progress, run } = speed;
   const b = facts.bandwidth;
   const value = (v) => (v == null ? "—" : v);
+  // A run that got nothing back still has a timestamp; saying "Measured" over
+  // four dashes would imply a result. One real value is enough, since the
+  // dashes already mark whatever is missing.
+  const measured = [b.downMbps, b.upMbps, b.ping, b.jitter].some((v) => v != null);
   return (
     <>
       {/* Big speed card */}
@@ -337,12 +364,12 @@ function NetworkScreen() {
         <div className="sh-col">
           <div className="sh-label">Download</div>
           <div className="sh-value">{value(b.downMbps)}<span className="sh-unit">Mbps</span></div>
-          {b.downMbps == null && <div className="sh-tag">{testing ? "Testing…" : "—"}</div>}
+          <TestingTag show={b.downMbps == null && testing} />
         </div>
         <div className="sh-col">
           <div className="sh-label">Upload</div>
           <div className="sh-value">{value(b.upMbps)}<span className="sh-unit">Mbps</span></div>
-          {b.upMbps == null && <div className="sh-tag">{testing ? "Testing…" : "—"}</div>}
+          <TestingTag show={b.upMbps == null && testing} />
         </div>
         <div className="sh-col">
           <div className="sh-label">Ping</div>
@@ -358,7 +385,10 @@ function NetworkScreen() {
             {testing ? ` Testing… ${progress}%` : " Run speed test"}
           </button>
           <div className="sh-meta">
-            Measured {testing ? "now…" : b.measuredAt == null ? "not yet run" : <Ago ts={b.measuredAt} />}
+            {testing ? "Measured now…"
+              : b.measuredAt == null ? "Measured not yet run"
+              : measured ? <>Measured <Ago ts={b.measuredAt} /></>
+              : <>No result · <Ago ts={b.measuredAt} /></>}
           </div>
         </div>
       </div>
