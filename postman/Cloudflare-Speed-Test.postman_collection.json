@@ -1,0 +1,208 @@
+{
+  "info": {
+    "name": "Workstation Health Dashboard — Cloudflare Speed Test",
+    "description": "The HTTP endpoints the dashboard's network speed test measures against (app/renderer/speedtest.js), with test scripts.\n\nRun the whole collection in the Collection Runner (or `npx newman run`), in order. Each request logs its measurement to the console.\n\nThese are single-request, single-stream measurements, and Postman's response time includes connection setup and time-to-first-byte. They are good for checking the endpoints' behaviour, not for benchmarking the link: the app itself uses parallel streams and counts only bytes moved over the streaming window.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    { "key": "baseUrl", "value": "https://speed.cloudflare.com" },
+    { "key": "latencyBytes", "value": "1000" },
+    { "key": "chunkBytes", "value": "1000000" },
+    { "key": "uploadBytes", "value": "1000000" },
+    { "key": "ladderRung", "value": "0" }
+  ],
+  "item": [
+    {
+      "name": "1. Latency probe",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Cache-Control", "value": "no-store" }],
+        "url": {
+          "raw": "{{baseUrl}}/__down?bytes={{latencyBytes}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["__down"],
+          "query": [{ "key": "bytes", "value": "{{latencyBytes}}" }]
+        },
+        "description": "The tiny request the app times for ping and jitter. The app sends one unmeasured warm-up first and then six timed samples; this sends one."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const requested = Number(pm.collectionVariables.get('latencyBytes'));",
+              "",
+              "pm.test('responds 200', () => pm.response.to.have.status(200));",
+              "",
+              "pm.test('returns exactly the bytes requested', () => {",
+              "  pm.expect(Number(pm.response.headers.get('Content-Length'))).to.eql(requested);",
+              "});",
+              "",
+              "pm.test('serves raw bytes, not a document', () => {",
+              "  pm.expect(pm.response.headers.get('Content-Type')).to.include('application/octet-stream');",
+              "});",
+              "",
+              "pm.test('answers within 2 s', () => pm.expect(pm.response.responseTime).to.be.below(2000));",
+              "",
+              "// Cloudflare reports its own view of the TCP connection in Server-Timing.",
+              "// rtt there is in microseconds; it excludes the HTTP and TLS overhead that",
+              "// the app's ping (and Postman's response time) include.",
+              "const timing = pm.response.headers.get('Server-Timing') || '';",
+              "const rtt = /[?&]rtt=(\\d+)/.exec(timing);",
+              "pm.test('reports connection timing in Server-Timing', () => pm.expect(rtt, 'rtt in Server-Timing').to.not.equal(null));",
+              "",
+              "console.log(`Round trip: ${pm.response.responseTime} ms (Postman)` +",
+              "  (rtt ? `, ${(Number(rtt[1]) / 1000).toFixed(1)} ms TCP RTT (Cloudflare)` : ''));"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "2. Download chunk",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Cache-Control", "value": "no-store" }],
+        "url": {
+          "raw": "{{baseUrl}}/__down?bytes={{chunkBytes}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["__down"],
+          "query": [{ "key": "bytes", "value": "{{chunkBytes}}" }]
+        },
+        "description": "One download chunk. Change `chunkBytes` to try other sizes; above about 10 MB, repeated runs start getting 429 (see request 4)."
+      },
+      "event": [
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const requested = Number(pm.collectionVariables.get('chunkBytes'));",
+              "",
+              "pm.test('responds 200 (429 means rate-limited; see request 4)', () => pm.response.to.have.status(200));",
+              "",
+              "pm.test('delivers the full chunk', () => {",
+              "  pm.expect(pm.response.responseSize).to.eql(requested);",
+              "});",
+              "",
+              "// Rough single-stream figure: responseTime includes setup and TTFB.",
+              "if (pm.response.code === 200) {",
+              "  const mbps = (requested * 8) / (pm.response.responseTime / 1000) / 1e6;",
+              "  console.log(`Download: ${(requested / 1e6).toFixed(1)} MB in ${pm.response.responseTime} ms, ~${mbps.toFixed(0)} Mbps single-stream`);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "3. Upload chunk",
+      "request": {
+        "method": "POST",
+        "header": [{ "key": "Content-Type", "value": "application/octet-stream" }],
+        "body": { "mode": "raw", "raw": "{{uploadPayload}}" },
+        "url": {
+          "raw": "{{baseUrl}}/__up",
+          "host": ["{{baseUrl}}"],
+          "path": ["__up"]
+        },
+        "description": "One upload chunk. The pre-request script builds a payload of `uploadBytes` bytes, like the app's repeating-pattern blob."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "// Build the payload at run time rather than storing 1 MB in the collection.",
+              "const size = Number(pm.collectionVariables.get('uploadBytes'));",
+              "pm.variables.set('uploadPayload', 'x'.repeat(size));"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const sent = Number(pm.collectionVariables.get('uploadBytes'));",
+              "",
+              "pm.test('accepts the upload with 200', () => pm.response.to.have.status(200));",
+              "",
+              "pm.test('replies with an empty body', () => pm.expect(pm.response.text()).to.eql(''));",
+              "",
+              "if (pm.response.code === 200) {",
+              "  const mbps = (sent * 8) / (pm.response.responseTime / 1000) / 1e6;",
+              "  console.log(`Upload: ${(sent / 1e6).toFixed(1)} MB in ${pm.response.responseTime} ms, ~${mbps.toFixed(0)} Mbps single-stream`);",
+              "}"
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "name": "4. Download with 429 fallback",
+      "request": {
+        "method": "GET",
+        "header": [{ "key": "Cache-Control", "value": "no-store" }],
+        "url": {
+          "raw": "{{baseUrl}}/__down?bytes={{ladderBytes}}",
+          "host": ["{{baseUrl}}"],
+          "path": ["__down"],
+          "query": [{ "key": "bytes", "value": "{{ladderBytes}}" }]
+        },
+        "description": "Mirrors the app's chunk ladder (CHUNK_LADDER in speedtest.js). Cloudflare rate-limits by bytes requested, so a 25 MB request is refused with 429 once a client has pulled a lot recently. On a 429 this request steps down to the next size and runs itself again — 25 MB, 10 MB, 5 MB, 1 MB — until Cloudflare accepts.\n\nThe retry uses setNextRequest, which only works in the Collection Runner or Newman. Sent on its own from the request tab it makes a single attempt.\n\nIf the first attempt succeeds, you have not been rate-limited; run the collection a few times in a row to see the 429 path."
+      },
+      "event": [
+        {
+          "listen": "prerequest",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const LADDER = [25000000, 10000000, 5000000, 1000000];",
+              "const rung = Number(pm.collectionVariables.get('ladderRung') || 0);",
+              "pm.variables.set('ladderBytes', String(LADDER[rung]));",
+              "console.log(`Attempt at ${LADDER[rung] / 1e6} MB`);"
+            ]
+          }
+        },
+        {
+          "listen": "test",
+          "script": {
+            "type": "text/javascript",
+            "exec": [
+              "const LADDER = [25000000, 10000000, 5000000, 1000000];",
+              "const rung = Number(pm.collectionVariables.get('ladderRung') || 0);",
+              "const size = LADDER[rung];",
+              "",
+              "// Newer runners expose pm.execution.setNextRequest; older ones only postman.*.",
+              "const runAgain = (name) =>",
+              "  pm.execution && typeof pm.execution.setNextRequest === 'function'",
+              "    ? pm.execution.setNextRequest(name)",
+              "    : postman.setNextRequest(name);",
+              "",
+              "if (pm.response.code === 429 && rung < LADDER.length - 1) {",
+              "  pm.test(`${size / 1e6} MB throttled (429): stepping down`, () => pm.response.to.have.status(429));",
+              "  pm.collectionVariables.set('ladderRung', String(rung + 1));",
+              "  runAgain(pm.info.requestName);",
+              "} else {",
+              "  // Reset for the next run whatever happened, so a failure here cannot",
+              "  // leave the collection stuck at a small size.",
+              "  pm.collectionVariables.set('ladderRung', '0');",
+              "",
+              "  pm.test(`settles on a size Cloudflare accepts (${size / 1e6} MB)`, () => pm.response.to.have.status(200));",
+              "  pm.test('delivers the full chunk', () => pm.expect(pm.response.responseSize).to.eql(size));",
+              "",
+              "  if (pm.response.code === 200) {",
+              "    const mbps = (size * 8) / (pm.response.responseTime / 1000) / 1e6;",
+              "    console.log(`Accepted at ${size / 1e6} MB after ${rung} step(s) down, ~${mbps.toFixed(0)} Mbps single-stream`);",
+              "  }",
+              "}"
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
