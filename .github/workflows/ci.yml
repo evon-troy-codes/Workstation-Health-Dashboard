@@ -75,17 +75,28 @@ jobs:
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
 
+      # WHD_EXPECT fails the run if a detector that should work here answers
+      # nothing: the runner is Ubuntu, so apt must report both. Its audio,
+      # browser and antivirus rows stay unchecked — a CI runner has no sound
+      # server, no browser profile and no antivirus to find.
       - name: Smoke test (Linux, virtual display)
         if: runner.os == 'Linux'
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for the Electron download
+          WHD_EXPECT: os name,cpu model,ram total,disk total,network interface,pending updates,last update check
 
+      # Windows adds its last-check row, which falls back to the installed
+      # update history. Its pending count is deliberately not asserted: the
+      # hosted images have Windows Update disabled, so the offline search
+      # finds nothing, which says nothing about the app. macOS asserts only
+      # the basics until step 3 gives it detectors of its own.
       - name: Smoke test
         if: runner.os != 'Linux'
         run: npm run smoke
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          WHD_EXPECT: ${{ runner.os == 'Windows' && 'os name,cpu model,ram total,disk total,network interface,last update check' || 'os name,cpu model,ram total,disk total,network interface' }}
 
       # Packaging is slow and the artifacts are ~100 MB per OS, so it runs for
       # main and manual runs, not on every pull request.

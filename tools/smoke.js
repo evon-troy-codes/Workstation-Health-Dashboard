@@ -182,12 +182,31 @@ async function summarise() {
     "on battery": facts.power ? (facts.power.onBattery ? "yes" : "no") : "n/a",
     "pending updates": deferred.error ? "error" : num(deferred.pendingUpdates),
     "last update check": deferred.error ? "error" : has(deferred.lastUpdateCheck),
-    "ssd flag": deferred.error ? "error" : has(deferred.ssd),
+    // true/false are both readings; only null means the probe found nothing.
+    "disk type": deferred.error ? "error" : deferred.ssd == null ? "no" : deferred.ssd ? "ssd" : "hdd",
     "running apps found": count(apps.runningApps),
     "browser extensions": num(apps.browserExtensions),
   };
   console.log("detectors on this OS:");
   for (const [k, v] of Object.entries(rows)) console.log(`  ${k.padEnd(20)} ${v}`);
+
+  // WHD_EXPECT names the rows this machine should be able to answer, so a
+  // detector that quietly returns nothing fails the run. CI reads pass/fail,
+  // not logs, so an expectation is the only way a green tick means anything
+  // about a platform nobody here can run.
+  // A count of 0 is a real answer for pending updates, and "found nothing" for
+  // the rows that count what is installed — which is the case worth failing.
+  const zeroMeansNothing = new Set(["antivirus products", "running apps found", "browser extensions"]);
+  for (const want of (process.env.WHD_EXPECT || "").split(",").map((s) => s.trim()).filter(Boolean)) {
+    if (!Object.prototype.hasOwnProperty.call(rows, want)) {
+      fail(`WHD_EXPECT names "${want}", which is not one of the rows above`);
+      continue;
+    }
+    const got = rows[want];
+    if (got === "no" || got === "n/a" || got === "error" || (got === 0 && zeroMeansNothing.has(want))) {
+      fail(`expected a reading for "${want}" on this OS, got "${got}"`);
+    }
+  }
 }
 
 require(path.join(ROOT, "main.js")); // real window, real IPC, real CSP
