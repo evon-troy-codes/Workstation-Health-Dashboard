@@ -1,6 +1,6 @@
 // make-icons.js — generates the app icon set from the brand mark.
 //
-// Renders assets/logo/logo-mark.svg onto a rounded brand-blue tile at every
+// Renders assets/logo/logo-mark.svg onto a rounded brand-violet tile at every
 // size Windows, macOS and Linux want, then packs the Windows sizes into a
 // multi-resolution .ico. Output goes to build/, which electron-builder picks
 // up automatically (it is the default buildResources directory).
@@ -15,35 +15,35 @@ const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
 const ICONS_DIR = path.join(BUILD, "icons");
 
-const BRAND = "#0041D9"; // the mark's own blue, used as the tile
+const BRAND = "#523ae8"; // --whd-cyan, the primary brand violet, as the tile
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const PNG_SIZES = [16, 32, 48, 64, 128, 256, 512, 1024];
 
-// The mark, recolored white to sit on the brand tile. Kept inline so the
-// generator has no runtime dependency on the renderer's asset path at build
-// time beyond this read.
-function markPaths() {
+// The mark, recolored white to sit on the brand tile: every fill and stroke
+// colour becomes white, so the mark can use either. Returns its viewBox and
+// the markup inside the <svg> element.
+function markSvg() {
   const svg = fs.readFileSync(
     path.join(ROOT, "app/renderer/assets/logo/logo-mark.svg"),
     "utf8",
   );
-  const paths = [...svg.matchAll(/<path d='([^']+)'/g)].map((m) => m[1]);
-  if (paths.length !== 2) throw new Error("unexpected logo-mark.svg shape");
-  return paths;
+  const viewBox = (svg.match(/viewBox='([^']+)'/) || [])[1];
+  const inner = (svg.match(/<svg[^>]*>([\s\S]*)<\/svg>/) || [])[1];
+  if (!viewBox || !inner) throw new Error("unexpected logo-mark.svg shape");
+  return { viewBox, inner: inner.replace(/(fill|stroke)='#[0-9a-fA-F]{3,8}'/g, "$1='#ffffff'") };
 }
 
 function iconHtml(size) {
-  const paths = markPaths();
-  // The mark's viewBox is 22x24; inset it so the glyph occupies ~58% of the
-  // tile, which keeps it legible once Windows scales it down to 16px.
+  const { viewBox, inner } = markSvg();
+  // Inset the mark so the glyph occupies ~58% of the tile, which keeps it
+  // legible once Windows scales it down to 16px.
   const radius = Math.round(size * 0.22);
   const glyph = Math.round(size * 0.58);
   const mark =
-    `<svg xmlns="http://www.w3.org/2000/svg" width="${glyph}" height="${glyph}" viewBox="0 0 22 24">` +
-    `<path d="${paths[0]}" fill="#ffffff"/><path d="${paths[1]}" fill="#ffffff"/></svg>`;
+    `<svg xmlns="http://www.w3.org/2000/svg" width="${glyph}" height="${glyph}" viewBox="${viewBox}">` +
+    `${inner}</svg>`;
   // Painted on a canvas rather than screenshotted: capturePage runs the frame
-  // through the display's colour profile, which shifted the brand blue into
-  // violet. Canvas pixels are plain sRGB, so what goes in comes out.
+  // through the display's colour profile, which shifted the brand colour. Canvas pixels are plain sRGB, so what goes in comes out.
   return `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body>
   <script>
   window.renderIcon = async function () {
