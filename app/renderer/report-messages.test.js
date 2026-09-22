@@ -18,6 +18,7 @@ test("reportFailure", async (t) => {
     assert.equal(reportFailure({ reason: "unreachable" }), "Report failed: couldn't reach the server");
     assert.equal(reportFailure({ reason: "redirected" }), "Report failed: endpoint redirected, not sent");
     assert.equal(reportFailure({ reason: "http", status: 503 }), "Report failed (HTTP 503)");
+    assert.equal(reportFailure({ reason: "no-scan" }), "Report failed: no scan to send yet");
   });
 
   await t.test("falls back to a plain message", () => {

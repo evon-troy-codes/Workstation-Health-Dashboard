@@ -10,6 +10,7 @@ export function reportFailure(res) {
     case "unreachable":  return "Report failed: couldn't reach the server";
     case "redirected":   return "Report failed: endpoint redirected, not sent";
     case "http":         return `Report failed (HTTP ${res.status})`;
+    case "no-scan":      return "Report failed: no scan to send yet";
     default:             return "Report failed";
   }
 }
