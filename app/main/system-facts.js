@@ -54,9 +54,12 @@ async function collectFacts() {
   const iface = (Array.isArray(net) ? net : [net]).find((n) => n.iface === defIfaceName) || {};
   // A full-tunnel VPN owns the default route, and is neither wired nor Wi-Fi.
   const isVirtual = isVirtualInterface(iface);
+  // systeminformation can call a Linux Wi-Fi card "wired" (it relies on tools
+  // like iw that are often missing); the kernel knows better.
+  const ifType = process.platform === "linux" && isLinuxWlan(iface.iface) ? "wireless" : iface.type;
   const isWired = !isVirtual && (
-    /ethernet|wired|thunderbolt|usb/i.test(iface.type || "") ||
-    (!/wifi|wireless|wi-fi/i.test(iface.type || "") && (iface.speed || 0) >= 100));
+    /ethernet|wired|thunderbolt|usb/i.test(ifType || "") ||
+    (!/wifi|wireless|wi-fi/i.test(ifType || "") && (iface.speed || 0) >= 100));
 
   // --- disk (system volume); ssd flag filled in lazily (null = checking) ---
   const primaryFs = pickPrimaryFs(fsSize);
@@ -126,7 +129,7 @@ async function collectFacts() {
     },
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
-      type: interfaceType(iface.type, isWired, isVirtual),
+      type: interfaceType(ifType, isWired, isVirtual),
       linkSpeed: formatLinkSpeed(iface.speed),
       mtu: iface.mtu || null,
       mac: iface.mac || "",
@@ -558,6 +561,17 @@ function ramPressure(mem) {
   return "Normal";
 }
 
+// Does the kernel say this Linux interface is Wi-Fi? Its uevent file carries
+// DEVTYPE=wlan for every wireless card, whatever driver or tools are present.
+function isLinuxWlan(name, readFile = fs.readFileSync) {
+  if (!name || /[/\\]/.test(name)) return false;
+  try {
+    return /^DEVTYPE=wlan$/m.test(readFile(`/sys/class/net/${name}/uevent`, "utf8"));
+  } catch (_) {
+    return false;
+  }
+}
+
 // Interface names of VPN clients and tunnel drivers.
 const VPN_RE =
   /\b(vpn|tun\d*|tap\d*|wg\d*|wireguard|nordlynx|tailscale|utun\d*|anyconnect|cisco\s*secure\s*client|openvpn|globalprotect|pangp|forticlient|zscaler|expressvpn|protonvpn|mullvad)\b/i;
@@ -639,5 +653,6 @@ module.exports = {
   parseDefaultAudio,
   detectMacAv,
   isVirtualInterface,
+  isLinuxWlan,
   parseResolvectlDns,
 };
