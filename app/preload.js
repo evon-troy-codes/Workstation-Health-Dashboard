@@ -11,5 +11,6 @@ contextBridge.exposeInMainWorld("whd", {
   // Re-run the scan on demand (the "Re-scan now" button calls this).
   rescan: () => ipcRenderer.invoke("whd:get-facts"),
   // Send the health report to an optional backend (wire WHD_REPORT_URL in main).
+  // Main sends its own last scan; it takes only facts.bandwidth from here.
   sendReport: (facts) => ipcRenderer.invoke("whd:send-report", facts),
 });

@@ -27,6 +27,36 @@ function errorDetail(err) {
   return String(cause);
 }
 
+// The report main sends: its own last scan, with the deferred results merged
+// in as the renderer merges them. Only the speed test runs in the renderer, so
+// that is all taken from it, and only as numbers and flags. Anything else the
+// renderer passes is ignored.
+function buildReport(facts, deferred, fromRenderer) {
+  const report = { ...facts };
+  if (deferred) {
+    report.os = {
+      ...facts.os,
+      pendingUpdates: deferred.pendingUpdates,
+      lastUpdateCheck: deferred.lastUpdateCheck,
+      lastUpdateKind: deferred.lastUpdateKind,
+    };
+    report.disk = { ...facts.disk, ssd: deferred.ssd };
+    report.backgroundApps = deferred.backgroundApps || facts.backgroundApps;
+  }
+  const b = (fromRenderer && fromRenderer.bandwidth) || {};
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  report.bandwidth = {
+    downMbps: num(b.downMbps),
+    upMbps: num(b.upMbps),
+    ping: num(b.ping),
+    jitter: num(b.jitter),
+    measuredAt: num(b.measuredAt),
+  };
+  if (typeof b.partial === "boolean") report.bandwidth.partial = b.partial;
+  if (typeof b.failed === "boolean") report.bandwidth.failed = b.failed;
+  return report;
+}
+
 async function sendReport(endpoint, facts, fetchImpl = fetch) {
   if (!endpoint) {
     return { ok: true, skipped: true, reason: "no-endpoint" };
@@ -54,4 +84,4 @@ async function sendReport(endpoint, facts, fetchImpl = fetch) {
   }
 }
 
-module.exports = { sendReport, classifyReportError, errorDetail };
+module.exports = { sendReport, buildReport, classifyReportError, errorDetail };
