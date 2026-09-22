@@ -94,7 +94,7 @@ function Header() {
       <div className="brand">
         <Logo size={26} />
         <div>
-          <div className="brand-name">Zillow Workstation Health Dashboard</div>
+          <div className="brand-name">Workstation Scanner</div>
         </div>
       </div>
       <div className="head-right">
@@ -204,7 +204,7 @@ function Sidebar({ active, onChange }) {
       <div className="sb-brand">
         <Logo size={22} />
         <div>
-          <div className="sb-name">Health Dashboard</div>
+          <div className="sb-name">Workstation Scanner</div>
         </div>
       </div>
       <nav className="sb-nav" aria-label="Dashboard sections">

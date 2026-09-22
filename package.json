@@ -1,7 +1,7 @@
 {
-  "name": "workstation-health-dashboard",
+  "name": "workstation-scanner",
   "version": "1.1.0",
-  "description": "Zillow Workstation Health Dashboard \u2014 an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
+  "description": "Workstation Scanner — an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
   "main": "main.js",
   "scripts": {
     "build": "node build.js",
@@ -43,8 +43,8 @@
   },
   "build": {
     "afterPack": "./tools/after-pack.js",
-    "appId": "com.evontroy.workstation-health-dashboard",
-    "productName": "Zillow Workstation Health Dashboard",
+    "appId": "com.evontroy.workstation-scanner",
+    "productName": "Workstation Scanner",
     "directories": {
       "output": "dist",
       "buildResources": "build"

@@ -1,7 +1,7 @@
 // ═══════════════════════════════════════════════════════
 //  ELECTRON MAIN PROCESS
 //
-//  Hosts the Workstation Health Dashboard UI (renderer at
+//  Hosts the Workstation Scanner UI (renderer at
 //  app/renderer). The main process collects real system
 //  facts via systeminformation and exposes them to the
 //  renderer over the `window.whd` bridge (see app/preload.js).
@@ -23,7 +23,7 @@ function createWindow() {
     height: 860,
     minWidth: 920,
     minHeight: 680,
-    title: "Zillow Workstation Health Dashboard",
+    title: "Workstation Scanner",
     // Packaged builds take the icon from electron-builder; setting it here is
     // what gives `npm start` a branded window and taskbar entry too.
     icon: path.join(APP_DIR, "renderer", "assets", "logo", "icon-256.png"),
