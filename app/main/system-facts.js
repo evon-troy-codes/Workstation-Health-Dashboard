@@ -40,19 +40,23 @@ async function collectFacts() {
   // which is among the slowest calls on Windows.
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, graphics, audio, defIfaceName,
-         antivirus, defaultAudio] = await Promise.all([
+         antivirus, defaultAudio, dnsServers] = await Promise.all([
     probe(si.cpu(), {}), probe(si.mem(), {}), probe(si.memLayout(), []),
     probe(si.osInfo(), {}), probe(si.system(), {}), probe(si.fsSize(), []),
     probe(si.networkInterfaces(), []), probe(si.networkGatewayDefault(), ""),
     probe(si.battery(), {}), probe(si.graphics(), {}), probe(si.audio(), []),
     probe(si.networkInterfaceDefault(), ""),
     probe(detectAntivirus(), { products: [] }), probe(detectDefaultAudio(), null),
+    probe(detectDnsServers(), []),
   ]);
 
   // --- default network interface ---
   const iface = (Array.isArray(net) ? net : [net]).find((n) => n.iface === defIfaceName) || {};
-  const isWired = /ethernet|wired|thunderbolt|usb/i.test(iface.type || "") ||
-                  (!/wifi|wireless|wi-fi/i.test(iface.type || "") && (iface.speed || 0) >= 100);
+  // A full-tunnel VPN owns the default route, and is neither wired nor Wi-Fi.
+  const isVirtual = isVirtualInterface(iface);
+  const isWired = !isVirtual && (
+    /ethernet|wired|thunderbolt|usb/i.test(iface.type || "") ||
+    (!/wifi|wireless|wi-fi/i.test(iface.type || "") && (iface.speed || 0) >= 100));
 
   // --- disk (system volume); ssd flag filled in lazily (null = checking) ---
   const primaryFs = pickPrimaryFs(fsSize);
@@ -80,7 +84,9 @@ async function collectFacts() {
 
     cpu: {
       model: [cpu.manufacturer, cpu.brand].filter(Boolean).join(" ") || "Unknown",
-      cores: cpu.cores || 0,
+      // systeminformation's `cores` counts logical processors (threads).
+      cores: cpu.physicalCores || cpu.cores || 0,
+      threads: cpu.cores || 0,
       perfCores: cpu.performanceCores || cpu.physicalCores || cpu.cores || 0,
       effCores: cpu.efficiencyCores || 0,
       ghz: round1(cpu.speedMax || cpu.speed || 0),
@@ -113,20 +119,24 @@ async function collectFacts() {
       version: osInfo.release || os.release(),
       build: osInfo.build || "",
       lastUpdateCheck: "Checking…", // filled in by the lazy get-updates call
+      // "checked" or "installed": which event lastUpdateCheck dates. null
+      // until the update check resolves, or when nothing could be read.
+      lastUpdateKind: null,
       pendingUpdates: null, // number once the lazy update check resolves
     },
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
-      type: interfaceType(iface.type, isWired),
+      type: interfaceType(iface.type, isWired, isVirtual),
       linkSpeed: formatLinkSpeed(iface.speed),
       mtu: iface.mtu || null,
       mac: iface.mac || "",
       ipv4: iface.ip4 || "",
       ipv6Disabled: !iface.ip6,
       gateway: gateway || "",
-      dns: getDnsServers(osInfo),
-      ssid: isWired ? null : (iface.ssid || null),
+      dns: dnsServers.length ? dnsServers : (osInfo.servers || []),
+      ssid: isWired || isVirtual ? null : (iface.ssid || null),
       isWired,
+      isVirtual,
     },
     // Bandwidth is a measurement, not a static fact — filled in once the
     // renderer's speed test completes.
@@ -138,8 +148,9 @@ async function collectFacts() {
     antivirus,
     backgroundApps: null, // filled in by detectDeferred (si.processes is slow)
     power: {
+      hasBattery: !!battery.hasBattery,
       onBattery: battery.hasBattery ? !battery.acConnected : false,
-      batteryLevel: battery.hasBattery ? battery.percent : 100,
+      batteryLevel: battery.hasBattery ? battery.percent : null, // null: no battery
       plugged: battery.hasBattery ? battery.acConnected : true,
     },
     audio: {
@@ -148,7 +159,9 @@ async function collectFacts() {
       // Derived from the same device classifyHeadset looked at, so the card
       // can't report "Bluetooth" and "Wired" at the same time.
       isWired: headsetClass === "USB headset",
-      headsetConnected: (audio || []).length > 0,
+      // Whether the selected output is a headset, from the same classification.
+      // Counting installed sound drivers made this true on every machine.
+      headsetConnected: headsetClass !== "Built-in",
       headsetClass,
     },
   };
@@ -196,20 +209,22 @@ function detectDefaultAudio() {
       "powershell.exe",
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", PS_DEFAULT_AUDIO],
       { timeout: 15000, windowsHide: true },
-      (err, stdout) => {
-        if (err) return resolve(null);
-        let o;
-        try {
-          o = JSON.parse((stdout || "").trim());
-        } catch (_) {
-          return resolve(null);
-        }
-        const output = cleanAudioName(o && o.output);
-        const input = cleanAudioName(o && o.input);
-        resolve(output || input ? { output, input } : null);
-      },
+      (err, stdout) => resolve(err ? null : parseDefaultAudio(stdout)),
     );
   });
+}
+
+// PS_DEFAULT_AUDIO's JSON → { output, input }, or null when neither is known.
+function parseDefaultAudio(stdout) {
+  let o;
+  try {
+    o = JSON.parse((stdout || "").trim());
+  } catch (_) {
+    return null;
+  }
+  const output = cleanAudioName(o && o.output);
+  const input = cleanAudioName(o && o.input);
+  return output || input ? { output, input } : null;
 }
 
 // Windows disambiguates repeated device names with a "2- " prefix:
@@ -223,6 +238,7 @@ function cleanAudioName(name) {
 // platform directly: Windows Security Center (where McAfee/Norton/etc register)
 // on Windows, and known app bundles on macOS. Returns the FACTS.antivirus shape:
 //   { products: [{ name, version, running, updated, definitionsAge }] }
+// running/updated are null when the platform gives no way to know.
 function detectAntivirus() {
   const plat = process.platform;
 
@@ -256,33 +272,38 @@ function detectAntivirus() {
     });
   }
 
-  if (plat === "darwin") {
-    const apps = [
-      "/Applications/McAfee Endpoint Security for Mac.app",
-      "/Applications/McAfee LiveSafe.app",
-      "/Applications/Malwarebytes.app",
-      "/Applications/Norton 360.app",
-      "/Applications/Bitdefender Antivirus for Mac.app",
-      "/Applications/ESET Endpoint Antivirus.app",
-      "/Applications/Kaspersky Internet Security.app",
-      "/Applications/Sophos Home.app",
-      "/Applications/Webroot SecureAnywhere.app",
-      "/Applications/CrowdStrike Falcon.app",
-      "/Applications/SentinelOne.app",
-    ];
-    const products = apps
-      .filter((p) => fs.existsSync(p))
-      .map((p) => ({
-        name: path.basename(p, ".app"),
-        version: null,
-        running: true,
-        updated: true,
-        definitionsAge: null,
-      }));
-    return Promise.resolve({ products });
-  }
+  if (plat === "darwin") return Promise.resolve({ products: detectMacAv() });
 
   return Promise.resolve({ products: [] });
+}
+
+// macOS has no Security Center, so this finds known AV app bundles. A bundle
+// on disk says the product is installed, not that it is running or current,
+// so both stay null rather than reporting a check that never happened.
+function detectMacAv(exists = fs.existsSync) {
+  const apps = [
+    "/Applications/Microsoft Defender.app",
+    "/Applications/McAfee Endpoint Security for Mac.app",
+    "/Applications/McAfee LiveSafe.app",
+    "/Applications/Malwarebytes.app",
+    "/Applications/Norton 360.app",
+    "/Applications/Bitdefender Antivirus for Mac.app",
+    "/Applications/ESET Endpoint Antivirus.app",
+    "/Applications/Kaspersky Internet Security.app",
+    "/Applications/Sophos Home.app",
+    "/Applications/Webroot SecureAnywhere.app",
+    "/Applications/CrowdStrike Falcon.app",
+    "/Applications/SentinelOne.app",
+  ];
+  return apps
+    .filter((p) => exists(p))
+    .map((p) => ({
+      name: path.basename(p, ".app"),
+      version: null,
+      running: null,
+      updated: null,
+      definitionsAge: null,
+    }));
 }
 
 function parseWindowsAv(stdout) {
@@ -329,7 +350,7 @@ function plural(n, unit) {
 // so one slow provider cannot strand the others.
 async function detectDeferred() {
   const [updates, ssd, backgroundApps] = await Promise.all([
-    probe(detectUpdates(), { pendingUpdates: null, lastUpdateCheck: "Unknown" }),
+    probe(detectUpdates(), UNKNOWN_UPDATES),
     probe(detectSsd(), null),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }),
   ]);
@@ -344,43 +365,53 @@ function detectSsd() {
     .catch(() => null);
 }
 
+const UNKNOWN_UPDATES = { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null };
+
 // OS update status. Windows: an offline WU search (fast — uses the last synced
 // metadata, no network round-trip) for the pending count, plus the agent's last
 // successful detect time from the registry. Other platforms return unknown.
+//
+// The Detect key is gone on Windows 10 1903 and later, so the fallback is the
+// newest hotfix's install date — a different event, reported as such. Both
+// leave PowerShell as round-trip UTC ("o"): LastSuccessTime is stored in UTC
+// with no marker, and an offset-less string would be read back as local time.
 function detectUpdates() {
-  if (process.platform !== "win32") {
-    return Promise.resolve({ pendingUpdates: null, lastUpdateCheck: "Unknown" });
-  }
+  if (process.platform !== "win32") return Promise.resolve(UNKNOWN_UPDATES);
   const ps =
     "$ErrorActionPreference='SilentlyContinue';" +
-    "$r=[ordered]@{pending=$null;lastCheck=$null};" +
+    "$r=[ordered]@{pending=$null;lastCheck=$null;source=$null};" +
     "try{ $s=(New-Object -ComObject Microsoft.Update.Session).CreateUpdateSearcher(); $s.Online=$false; $r.pending=($s.Search('IsInstalled=0 and IsHidden=0').Updates).Count }catch{};" +
     "$lc=(Get-ItemProperty 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\Results\\Detect').LastSuccessTime;" +
-    "if(-not $lc){ $lc=(Get-HotFix | Where-Object InstalledOn | Sort-Object InstalledOn -Descending | Select-Object -First 1).InstalledOn };" +
-    "if($lc){$r.lastCheck=(Get-Date $lc -Format 's')};" +
+    "if($lc){ $r.lastCheck=[DateTime]::SpecifyKind([DateTime]$lc,'Utc').ToString('o'); $r.source='check' }" +
+    "else{ $hf=(Get-HotFix | Where-Object InstalledOn | Sort-Object InstalledOn -Descending | Select-Object -First 1).InstalledOn;" +
+    "  if($hf){ $r.lastCheck=$hf.ToUniversalTime().ToString('o'); $r.source='install' } };" +
     "[pscustomobject]$r | ConvertTo-Json -Compress";
   return new Promise((resolve) => {
     execFile(
       "powershell.exe",
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
       { timeout: 25000, windowsHide: true },
-      (err, stdout) => {
-        if (err) return resolve({ pendingUpdates: null, lastUpdateCheck: "Unknown" });
-        let o = {};
-        try {
-          o = JSON.parse((stdout || "").trim()) || {};
-        } catch (_) {
-          /* ignore */
-        }
-        const pending = typeof o.pending === "number" ? o.pending : null;
-        const age = humanAge(o.lastCheck);
-        resolve({
-          pendingUpdates: pending,
-          lastUpdateCheck: age ? age + " ago" : "Unknown",
-        });
-      },
+      (err, stdout) => resolve(err ? UNKNOWN_UPDATES : parseWindowsUpdates(stdout)),
     );
   });
+}
+
+// detectUpdates' JSON → the os fields the renderer merges.
+function parseWindowsUpdates(stdout) {
+  let o;
+  try {
+    o = JSON.parse((stdout || "").trim()) || {};
+  } catch (_) {
+    return UNKNOWN_UPDATES;
+  }
+  const age = humanAge(o.lastCheck);
+  return {
+    pendingUpdates: typeof o.pending === "number" ? o.pending : null,
+    // humanAge says "just now" for a time in the future (clock skew), which
+    // must not become "just now ago".
+    lastUpdateCheck: !age ? "Unknown" : age === "just now" ? age : `${age} ago`,
+    lastUpdateKind: !age ? null : o.source === "install" ? "installed" : "checked",
+  };
 }
 
 // Apps that compete for bandwidth/CPU. Real running processes matched against
@@ -441,22 +472,58 @@ function countBrowserExtensions() {
   return count;
 }
 
-// DNS servers actually configured for resolution.
-function getDnsServers(osInfo) {
+// DNS servers actually configured for resolution. With systemd-resolved,
+// resolv.conf lists only its local stub (127.0.0.53), which says nothing about
+// where queries go, so ask resolved for the upstream servers instead.
+async function detectDnsServers() {
+  let servers = [];
   try {
-    const servers = dns.getServers().filter((s) => s && !s.startsWith("fe80"));
-    if (servers.length) return servers;
+    servers = dns.getServers().filter((s) => s && !s.startsWith("fe80"));
   } catch (_) {
     /* fall through */
   }
-  return osInfo.servers || [];
+  if (process.platform === "linux" && servers.length && servers.every(isLoopback)) {
+    const upstream = await new Promise((resolve) => {
+      execFile("resolvectl", ["dns"], { timeout: 5000 }, (err, stdout) =>
+        resolve(err ? [] : parseResolvectlDns(stdout)));
+    });
+    if (upstream.length) return upstream;
+  }
+  return servers;
+}
+
+const isLoopback = (addr) => /^127\./.test(addr) || addr === "::1";
+
+// `resolvectl dns` → unique servers, in order. Lines look like
+// "Link 2 (enp3s0): 192.168.1.1 fe80::1%enp3s0"; a DNS-over-TLS server carries
+// its name after a "#" ("1.1.1.1#cloudflare-dns.com").
+function parseResolvectlDns(stdout) {
+  const found = [];
+  for (const line of String(stdout || "").split("\n")) {
+    const colon = line.indexOf(":");
+    if (colon < 0) continue;
+    for (const tok of line.slice(colon + 1).trim().split(/\s+/)) {
+      const addr = tok.split("#")[0].split("%")[0];
+      if (addr && !addr.startsWith("fe80") && !found.includes(addr)) found.push(addr);
+    }
+  }
+  return found;
 }
 
 // The volume the user actually runs on. Picking the biggest volume instead
 // reports a large empty data/backup drive as "the" disk, which reads as 0% used.
-function pickPrimaryFs(fsSize) {
+//
+// On macOS (APFS, Catalina on) / is the sealed, read-only system volume, and
+// the home folder lives on /System/Volumes/Data through a firmlink, so its path
+// never starts with that mount. Matching by path picked /, which holds only the
+// OS and read as a nearly empty disk.
+function pickPrimaryFs(fsSize, homeDir = os.homedir(), platform = process.platform) {
   const list = (fsSize || []).filter((f) => f && f.mount && f.size);
-  const home = os.homedir().toLowerCase();
+  if (platform === "darwin") {
+    const data = list.find((f) => f.mount === "/System/Volumes/Data");
+    if (data) return data;
+  }
+  const home = homeDir.toLowerCase();
   const onHome = list
     .filter((f) => home.startsWith(f.mount.toLowerCase()))
     .sort((a, b) => b.mount.length - a.mount.length)[0];
@@ -471,8 +538,10 @@ function isExternalDisplay(d) {
 }
 
 // systeminformation reports "wired" / "wireless" (and "virtual" / "unknown" on
-// Linux); every other label in the app is capitalised.
-function interfaceType(type, isWired) {
+// Linux); every other label in the app is capitalised. A VPN tunnel reads as
+// "Virtual" even where the OS calls its adapter wired, as Windows does.
+function interfaceType(type, isWired, isVirtual = false) {
+  if (isVirtual) return "Virtual";
   if (!type) return isWired ? "Wired" : "Wireless";
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
@@ -489,19 +558,29 @@ function ramPressure(mem) {
   return "Normal";
 }
 
+// Interface names of VPN clients and tunnel drivers.
+const VPN_RE =
+  /\b(vpn|tun\d*|tap\d*|wg\d*|wireguard|nordlynx|tailscale|utun\d*|anyconnect|cisco\s*secure\s*client|openvpn|globalprotect|pangp|forticlient|zscaler|expressvpn|protonvpn|mullvad)\b/i;
+
+const ifaceNames = (n) => `${n.iface || ""} ${n.ifaceName || ""}`;
+
+// Is this interface a tunnel rather than a physical link? Linux reports
+// "virtual"; elsewhere only the name gives it away.
+function isVirtualInterface(iface) {
+  if (!iface) return false;
+  return /virtual/i.test(iface.type || "") || VPN_RE.test(ifaceNames(iface));
+}
+
 // Heuristic VPN detection: look for an *active* tunnel interface (up + has an
 // IPv4) whose name matches a known VPN client / tunnel driver. Requiring an
 // active IPv4 avoids the always-present-but-idle WAN Miniport adapters on
 // Windows and the idle utun interfaces on macOS.
 function detectVpn(net) {
   const list = Array.isArray(net) ? net : [net];
-  const VPN_RE =
-    /\b(vpn|tun\d*|tap\d*|wg\d*|wireguard|nordlynx|tailscale|utun\d*|anyconnect|cisco\s*secure\s*client|openvpn|globalprotect|pangp|forticlient|zscaler|expressvpn|protonvpn|mullvad)\b/i;
   const active = list.find((n) => {
     const state = (n.operstate || "").toLowerCase();
     const up = state === "up" || state === "";
-    const name = `${n.iface || ""} ${n.ifaceName || ""}`;
-    return up && !!n.ip4 && VPN_RE.test(name);
+    return up && !!n.ip4 && VPN_RE.test(ifaceNames(n));
   });
   if (active) {
     return { detected: true, name: active.ifaceName || active.iface };
@@ -517,10 +596,18 @@ function pickAudio(audio, dir) {
 
 // Classify the selected output device only. Scanning every device instead
 // matches any Bluetooth/USB driver that happens to be installed.
+//
+// Windows names a Bluetooth headset's endpoints after its profiles:
+// "Headset (WH-1000XM4 Hands-Free AG Audio)" for calls and
+// "Headphones (WH-1000XM4 Stereo)" for music. Those are checked before the
+// generic "headset" match, which would otherwise call them wired USB. An
+// explicit "USB" still wins over "Stereo", as in "Speakers (USB Stereo Audio)".
 function classifyHeadset(outputName) {
   const s = (outputName || "").toLowerCase();
-  if (/airpod|bluetooth|wireless/.test(s)) return "Bluetooth";
-  if (/usb|headset|plantronics|jabra|logitech|sennheiser/.test(s)) return "USB headset";
+  if (/airpod|bluetooth|wireless|hands-?free|a2dp/.test(s)) return "Bluetooth";
+  if (/usb/.test(s)) return "USB headset";
+  if (/\bstereo\)?$/.test(s)) return "Bluetooth";
+  if (/headset|plantronics|jabra|logitech|sennheiser/.test(s)) return "USB headset";
   return "Built-in";
 }
 
@@ -548,4 +635,9 @@ module.exports = {
   humanUptime,
   humanAge,
   parseWindowsAv,
+  parseWindowsUpdates,
+  parseDefaultAudio,
+  detectMacAv,
+  isVirtualInterface,
+  parseResolvectlDns,
 };

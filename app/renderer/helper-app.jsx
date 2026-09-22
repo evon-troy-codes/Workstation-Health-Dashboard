@@ -263,15 +263,21 @@ function OverviewScreen({ onJump }) {
 // Screen 2 — System
 // ============================================================================
 function SystemScreen() {
-  const { facts } = useApp();
-  const driveType = facts.disk.ssd == null ? "Checking…" : facts.disk.ssd ? "SSD" : "HDD";
+  const { facts, deferredFailed } = useApp();
+  const driveType = facts.disk.ssd == null ? (deferredFailed ? "Unknown" : "Checking…") : facts.disk.ssd ? "SSD" : "HDD";
+  const { cpu, power } = facts;
+  // Only a hybrid CPU has a P/E split worth showing.
+  const coreSplit = cpu.effCores > 0 ? ` (${cpu.perfCores}P + ${cpu.effCores}E)` : "";
+  // Without the Detect registry key, the date is the newest hotfix install.
+  const updateInstalled = facts.os.lastUpdateKind === "installed";
   return (
     <div className="card-grid card-grid-2">
-      <Card icon="cog" title="Processor" sub={`${facts.cpu.cores} cores · ${facts.cpu.ghz} GHz · ${facts.cpu.arch}`}>
+      <Card icon="cog" title="Processor" sub={`${cpu.cores} cores · ${cpu.ghz} GHz · ${cpu.arch}`}>
         <KV k="Model" v={facts.cpu.model} />
         <KV k="Machine" v={facts.machineType} />
         <KV k="Family / series" v={`${facts.cpu.family} · ${facts.cpu.series}`} />
-        <KV k="Cores" v={`${facts.cpu.cores} (${facts.cpu.perfCores}P + ${facts.cpu.effCores}E)`} />
+        <KV k="Cores" v={`${cpu.cores}${coreSplit}`} />
+        <KV k="Threads" v={cpu.threads} />
       </Card>
 
       <Card icon="grip" title="Memory" sub={`${facts.ram.totalGB} GB · ${facts.ram.freeGB} GB free`}>
@@ -289,12 +295,12 @@ function SystemScreen() {
 
       <Card icon="house" title="Operating system" sub={`${facts.os.name} ${facts.os.version}`}>
         <KV k="Computer name" v={facts.hostname} />
-        <KV k="Version" v={`${facts.os.version} (${facts.os.build})`} />
+        <KV k="Version" v={facts.os.build ? `${facts.os.version} (${facts.os.build})` : facts.os.version} />
       </Card>
 
-      <Card icon="circle-info" title="OS updates" sub={`Last checked ${facts.os.lastUpdateCheck}`}>
+      <Card icon="circle-info" title="OS updates" sub={`${updateInstalled ? "Last update installed" : "Last checked"} ${facts.os.lastUpdateCheck}`}>
         <KV k="Pending updates" v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
-        <KV k="Last check" v={facts.os.lastUpdateCheck} />
+        <KV k={updateInstalled ? "Last update installed" : "Last check"} v={facts.os.lastUpdateCheck} />
       </Card>
 
       <Card icon="circle-check" title="Antivirus" sub={`${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
@@ -304,7 +310,7 @@ function SystemScreen() {
         {facts.antivirus.products.map((p, i) => (
           <KV key={i} k={p.name} v={
             [p.version ? `v${p.version}` : null, p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
-              .filter(Boolean).join(" · ") || (p.running ? "Active" : "Inactive")
+              .filter(Boolean).join(" · ") || (p.running == null ? "Installed" : p.running ? "Active" : "Inactive")
           } />
         ))}
       </Card>
@@ -315,9 +321,9 @@ function SystemScreen() {
         <KV k="Connection" v={facts.audio.isWired ? "Wired" : "Wireless/built-in"} />
       </Card>
 
-      <Card icon="phone" title="Power" sub={`${facts.power.batteryLevel}% · ${facts.power.plugged ? "Plugged in" : "On battery"}`}>
-        <KV k="Battery" v={`${facts.power.batteryLevel}%`} />
-        <KV k="Power source" v={facts.power.plugged ? "AC adapter" : "Battery"} />
+      <Card icon="phone" title="Power" sub={power.hasBattery ? `${power.batteryLevel}% · ${power.plugged ? "Plugged in" : "On battery"}` : "No battery"}>
+        <KV k="Battery" v={power.hasBattery ? `${power.batteryLevel}%` : "None"} />
+        <KV k="Power source" v={power.plugged ? "AC adapter" : "Battery"} />
       </Card>
     </div>
   );
@@ -338,7 +344,8 @@ function TestingTag({ show }) {
 }
 
 function NetworkScreen() {
-  const { facts, speed } = useApp();
+  const { facts, speed, deferredFailed } = useApp();
+  const pendingText = deferredFailed ? "Unknown" : "Checking…";
   const { testing, progress, run } = speed;
   const b = facts.bandwidth;
   const value = (v) => (v == null ? "—" : v);
@@ -384,7 +391,7 @@ function NetworkScreen() {
 
       <div className="card-grid card-grid-2">
         <Card icon="globe" title="Network interface" sub={facts.network.type}>
-          <KV k="Connection type" v={facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
+          <KV k="Connection type" v={facts.network.isVirtual ? "Virtual (VPN or tunnel)" : facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
           <KV k="Interface" v={`${facts.network.interface} · ${facts.network.linkSpeed}`} />
           <KV k="MAC address" v={facts.network.mac} />
           <KV k="MTU" v={facts.network.mtu || "Unknown"} />
@@ -403,12 +410,12 @@ function NetworkScreen() {
 
         <Card icon="users" title="Background apps" sub="Apps that may compete for bandwidth or CPU">
           <KV k="Running" v={
-            facts.backgroundApps == null ? "Checking…"
+            facts.backgroundApps == null ? pendingText
               : facts.backgroundApps.runningApps.length === 0 ? "None detected"
               : facts.backgroundApps.runningApps.join(", ")
           } />
           <KV k="Browser extensions" v={
-            facts.backgroundApps == null ? "Checking…" : `${facts.backgroundApps.browserExtensions} installed`
+            facts.backgroundApps == null ? pendingText : `${facts.backgroundApps.browserExtensions} installed`
           } />
         </Card>
       </div>
@@ -465,6 +472,11 @@ function App() {
   const [error, setError] = useState(null);
   const [rescanning, setRescanning] = useState(false);
   const [status, setStatus] = useState("Reading system facts…");
+  const [deferredFailed, setDeferredFailed] = useState(false);
+  // Numbers each deferred load. A re-scan can start a second load while the
+  // first is still running; only the latest may write, or an older result
+  // landing last would overwrite a newer one.
+  const deferredSeq = useRef(0);
 
   const onSpeedResult = useCallback((res) => {
     setFacts((f) => (f ? { ...f, bandwidth: { ...f.bandwidth, ...res } } : f));
@@ -473,15 +485,23 @@ function App() {
 
   // Slow scans (OS updates, SSD flag, process list) land after first paint.
   const loadDeferred = useCallback(() => {
+    const seq = ++deferredSeq.current;
+    setDeferredFailed(false);
     window.whd.getDeferred().then((d) => {
-      if (!d) return;
+      if (seq !== deferredSeq.current) return;
+      if (!d) return setDeferredFailed(true);
       setFacts((f) => f && ({
         ...f,
-        os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck },
+        os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck, lastUpdateKind: d.lastUpdateKind },
         disk: { ...f.disk, ssd: d.ssd },
         backgroundApps: d.backgroundApps || f.backgroundApps,
       }));
-    }).catch(() => {});
+    }).catch(() => {
+      // Left alone, the cards would say "Checking…" forever.
+      if (seq !== deferredSeq.current) return;
+      setDeferredFailed(true);
+      setFacts((f) => f && ({ ...f, os: { ...f.os, lastUpdateCheck: "Unknown" } }));
+    });
   }, []);
 
   const scan = useCallback(async () => {
@@ -544,7 +564,7 @@ function App() {
   if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
 
   return (
-    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed }}>
+    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed }}>
       <Frame><HelperApp /></Frame>
     </AppContext.Provider>
   );
