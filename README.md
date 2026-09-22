@@ -52,11 +52,12 @@ the same.
 | Area                                                  | Source                                        |
 | ----------------------------------------------------- | --------------------------------------------- |
 | CPU, RAM + pressure, disk, OS, display, power, uptime | `systeminformation` + Node `os`               |
-| Antivirus                                             | Windows Security Center / macOS app bundles   |
+| Antivirus                                             | Windows Security Center / macOS app bundles / Linux install markers + process check |
 | VPN                                                   | active tunnel-interface scan                  |
 | DNS                                                   | Node `dns`                                    |
 | Background apps, browser-extension count              | process/file scans (fetched after first paint) |
-| OS pending updates, SSD flag                          | Windows providers (fetched after first paint) |
+| Selected audio devices                                | Windows MMDevice API / PulseAudio-PipeWire (`pactl`) |
+| OS pending updates, SSD flag                          | Windows Update / apt / dnf, from cached metadata (fetched after first paint) |
 | Network speed (download/upload/ping/jitter)           | Cloudflare speed test                         |
 
 ---
