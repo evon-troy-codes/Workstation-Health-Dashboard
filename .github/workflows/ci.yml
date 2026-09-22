@@ -1,0 +1,113 @@
+# Runs on Windows, macOS and Linux: the unit tests, the renderer build and a
+# launch of the real app (tools/smoke.js). Pushes to main and manual runs also
+# package an installer per OS and keep it as an artifact of the run.
+#
+# A green run means the app starts from source on that OS. Nothing here
+# installs or launches the packaged build, so the installers are produced but
+# not exercised; try them by hand from the run's artifacts.
+#
+# The macOS build is ad-hoc signed, not signed with an Apple Developer ID, so
+# the first open needs Privacy & Security → Open Anyway.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Supersede a pull request's older run, but let a push to main finish: its
+  # run is what produces the installers.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  build:
+    name: ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false # one OS failing should not hide the others' results
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false # nothing after this step needs the token
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: npm
+
+      # Electron 42 fetches its ~100 MB binary the first time it runs, not
+      # during npm ci, and setup-node's cache does not cover that.
+      - name: Cache the Electron binary
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/electron
+            ~/Library/Caches/electron
+            ~\AppData\Local\electron\Cache
+          key: electron-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+
+      - run: npm ci
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Build renderer
+        run: npm run build
+
+      # Ubuntu 24.04 blocks the unprivileged user namespaces Chromium's sandbox
+      # needs. Lifting it on the throwaway runner lets the app start with its
+      # sandbox on. This covers the CI machine only: on a real Ubuntu 24.04
+      # desktop the restriction stands, so a green run here does not promise
+      # the AppImage starts there. A .deb, whose install script fixes the
+      # sandbox helper, is the proper answer and is still to come.
+      - name: Allow the Chromium sandbox (Linux)
+        if: runner.os == 'Linux'
+        run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
+
+      - name: Smoke test (Linux, virtual display)
+        if: runner.os == 'Linux'
+        run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for the Electron download
+
+      - name: Smoke test
+        if: runner.os != 'Linux'
+        run: npm run smoke
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      # Packaging is slow and the artifacts are ~100 MB per OS, so it runs for
+      # main and manual runs, not on every pull request.
+      - name: Package
+        if: github.event_name != 'pull_request'
+        run: npx electron-builder --publish never
+        env:
+          # No Developer ID yet; stop electron-builder hunting the keychain for
+          # one. tools/after-pack.js ad-hoc signs the macOS app instead.
+          CSC_IDENTITY_AUTO_DISCOVERY: false
+          # electron-builder downloads its AppImage tooling from GitHub;
+          # unauthenticated requests share the runner's rate limit.
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Keep the installer
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: installer-${{ runner.os }}
+          path: |
+            dist/*.exe
+            dist/*.dmg
+            dist/*.AppImage
+          if-no-files-found: error
+          retention-days: 14

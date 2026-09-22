@@ -11,7 +11,8 @@
     "dist": "npm run build && electron-builder",
     "icons": "electron tools/make-icons.js",
     "screenshots": "npm run build && electron tools/make-screenshots.js",
-    "test:postman": "npx --yes newman@6.2.2 run postman/Cloudflare-Speed-Test.postman_collection.json"
+    "test:postman": "npx --yes newman@6.2.2 run postman/Cloudflare-Speed-Test.postman_collection.json",
+    "smoke": "npm run build && electron tools/smoke.js"
   },
   "repository": {
     "type": "git",
@@ -41,6 +42,7 @@
     "systeminformation": "^5.31.7"
   },
   "build": {
+    "afterPack": "./tools/after-pack.js",
     "appId": "com.evontroy.workstation-health-dashboard",
     "productName": "Zillow Workstation Health Dashboard",
     "directories": {
@@ -62,7 +64,15 @@
       "icon": "build/icon.ico"
     },
     "mac": {
-      "target": "dmg",
+      "target": [
+        {
+          "target": "dmg",
+          "arch": [
+            "x64",
+            "arm64"
+          ]
+        }
+      ],
       "category": "public.app-category.utilities",
       "icon": "build/icon.png"
     },
