@@ -25,6 +25,7 @@ const {
   parseDefaultAudio,
   detectMacAv,
   isVirtualInterface,
+  isLinuxWlan,
   parseResolvectlDns,
 } = require("./system-facts");
 
@@ -205,6 +206,28 @@ test("isVirtualInterface", async (t) => {
     assert.equal(isVirtualInterface({ iface: "wlan0", ifaceName: "Wi-Fi", type: "wireless" }), false);
     assert.equal(isVirtualInterface({}), false);
     assert.equal(isVirtualInterface(null), false);
+  });
+});
+
+test("isLinuxWlan", async (t) => {
+  const files = {
+    "/sys/class/net/wlp0s20f3/uevent": "DEVTYPE=wlan\nINTERFACE=wlp0s20f3\nIFINDEX=2\n",
+    "/sys/class/net/enp3s0/uevent": "INTERFACE=enp3s0\nIFINDEX=3\n",
+  };
+  const read = (p) => {
+    if (!(p in files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    return files[p];
+  };
+
+  await t.test("recognises a Wi-Fi card from its uevent", () => {
+    assert.equal(isLinuxWlan("wlp0s20f3", read), true);
+  });
+
+  await t.test("leaves a wired card, a missing one and odd names alone", () => {
+    assert.equal(isLinuxWlan("enp3s0", read), false);
+    assert.equal(isLinuxWlan("gone0", read), false);
+    assert.equal(isLinuxWlan("", read), false);
+    assert.equal(isLinuxWlan("../../etc", read), false);
   });
 });
 
