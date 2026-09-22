@@ -1,6 +1,6 @@
 // make-icons.js — generates the app icon set from the brand mark.
 //
-// Renders assets/logo/logo-mark.svg onto a rounded brand-blue tile at every
+// Renders assets/logo/logo-mark.svg onto a rounded accent-coloured tile at every
 // size Windows, macOS and Linux want, then packs the Windows sizes into a
 // multi-resolution .ico. Output goes to build/, which electron-builder picks
 // up automatically (it is the default buildResources directory).
@@ -15,7 +15,7 @@ const ROOT = path.join(__dirname, "..");
 const BUILD = path.join(ROOT, "build");
 const ICONS_DIR = path.join(BUILD, "icons");
 
-const BRAND = "#0041D9"; // the mark's own blue, used as the tile
+const BRAND = "#7d6bee"; // --accent from the app's theme, used as the tile
 const ICO_SIZES = [16, 24, 32, 48, 64, 128, 256];
 const PNG_SIZES = [16, 32, 48, 64, 128, 256, 512, 1024];
 
