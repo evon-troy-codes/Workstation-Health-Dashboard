@@ -303,8 +303,13 @@ function SystemScreen() {
         )}
         {facts.antivirus.products.map((p, i) => (
           <KV key={i} k={p.name} v={
-            [p.version ? `v${p.version}` : null, p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
-              .filter(Boolean).join(" · ") || (p.running ? "Active" : "Inactive")
+            // Whether it is actually running leads: a product with fresh
+            // definitions and a stopped daemon is not protecting anything,
+            // and this card is where someone would look to find that out.
+            [p.running == null ? "Status unknown" : p.running ? "Active" : "Inactive",
+             p.version ? `v${p.version}` : null,
+             p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
+              .filter(Boolean).join(" · ")
           } />
         ))}
       </Card>
