@@ -1,4 +1,4 @@
-# Zillow Workstation Health Dashboard
+# Workstation Scanner
 
 This application reports on a computer's health —
 CPU, RAM, disk, OS, network, antivirus, and audio — and runs a real network

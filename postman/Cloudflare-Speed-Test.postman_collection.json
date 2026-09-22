@@ -1,6 +1,6 @@
 {
   "info": {
-    "name": "Workstation Health Dashboard — Cloudflare Speed Test",
+    "name": "Workstation Scanner — Cloudflare Speed Test",
     "description": "The HTTP endpoints the dashboard's network speed test measures against (app/renderer/speedtest.js), with test scripts.\n\nRun the whole collection in the Collection Runner (or `npm run test:postman`, which runs it through Newman), in order. Each request logs its measurement to the console.\n\nThese are single-request, single-stream measurements, and Postman's response time includes connection setup and time-to-first-byte. They are good for checking the endpoints' behaviour, not for benchmarking the link: the app itself uses parallel streams and counts only bytes moved over the streaming window.",
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
