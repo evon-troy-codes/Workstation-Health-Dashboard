@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { sendReport, buildReport, classifyReportError, errorDetail } = require("./report");
+const { sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail } = require("./report");
 
 // A fetch stand-in that records its calls and answers with `respond()`.
 function fakeFetch(respond) {
@@ -148,4 +148,40 @@ test("buildReport", async (t) => {
     buildReport(scanned, { pendingUpdates: 1, lastUpdateCheck: "x", lastUpdateKind: "checked", ssd: false }, {});
     assert.equal(JSON.stringify(scanned), before);
   });
+});
+
+test("reportEndpoint", async (t) => {
+  await t.test("prefers WHD_REPORT_URL, then package.json's reportUrl", () => {
+    const pkg = { workstationScanner: { reportUrl: "https://built.example/report" } };
+    assert.equal(reportEndpoint({ WHD_REPORT_URL: "https://env.example/" }, pkg), "https://env.example/");
+    assert.equal(reportEndpoint({}, pkg), "https://built.example/report");
+  });
+
+  await t.test("is empty when neither is set, or reportUrl is blank or not a string", () => {
+    assert.equal(reportEndpoint({}, {}), "");
+    assert.equal(reportEndpoint({}, { workstationScanner: { reportUrl: "  " } }), "");
+    assert.equal(reportEndpoint({}, { workstationScanner: { reportUrl: 42 } }), "");
+    assert.equal(reportEndpoint(undefined, undefined), "");
+  });
+});
+
+test("normalizeEmail", async (t) => {
+  await t.test("trims a valid address", () => {
+    assert.equal(normalizeEmail("  sam@example.com\n"), "sam@example.com");
+  });
+
+  await t.test("refuses anything that isn't one plausible address", () => {
+    for (const bad of ["", "sam", "sam@example", "sam@@example.com", "sam @example.com",
+      "a@b.c,d@e.f", `${"a".repeat(250)}@example.com`, null, undefined, 42, {}]) {
+      assert.equal(normalizeEmail(bad), null, String(bad));
+    }
+  });
+});
+
+test("sendReport posts the address and the report together", async () => {
+  const fetch = fakeFetch(() => new Response(null, { status: 200 }));
+  const payload = { email: "sam@example.com", report: { hostname: "host" } };
+  const res = await sendReport("https://mailer.example/", payload, fetch);
+  assert.deepEqual(res, { ok: true, status: 200 });
+  assert.deepEqual(JSON.parse(fetch.calls[0].init.body), payload);
 });

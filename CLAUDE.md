@@ -39,6 +39,7 @@ keeps working.
 | Launch smoke test | `npm run build` then `npx electron tools/smoke.js` |
 | Installers for this OS | `npm run dist` |
 | Postman checks (uses the network) | `npm run test:postman` |
+| Deploy the report mailer | `cd server/report-mailer && npx wrangler deploy` (see its README) |
 
 `npm run icons` rewrites `build/` and `app/renderer/assets/logo/`, and
 `npm run screenshots` rewrites `docs/screenshots/`. Run them only on purpose.
@@ -100,6 +101,14 @@ keeps working.
   launches the `.deb` with the restriction on. Never ship `--no-sandbox`.
 - **Linux Wi-Fi**: systeminformation can call a Wi-Fi card "wired"; the kernel's
   `DEVTYPE=wlan` decides.
+- **Emailed reports**: Send report asks for an address; main posts
+  `{ email, report }` to `server/report-mailer`, a Cloudflare Worker that
+  emails it through Resend. The Resend key stays in the Worker, never in the
+  public app. The Worker's defences against spam (fixed layout, escaped and
+  capped fields, per-IP and per-recipient rate limits, optional
+  `ALLOWED_DOMAINS`) are deliberate; keep them. The app finds the Worker
+  through `workstationScanner.reportUrl` in `package.json`
+  (`WHD_REPORT_URL` overrides).
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 
