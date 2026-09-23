@@ -1,0 +1,14 @@
+{
+  "name": "workstation-scanner-report-mailer",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Cloudflare Worker that emails Workstation Scanner reports through Resend.",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

@@ -1,0 +1,19 @@
+# Cloudflare Worker that emails Workstation Scanner reports. See README.md for
+# the deploy steps. The Resend API key is a secret, not a var:
+#   npx wrangler secret put RESEND_API_KEY
+name = "workstation-scanner-report-mailer"
+main = "src/index.js"
+compatibility_date = "2026-09-01"
+
+[vars]
+# Must be on a domain verified in Resend.
+FROM_ADDRESS = "Workstation Scanner <reports@example.com>"
+# Comma-separated recipient domains, e.g. "example.com,example.org". Empty
+# lets any address receive reports, relying on the rate limits alone.
+ALLOWED_DOMAINS = ""
+
+# Five reports a minute per client IP, and per recipient address.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "1001"
+simple = { limit = 5, period = 60 }

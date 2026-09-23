@@ -194,3 +194,37 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   border-radius: 999px;
 }
 ::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
+
+/* ---- Email report dialog (report-dialog.jsx) ---- */
+.dialog-backdrop {
+  position: fixed; inset: 0; z-index: 1000;
+  display: flex; align-items: center; justify-content: center; padding: 16px;
+  background: rgba(8, 10, 14, 0.66);
+}
+.dialog {
+  width: 100%; max-width: 440px; box-sizing: border-box;
+  background: var(--surface-card); border: 1px solid var(--line-strong); border-radius: 12px;
+  padding: 18px 20px; box-shadow: 0 16px 40px rgba(0, 0, 0, 0.4);
+  animation: whd-toast-in 160ms ease;
+}
+.dialog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.dialog-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--text-strong); }
+.dialog-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-body); margin-bottom: 6px; }
+.dialog-input {
+  width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 8px;
+  background: var(--surface-page); color: var(--text-strong); border: 1px solid var(--line-strong);
+  font-family: var(--font-sans); font-size: 14px;
+}
+.dialog-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
+.dialog-input[aria-invalid="true"] { border-color: var(--danger); }
+.dialog-error { margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--danger); }
+.dialog-text, .dialog-note { font-size: 12px; line-height: 1.5; color: var(--text-muted); margin: 12px 0 0; }
+.dialog-text { font-size: 13px; color: var(--text-body); margin-top: 0; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
+.dialog-primary {
+  display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
+  background: var(--accent); color: var(--accent-contrast); border: none;
+  font-family: var(--font-sans); font-size: 12px; font-weight: 700;
+}
+.dialog-primary:hover:not(:disabled) { background: var(--accent-hover); }
+.dialog-primary:disabled, .foot-btn:disabled { opacity: 0.6; cursor: default; }
