@@ -21,6 +21,11 @@ on:
 permissions:
   contents: read
 
+# Actions are pinned to a commit SHA, with the release it is in a comment:
+# a tag can be moved to other code, a SHA cannot. To update one, take the new
+# release's commit from its GitHub page (or `gh api repos/<action>/commits/<tag>
+# --jq .sha`) and change both.
+
 concurrency:
   group: ci-${{ github.ref }}
   # Supersede a pull request's older run, but let a push to main finish: its
@@ -38,11 +43,11 @@ jobs:
         os: [windows-latest, macos-latest, ubuntu-latest]
 
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           persist-credentials: false # nothing after this step needs the token
 
-      - uses: actions/setup-node@v5
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -50,7 +55,7 @@ jobs:
       # Electron 42 fetches its ~100 MB binary the first time it runs, not
       # during npm ci, and setup-node's cache does not cover that.
       - name: Cache the Electron binary
-        uses: actions/cache@v4
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/electron
@@ -142,7 +147,7 @@ jobs:
 
       - name: Keep the installer
         if: github.event_name != 'pull_request'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: installer-${{ runner.os }}
           path: |
