@@ -2,9 +2,10 @@
 # launch of the real app (tools/smoke.js). Pushes to main and manual runs also
 # package an installer per OS and keep it as an artifact of the run.
 #
-# A green run means the app starts from source on that OS. Nothing here
-# installs or launches the packaged build, so the installers are produced but
-# not exercised; try them by hand from the run's artifacts.
+# A green run means the app starts from source on that OS. On Linux, packaging
+# runs also install the .deb and launch it the way a user would; the Windows
+# and macOS installers and the AppImage are produced but not exercised, so try
+# them by hand from the run's artifacts.
 #
 # The macOS build is ad-hoc signed, not signed with an Apple Developer ID, so
 # the first open needs Privacy & Security → Open Anyway.
@@ -66,11 +67,11 @@ jobs:
         run: npm run build
 
       # Ubuntu 24.04 blocks the unprivileged user namespaces Chromium's sandbox
-      # needs. Lifting it on the throwaway runner lets the app start with its
-      # sandbox on. This covers the CI machine only: on a real Ubuntu 24.04
-      # desktop the restriction stands, so a green run here does not promise
-      # the AppImage starts there. A .deb, whose install script fixes the
-      # sandbox helper, is the proper answer and is still to come.
+      # needs. Lifting it on the throwaway runner lets the app start from
+      # source with its sandbox on. A real Ubuntu 24.04 desktop keeps the
+      # restriction, which is why the AppImage does not start there; the .deb
+      # installs an AppArmor profile instead, and the step after packaging
+      # puts the restriction back to prove that works.
       - name: Allow the Chromium sandbox (Linux)
         if: runner.os == 'Linux'
         run: sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=0
@@ -100,6 +101,34 @@ jobs:
           # unauthenticated requests share the runner's rate limit.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # The .deb as a user on Ubuntu 24.04 gets it: restriction on, installed
+      # with apt, launched from /usr/bin. Its install script's AppArmor profile
+      # is the only thing that lets the sandbox start, so an app still running
+      # after 20 s means the profile works. Removing the package must take the
+      # profile away again.
+      - name: Install and launch the .deb (Linux)
+        if: runner.os == 'Linux' && github.event_name != 'pull_request'
+        run: |
+          sudo sysctl -w kernel.apparmor_restrict_unprivileged_userns=1
+          sudo apt-get install -y ./dist/*.deb
+          test -f /etc/apparmor.d/workstation-scanner
+          echo "chrome-sandbox mode: $(stat -c '%a' '/opt/Workstation Scanner/chrome-sandbox')"
+          set +e
+          xvfb-run --auto-servernum timeout 20 workstation-scanner > app.log 2>&1
+          code=$?
+          set -e
+          cat app.log
+          if [ "$code" -ne 124 ]; then
+            echo "::error::the installed app exited with code $code instead of running"
+            exit 1
+          fi
+          if grep -q "FATAL" app.log; then
+            echo "::error::the installed app logged a FATAL error"
+            exit 1
+          fi
+          sudo apt-get remove -y workstation-scanner
+          test ! -e /etc/apparmor.d/workstation-scanner
+
       - name: Keep the installer
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@v4
@@ -109,5 +138,6 @@ jobs:
             dist/*.exe
             dist/*.dmg
             dist/*.AppImage
+            dist/*.deb
           if-no-files-found: error
           retention-days: 14
