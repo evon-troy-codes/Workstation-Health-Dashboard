@@ -13,7 +13,7 @@ const si = require("systeminformation");
 const { execFile } = require("child_process");
 
 // App version for display. Resolved from the project's package.json.
-let APP_VERSION = "1.1.0";
+let APP_VERSION = "1.2.0";
 try {
   APP_VERSION = require("../../package.json").version || APP_VERSION;
 } catch (_) {
