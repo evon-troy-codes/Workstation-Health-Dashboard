@@ -71,7 +71,11 @@ function chunkLadder(sizes) {
 
 // fetch + a deadline. Chains an outer signal so a cancelled run tears down
 // every in-flight request rather than leaving them to finish in the background.
-async function fetchWithTimeout(url, opts = {}, outerSignal) {
+//
+// fetch() resolves once the headers arrive, so the body is read inside
+// `consume`, with the deadline and the outer signal still attached. Reading it
+// after this returns would leave a stalled body with nothing to abort it.
+async function fetchWithTimeout(url, opts = {}, outerSignal, consume = (res) => res) {
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), REQUEST_TIMEOUT_MS);
   const onAbort = () => ctrl.abort();
@@ -80,7 +84,8 @@ async function fetchWithTimeout(url, opts = {}, outerSignal) {
     outerSignal.addEventListener("abort", onAbort);
   }
   try {
-    return await fetch(url, { ...opts, signal: ctrl.signal });
+    const res = await fetch(url, { ...opts, signal: ctrl.signal });
+    return await consume(res);
   } finally {
     clearTimeout(timer);
     if (outerSignal) outerSignal.removeEventListener("abort", onAbort);
@@ -95,12 +100,12 @@ async function measureLatency(onProgress, signal) {
   // and a TLS handshake, and counting that as a latency sample inflates the
   // median and badly inflates jitter (which is a deviation between samples).
   try {
-    const warm = await fetchWithTimeout(
+    await fetchWithTimeout(
       "https://speed.cloudflare.com/__down?bytes=1000",
       { cache: "no-store" },
       signal,
+      (res) => res.arrayBuffer(),
     );
-    await warm.arrayBuffer();
   } catch {
     /* the measured samples below will report the failure */
   }
@@ -108,18 +113,18 @@ async function measureLatency(onProgress, signal) {
     if (signal.aborted) break;
     const t0 = performance.now();
     try {
-      const res = await fetchWithTimeout(
+      await fetchWithTimeout(
         "https://speed.cloudflare.com/__down?bytes=1000",
         { cache: "no-store" },
         signal,
+        (res) => res.arrayBuffer(),
       );
-      await res.arrayBuffer();
       samples.push(performance.now() - t0);
     } catch {
       /* skip failed sample */
     }
     if (onProgress) onProgress(Math.round(((i + 1) / N) * 15));
-    await sleep(60);
+    await sleep(60, signal);
   }
   if (!samples.length) return { ping: null, jitter: null };
   const ordered = [...samples].sort((a, b) => a - b);
@@ -139,11 +144,17 @@ async function measureLatency(onProgress, signal) {
 // window, across parallel streams. Timing each request separately and summing
 // counts DNS/TCP/TLS setup and TTFB as transfer time, which under-reports the
 // link badly when latency is high.
-async function measureDownload(onProgress, signal, durationMs = 12000) {
+async function measureDownload(onProgress, runSignal, durationMs = 12000) {
   const ladder = chunkLadder(CHUNK_LADDER);
   const start = performance.now();
   const deadline = start + durationMs;
   let totalBytes = 0;
+  // The read loop checks the deadline after each chunk, but a read that never
+  // returns never gets there. Aborting at the deadline ends a stalled stream
+  // with the phase, keeping the bytes it had already counted.
+  const phase = new AbortController();
+  const phaseTimer = setTimeout(() => phase.abort(), durationMs);
+  const signal = AbortSignal.any([runSignal, phase.signal]);
 
   const report = () => {
     if (!onProgress) return;
@@ -154,33 +165,38 @@ async function measureDownload(onProgress, signal, durationMs = 12000) {
   async function stream() {
     while (performance.now() < deadline && !signal.aborted) {
       const asked = ladder.rung;
-      const res = await fetchWithTimeout(
+      const outcome = await fetchWithTimeout(
         "https://speed.cloudflare.com/__down?bytes=" + ladder.size(asked),
         { cache: "no-store" },
         signal,
+        async (res) => {
+          if (res.status === 429) {
+            discard(res);
+            return "throttled";
+          }
+          if (!res.ok || !res.body) {
+            discard(res);
+            return "stop";
+          }
+          // Read incrementally so bytes still count when the deadline cuts a
+          // chunk short — an abandoned chunk was still real traffic.
+          const reader = res.body.getReader();
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) return "next";
+            totalBytes += value.length;
+            report();
+            if (performance.now() >= deadline || signal.aborted) {
+              await reader.cancel().catch(() => {});
+              return "stop";
+            }
+          }
+        },
       );
-      if (res.status === 429) {
-        discard(res);
+      if (outcome === "stop") return;
+      if (outcome === "throttled") {
         await ladder.throttled(asked, signal, deadline);
         report(); // the window is still running; keep the bar moving
-        continue;
-      }
-      if (!res.ok || !res.body) {
-        discard(res);
-        break;
-      }
-      // Read incrementally so bytes still count when the deadline cuts a
-      // chunk short — an abandoned chunk was still real traffic.
-      const reader = res.body.getReader();
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        totalBytes += value.length;
-        report();
-        if (performance.now() >= deadline || signal.aborted) {
-          await reader.cancel().catch(() => {});
-          return;
-        }
       }
     }
   }
@@ -188,7 +204,11 @@ async function measureDownload(onProgress, signal, durationMs = 12000) {
   const streams = Array.from({ length: DOWN_STREAMS }, () =>
     stream().catch(() => {}),
   );
-  await Promise.all(streams);
+  try {
+    await Promise.all(streams);
+  } finally {
+    clearTimeout(phaseTimer);
+  }
   // No bytes at all means every stream was refused (a rate limit, a blocked
   // endpoint, no route). That is a failed measurement, not a 0 Mbps link, and
   // reporting it as a number would be a lie the UI cannot distinguish.

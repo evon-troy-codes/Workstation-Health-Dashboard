@@ -3,7 +3,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { sendReport, classifyReportError, errorDetail } = require("./report");
+const { sendReport, buildReport, classifyReportError, errorDetail } = require("./report");
 
 // A fetch stand-in that records its calls and answers with `respond()`.
 function fakeFetch(respond) {
@@ -100,5 +100,52 @@ test("errorDetail", async (t) => {
 
   await t.test("falls back to the error itself when there is no cause", () => {
     assert.equal(errorDetail(new Error("boom")), "Error: boom");
+  });
+});
+
+test("buildReport", async (t) => {
+  const scanned = {
+    hostname: "host",
+    os: { name: "Windows", pendingUpdates: null, lastUpdateCheck: "Checking…", lastUpdateKind: null },
+    disk: { totalGB: 500, ssd: null },
+    backgroundApps: null,
+    bandwidth: { downMbps: null, upMbps: null, ping: null, jitter: null, measuredAt: null },
+  };
+
+  await t.test("uses main's own scan, not the renderer's copy of it", () => {
+    const r = buildReport(scanned, null, { hostname: "spoofed", os: { name: "Other" } });
+    assert.equal(r.hostname, "host");
+    assert.equal(r.os.name, "Windows");
+  });
+
+  await t.test("merges the deferred results when they have landed", () => {
+    const deferred = {
+      pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked",
+      ssd: true, backgroundApps: { browserExtensions: 1, runningApps: ["Zoom"] },
+    };
+    const r = buildReport(scanned, deferred, {});
+    assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
+    assert.equal(r.disk.ssd, true);
+    assert.deepEqual(r.backgroundApps, deferred.backgroundApps);
+  });
+
+  await t.test("takes the speed test from the renderer, as numbers and flags only", () => {
+    const r = buildReport(scanned, null, {
+      bandwidth: { downMbps: 412, upMbps: "lots", ping: 9, jitter: Infinity, measuredAt: 1700000000000, partial: false, failed: "no", extra: "x" },
+    });
+    assert.deepEqual(r.bandwidth, { downMbps: 412, upMbps: null, ping: 9, jitter: null, measuredAt: 1700000000000, partial: false });
+  });
+
+  await t.test("reports no measurement when the renderer sends nothing usable", () => {
+    for (const from of [undefined, null, "facts", {}]) {
+      assert.deepEqual(buildReport(scanned, null, from).bandwidth,
+        { downMbps: null, upMbps: null, ping: null, jitter: null, measuredAt: null });
+    }
+  });
+
+  await t.test("leaves the scan it was given untouched", () => {
+    const before = JSON.stringify(scanned);
+    buildReport(scanned, { pendingUpdates: 1, lastUpdateCheck: "x", lastUpdateKind: "checked", ssd: false }, {});
+    assert.equal(JSON.stringify(scanned), before);
   });
 });
