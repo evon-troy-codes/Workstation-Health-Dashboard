@@ -14,19 +14,25 @@ const { sendReport, buildReport } = require("./app/main/report");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
-const INDEX_URL = pathToFileURL(INDEX_FILE).href;
 
-// IPC is answered only for the app's own page in its top frame. Nothing else
-// should ever load, but if something did (a bug, an injected frame) it gets no
-// system facts and cannot send a report.
+// The webContents ids of the windows createWindow opened.
+const appContents = new Set();
+
+// IPC is answered only for the top frame of a window this process opened on
+// its own page. Nothing else should ever load, but if something did (a bug, an
+// injected frame, another window) it gets no system facts and cannot send a
+// report.
+//
+// This goes by which window sent the message, not by comparing its URL with
+// the index.html path: Chromium re-encodes the URL it loaded (it leaves [ ]
+// alone, for one), so a string comparison refused every call from an install
+// path holding such characters and the app could never scan. The window cannot
+// navigate away (will-navigate is refused), and the file: check still turns
+// away anything else loaded into it.
 function fromApp(event) {
   const frame = event.senderFrame;
   if (!frame || frame.parent) return false;
-  const url = frame.url.split("#")[0];
-  // Windows paths are case-insensitive, and the drive letter's case varies.
-  return process.platform === "win32"
-    ? url.toLowerCase() === INDEX_URL.toLowerCase()
-    : url === INDEX_URL;
+  return appContents.has(event.sender.id) && frame.url.startsWith("file:");
 }
 
 function handle(channel, fn) {
@@ -75,8 +81,16 @@ function createWindow() {
   });
   win.webContents.on("will-navigate", (event) => event.preventDefault());
 
+  // The id is read now: the webContents is already destroyed by "closed".
+  const id = win.webContents.id;
+  appContents.add(id);
+  win.on("closed", () => appContents.delete(id));
+
   win.setMenuBarVisibility(false);
-  win.loadFile(INDEX_FILE);
+  // Not loadFile: it leaves "%" in the path unescaped, so a folder named like
+  // "a%20b" is read back as "a b" and the page is not found. pathToFileURL
+  // escapes it.
+  win.loadURL(pathToFileURL(INDEX_FILE).href);
   return win;
 }
 
