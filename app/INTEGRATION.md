@@ -7,7 +7,7 @@ Dashboard. This doc covers how the pieces fit together and how to extend them.
 app/
 ├── main/
 │   ├── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
-│   └── report.js           ← MAIN process: POSTs the report to WHD_REPORT_URL
+│   └── report.js           ← MAIN process: POSTs the report to be emailed
 ├── preload.js               ← contextBridge → window.whd.getFacts()
 └── renderer/
     ├── index.html            ← window entry (loads the vendored React + bundle)
@@ -17,7 +17,8 @@ app/
     ├── react-globals.js      ← re-exports the React/ReactDOM UMD globals
     ├── icons.jsx
     ├── speedtest.js          ← real Cloudflare-based speed test
-    ├── report-messages.js    ← toast text for a failed report
+    ├── report-dialog.jsx     ← "Email this report" dialog
+    ├── report-messages.js    ← failure text and the address check
     ├── toast.jsx
     ├── assets/               ← design tokens + brand font
     └── dist/                 ← build output, git-ignored (see ../../build.js)
@@ -76,31 +77,42 @@ whenever a component is added.
    `helper-app.jsx`. The app is purely informational — it reports facts,
    it doesn't grade them.
 
-## Optional report endpoint
+## Emailing reports
 
-The footer's **Send report** button calls `window.whd.sendReport(facts)`,
-which POSTs a report as JSON to the `WHD_REPORT_URL` environment variable if
-one is set (see `main/report.js`). The main process builds that report from
-its own last scan (`buildReport`) and takes only the speed-test numbers in
-`facts.bandwidth` from the renderer. The endpoint must be
-`https://` — the report carries hostname, username, MAC and IP. With no
-variable configured the handler returns
-`{ ok: true, skipped: true, reason: "no-endpoint" }` and the button says so,
-so the app works fully offline. A delivered report returns
-`{ ok: true, status }`.
+The footer's **Send report** button opens `renderer/report-dialog.jsx`, which
+asks for an email address. It first asks main whether this build can send at
+all (`window.whd.reportEnabled()`); without a report endpoint it says emailing
+isn't set up instead of asking for an address.
+
+Sending calls `window.whd.sendReport(facts, email)`. Main checks the address
+again (`normalizeEmail`), builds the report from its own last scan
+(`buildReport`, taking only the speed-test numbers in `facts.bandwidth` from
+the renderer), and POSTs `{ email, report }` as JSON to the report endpoint
+(`main/report.js`). The endpoint is `WHD_REPORT_URL` if set, else
+`workstationScanner.reportUrl` in `package.json`, which is how an installed
+app finds it. It must be `https://`, since the report carries hostname,
+username, MAC and IP. The endpoint is normally the
+[`server/report-mailer`](../server/report-mailer/) Worker, which emails the
+report through Resend; any service taking the same JSON works.
+
+With no endpoint the handler returns
+`{ ok: true, skipped: true, reason: "no-endpoint" }`, so the app works fully
+offline. A delivered report returns `{ ok: true, status }`.
 
 A failed send returns `{ ok: false, reason, status?, error? }`, where `reason`
-is `"insecure-url"`, `"timeout"`, `"unreachable"`, `"redirected"`, `"http"`
-(with `status`) or `"no-scan"` (nothing scanned yet), and the toast names the
-cause. `error` carries the raw text
-for debugging; for a network failure that is the underlying cause, such as
-`connect ECONNREFUSED`, rather than fetch's generic "fetch failed". Redirects
-are refused rather than followed, so an https endpoint cannot bounce the
-report to a plain http:// URL; point `WHD_REPORT_URL` at the final address.
+is `"invalid-email"`, `"insecure-url"`, `"timeout"`, `"unreachable"`,
+`"redirected"`, `"http"` (with the endpoint's `status`: the Worker uses 403 for
+a domain it doesn't send to and 429 when rate-limited) or `"no-scan"`
+(nothing scanned yet). The dialog shows the cause and stays open, so the
+address can be fixed. `error` carries the raw text for debugging; for a
+network failure that is the underlying cause, such as `connect ECONNREFUSED`,
+rather than fetch's generic "fetch failed". Redirects are refused rather than
+followed, so an https endpoint cannot bounce the report to a plain http://
+URL; configure the final address.
 
 A new `reason` code needs both ends: `main/report.js` produces it and
-`renderer/report-messages.js` words the toast, and each has a `.test.js` beside
-it that should cover the new code.
+`renderer/report-messages.js` words it, and each has a `.test.js` beside it
+that should cover the new code.
 
 ## Production hardening
 

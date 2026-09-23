@@ -10,7 +10,7 @@ const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
-const { sendReport, buildReport } = require("./app/main/report");
+const { sendReport, buildReport, reportEndpoint, normalizeEmail } = require("./app/main/report");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -49,9 +49,10 @@ let lastFacts = null;
 let lastDeferred = null;
 let scanCount = 0;
 
-// Optional endpoint to POST health reports to. Unset by default; the
-// send-report handler no-ops gracefully so the UI still works standalone.
-const REPORT_ENDPOINT = process.env.WHD_REPORT_URL || "";
+// Where "Send report" posts the report and the address to email it to:
+// WHD_REPORT_URL, else package.json's workstationScanner.reportUrl. Unset in a
+// build without a mailer, and the dialog then says emailing isn't set up.
+const REPORT_ENDPOINT = reportEndpoint(process.env, require("./package.json"));
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -130,11 +131,19 @@ if (!gotLock) {
       return deferred;
     });
 
-    // POST the health report to an optional backend. No-ops when REPORT_ENDPOINT is unset.
-    // https only, no redirects; see app/main/report.js.
-    handle("whd:send-report", async (fromRenderer) => {
+    // Whether this build can email reports, so the dialog can say so before
+    // anyone types an address.
+    handle("whd:report-enabled", () => Boolean(REPORT_ENDPOINT));
+
+    // Email the report: POST it and the address to the report endpoint.
+    // No-ops when REPORT_ENDPOINT is unset; https only, no redirects (see
+    // app/main/report.js). The address is checked here too, not only in the
+    // dialog, since main is what sends it.
+    handle("whd:send-report", async (fromRenderer, email) => {
       if (!lastFacts) return { ok: false, reason: "no-scan" };
-      return sendReport(REPORT_ENDPOINT, buildReport(lastFacts, lastDeferred, fromRenderer));
+      const to = normalizeEmail(email);
+      if (!to) return { ok: false, reason: "invalid-email" };
+      return sendReport(REPORT_ENDPOINT, { email: to, report: buildReport(lastFacts, lastDeferred, fromRenderer) });
     });
 
     createWindow();

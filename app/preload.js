@@ -10,7 +10,9 @@ contextBridge.exposeInMainWorld("whd", {
   getDeferred: () => ipcRenderer.invoke("whd:get-deferred"),
   // Re-run the scan on demand (the "Re-scan now" button calls this).
   rescan: () => ipcRenderer.invoke("whd:get-facts"),
-  // Send the health report to an optional backend (wire WHD_REPORT_URL in main).
-  // Main sends its own last scan; it takes only facts.bandwidth from here.
-  sendReport: (facts) => ipcRenderer.invoke("whd:send-report", facts),
+  // Email the health report to `email` through the report endpoint. Main sends
+  // its own last scan; it takes only facts.bandwidth from here.
+  sendReport: (facts, email) => ipcRenderer.invoke("whd:send-report", facts, email),
+  // Whether this build has a report endpoint to email reports through.
+  reportEnabled: () => ipcRenderer.invoke("whd:report-enabled"),
 });
