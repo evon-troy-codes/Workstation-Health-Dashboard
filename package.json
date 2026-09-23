@@ -34,6 +34,9 @@
     "url": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard/issues"
   },
   "homepage": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard#readme",
+  "workstationScanner": {
+    "reportUrl": ""
+  },
   "devDependencies": {
     "electron": "^42.4.0",
     "electron-builder": "^25.1.8",

@@ -1,12 +1,34 @@
-// report.js — POSTs the health report to the optional WHD_REPORT_URL endpoint.
-// Kept out of main.js so the result shape the renderer depends on can be unit
-// tested without Electron.
+// report.js — POSTs the health report, with the address to email it to, to
+// the report endpoint (server/report-mailer, or any service taking the same
+// { email, report } JSON). Kept out of main.js so the result shape the
+// renderer depends on can be unit tested without Electron.
 //
 // Every result carries `ok`. A skipped or failed send also carries `reason`, a
 // short code the renderer turns into a readable toast. A failure adds `error`,
 // the raw text for anyone debugging the endpoint.
 
 const REPORT_TIMEOUT_MS = 15000;
+
+// Where reports go. WHD_REPORT_URL wins, so a developer or IT can point a
+// build elsewhere; otherwise the URL built into package.json
+// ("workstationScanner": { "reportUrl": ... }), which is how an installed
+// app, started from a menu with no environment to set, finds it.
+function reportEndpoint(env, pkg) {
+  const fromEnv = env && env.WHD_REPORT_URL;
+  if (fromEnv) return fromEnv;
+  const cfg = pkg && pkg.workstationScanner;
+  return (cfg && typeof cfg.reportUrl === "string" && cfg.reportUrl.trim()) || "";
+}
+
+// The address to email the report to, trimmed, or null. The same rule the
+// renderer and the report-mailer Worker apply: one @, a dot in the domain, no
+// spaces, at most 254 characters.
+function normalizeEmail(value) {
+  if (typeof value !== "string") return null;
+  const email = value.trim();
+  if (email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  return email;
+}
 
 // Maps a rejected fetch to a reason code.
 function classifyReportError(err) {
@@ -57,20 +79,23 @@ function buildReport(facts, deferred, fromRenderer) {
   return report;
 }
 
-async function sendReport(endpoint, facts, fetchImpl = fetch) {
+// POSTs `payload` ({ email, report }) as JSON. The endpoint's own answer is
+// passed on as `status`: the Worker uses 400 for a bad address, 403 for a
+// domain it doesn't send to and 429 when rate-limited.
+async function sendReport(endpoint, payload, fetchImpl = fetch) {
   if (!endpoint) {
     return { ok: true, skipped: true, reason: "no-endpoint" };
   }
   // The report carries hostname, username, MAC and IP — refuse to put that
   // on the wire in the clear, however the endpoint was configured.
   if (!/^https:\/\//i.test(endpoint)) {
-    return { ok: false, reason: "insecure-url", error: "WHD_REPORT_URL must be an https:// URL" };
+    return { ok: false, reason: "insecure-url", error: "the report URL must be an https:// URL" };
   }
   try {
     const res = await fetchImpl(endpoint, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(facts),
+      body: JSON.stringify(payload),
       signal: AbortSignal.timeout(REPORT_TIMEOUT_MS),
       // Following redirects would let an https endpoint bounce the POST,
       // body and all, to a plain http:// URL, undoing the check above.
@@ -84,4 +109,4 @@ async function sendReport(endpoint, facts, fetchImpl = fetch) {
   }
 }
 
-module.exports = { sendReport, buildReport, classifyReportError, errorDetail };
+module.exports = { sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail };

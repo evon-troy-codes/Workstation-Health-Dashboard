@@ -6,7 +6,7 @@ import { React, ReactDOM } from "./react-globals.js";
 import { Icon, Spinner } from "./icons.jsx";
 import { Toast } from "./toast.jsx";
 import * as speedtest from "./speedtest.js";
-import { reportFailure } from "./report-messages.js";
+import { ReportDialog } from "./report-dialog.jsx";
 
 const {
   useState, useEffect, useRef, useCallback, useContext, createContext,
@@ -134,24 +134,26 @@ function KV({ k, v }) {
 function HelperApp() {
   const [screen, setScreen] = useState("overview"); // overview | system | network
   const { facts, rescan, rescanning } = useApp();
-  const [sending, setSending] = useState(false);
+  // Send report asks where to email it. `reportEnabled` is null until main
+  // says whether this build has a report endpoint at all.
+  const [dialogOpen, setDialogOpen] = useState(false);
+  const [reportEnabled, setReportEnabled] = useState(null);
+  const reportButton = useRef(null);
 
-  // Posts the report to WHD_REPORT_URL. With no endpoint configured the main
-  // process reports back skipped, and the button says so rather than claiming
-  // it sent anything.
-  const sendReport = async () => {
-    setSending(true);
-    try {
-      const res = await window.whd.sendReport(facts);
-      if (res && res.skipped) toast("No report endpoint configured");
-      else if (res && res.ok) toast("Report sent");
-      else toast(reportFailure(res));
-    } catch (e) {
-      toast("Report failed");
-    } finally {
-      setSending(false);
-    }
+  const openReport = () => {
+    setDialogOpen(true);
+    window.whd.reportEnabled().then(setReportEnabled, () => setReportEnabled(false));
   };
+  const closeReport = useCallback(() => {
+    setDialogOpen(false);
+    // Back to the button that opened it, for keyboard users.
+    if (reportButton.current) reportButton.current.focus();
+  }, []);
+  const sendReport = useCallback((email) => window.whd.sendReport(facts, email), [facts]);
+  const onSent = useCallback((email) => {
+    closeReport();
+    toast(`Report emailed to ${email}`);
+  }, [closeReport]);
 
   return (
     <div className="helper-shell">
@@ -168,14 +170,12 @@ function HelperApp() {
             <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Data source</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
               Collected locally via native OS APIs. Nothing leaves this machine
-              unless you configure a report endpoint.
+              unless you email a report.
             </div>
           </div>
           <div className="foot-actions">
-            <button className="foot-btn" onClick={sendReport} disabled={sending}>
-              {sending
-                ? <><Spinner size={12} /> Sending…</>
-                : <><Icon name="envelope" size={12} /> Send report</>}
+            <button ref={reportButton} className="foot-btn" onClick={openReport} disabled={dialogOpen}>
+              <Icon name="envelope" size={12} /> Send report
             </button>
             <button className="foot-btn" onClick={rescan} disabled={rescanning}>
               {rescanning
@@ -185,6 +185,9 @@ function HelperApp() {
           </div>
         </div>
       </div>
+      {dialogOpen && (
+        <ReportDialog enabled={reportEnabled} onClose={closeReport} onSend={sendReport} onSent={onSent} />
+      )}
     </div>
   );
 }
