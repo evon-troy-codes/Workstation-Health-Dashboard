@@ -79,8 +79,10 @@ whenever a component is added.
 ## Optional report endpoint
 
 The footer's **Send report** button calls `window.whd.sendReport(facts)`,
-which POSTs the facts object as JSON to the `WHD_REPORT_URL` environment
-variable if one is set (see `main/report.js`). The endpoint must be
+which POSTs a report as JSON to the `WHD_REPORT_URL` environment variable if
+one is set (see `main/report.js`). The main process builds that report from
+its own last scan (`buildReport`) and takes only the speed-test numbers in
+`facts.bandwidth` from the renderer. The endpoint must be
 `https://` — the report carries hostname, username, MAC and IP. With no
 variable configured the handler returns
 `{ ok: true, skipped: true, reason: "no-endpoint" }` and the button says so,
@@ -88,8 +90,9 @@ so the app works fully offline. A delivered report returns
 `{ ok: true, status }`.
 
 A failed send returns `{ ok: false, reason, status?, error? }`, where `reason`
-is `"insecure-url"`, `"timeout"`, `"unreachable"`, `"redirected"` or `"http"`
-(with `status`), and the toast names the cause. `error` carries the raw text
+is `"insecure-url"`, `"timeout"`, `"unreachable"`, `"redirected"`, `"http"`
+(with `status`) or `"no-scan"` (nothing scanned yet), and the toast names the
+cause. `error` carries the raw text
 for debugging; for a network failure that is the underlying cause, such as
 `connect ECONNREFUSED`, rather than fetch's generic "fetch failed". Redirects
 are refused rather than followed, so an https endpoint cannot bounce the

@@ -30,6 +30,12 @@ const {
   pactlDescription,
   parseAptUpgrades,
   parseDnfCheckUpdate,
+  parseWindowsUpdates,
+  parseDefaultAudio,
+  detectMacAv,
+  isVirtualInterface,
+  isLinuxWlan,
+  parseResolvectlDns,
 } = require("./system-facts");
 
 test("classifyHeadset", async (t) => {
@@ -47,6 +53,22 @@ test("classifyHeadset", async (t) => {
     assert.equal(classifyHeadset("bluez_output.AC_12_2F_9B_01_02.1"), "Bluetooth");
     assert.equal(classifyHeadset("alsa_output.usb-Jabra_Evolve_65-00.analog-stereo"), "USB headset");
     assert.equal(classifyHeadset("alsa_output.pci-0000_00_1f.3.analog-stereo"), "Built-in");
+  });
+
+  // Windows names a Bluetooth headset's endpoints after its profiles.
+  await t.test("detects bluetooth from Windows' hands-free and stereo endpoints", () => {
+    assert.equal(classifyHeadset("Headset (WH-1000XM4 Hands-Free AG Audio)"), "Bluetooth");
+    assert.equal(classifyHeadset("Headphones (WH-1000XM4 Stereo)"), "Bluetooth");
+  });
+
+  await t.test("keeps an explicitly USB device as USB, even when it says stereo", () => {
+    assert.equal(classifyHeadset("Speakers (USB Stereo Audio)"), "USB headset");
+    assert.equal(classifyHeadset("Headset Earphone (Logitech USB Headset H390)"), "USB headset");
+  });
+
+  await t.test("reads Stereo as Bluetooth only in Windows' \"(… Stereo)\" form", () => {
+    assert.equal(classifyHeadset("alsa_output.pci-0000_00_1f.3.analog-stereo"), "Built-in");
+    assert.equal(classifyHeadset("Speakers (Realtek Stereo Mix)"), "Built-in");
   });
 
   await t.test("falls back to built-in when nothing matches", () => {
@@ -136,6 +158,24 @@ test("pickPrimaryFs", async (t) => {
     assert.equal(picked.mount, "Z:");
   });
 
+  await t.test("on macOS, picks the data volume over the sealed system volume", () => {
+    // si.fsSize on APFS: / is the read-only system snapshot, and the home
+    // folder's /Users path never starts with the data volume's mount.
+    const picked = pickPrimaryFs([
+      { mount: "/", size: 494 * 1e9, available: 20 * 1e9, use: 11.2 },
+      { mount: "/System/Volumes/Data", size: 494 * 1e9, available: 20 * 1e9, use: 95.9 },
+    ], "/Users/sam", "darwin");
+    assert.equal(picked.mount, "/System/Volumes/Data");
+  });
+
+  await t.test("off macOS, a /System/Volumes/Data mount gets no special treatment", () => {
+    const picked = pickPrimaryFs([
+      { mount: "/", size: 100, available: 50, use: 50 },
+      { mount: "/System/Volumes/Data", size: 500, available: 50, use: 90 },
+    ], "/home/sam", "linux");
+    assert.equal(picked.mount, "/");
+  });
+
   await t.test("returns an empty object for no volumes", () => {
     assert.deepEqual(pickPrimaryFs([]), {});
     assert.deepEqual(pickPrimaryFs(null), {});
@@ -167,6 +207,71 @@ test("interfaceType", async (t) => {
   await t.test("falls back to the wired flag when the type is missing", () => {
     assert.equal(interfaceType("", true), "Wired");
     assert.equal(interfaceType(undefined, false), "Wireless");
+  });
+
+  await t.test("reports a tunnel as virtual, whatever the OS calls it", () => {
+    assert.equal(interfaceType("wired", false, true), "Virtual");
+    assert.equal(interfaceType(undefined, false, true), "Virtual");
+  });
+});
+
+test("isVirtualInterface", async (t) => {
+  await t.test("recognises a tunnel by type or by name", () => {
+    assert.equal(isVirtualInterface({ iface: "wg0", type: "virtual", speed: -1 }), true);
+    // Windows reports a WireGuard adapter as wired.
+    assert.equal(isVirtualInterface({ iface: "{GUID}", ifaceName: "WireGuard Tunnel", type: "wired" }), true);
+    assert.equal(isVirtualInterface({ iface: "utun4", ifaceName: "utun4", type: "" }), true);
+  });
+
+  await t.test("leaves physical links alone", () => {
+    assert.equal(isVirtualInterface({ iface: "eth0", ifaceName: "Ethernet", type: "wired" }), false);
+    assert.equal(isVirtualInterface({ iface: "wlan0", ifaceName: "Wi-Fi", type: "wireless" }), false);
+    assert.equal(isVirtualInterface({}), false);
+    assert.equal(isVirtualInterface(null), false);
+  });
+});
+
+test("isLinuxWlan", async (t) => {
+  const files = {
+    "/sys/class/net/wlp0s20f3/uevent": "DEVTYPE=wlan\nINTERFACE=wlp0s20f3\nIFINDEX=2\n",
+    "/sys/class/net/enp3s0/uevent": "INTERFACE=enp3s0\nIFINDEX=3\n",
+  };
+  const read = (p) => {
+    if (!(p in files)) throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    return files[p];
+  };
+
+  await t.test("recognises a Wi-Fi card from its uevent", () => {
+    assert.equal(isLinuxWlan("wlp0s20f3", read), true);
+  });
+
+  await t.test("leaves a wired card, a missing one and odd names alone", () => {
+    assert.equal(isLinuxWlan("enp3s0", read), false);
+    assert.equal(isLinuxWlan("gone0", read), false);
+    assert.equal(isLinuxWlan("", read), false);
+    assert.equal(isLinuxWlan("../../etc", read), false);
+  });
+});
+
+test("parseResolvectlDns", async (t) => {
+  await t.test("collects each link's servers once, in order", () => {
+    const stdout = [
+      "Global:",
+      "Link 2 (enp3s0): 192.168.1.1 2603:8000::1",
+      "Link 3 (wlan0): 192.168.1.1",
+      "Link 4 (docker0):",
+    ].join("\n");
+    assert.deepEqual(parseResolvectlDns(stdout), ["192.168.1.1", "2603:8000::1"]);
+  });
+
+  await t.test("drops DNS-over-TLS names, scope ids and link-local servers", () => {
+    const stdout = "Global: 1.1.1.1#cloudflare-dns.com\nLink 2 (eth0): fe80::1%eth0 10.0.0.1";
+    assert.deepEqual(parseResolvectlDns(stdout), ["1.1.1.1", "10.0.0.1"]);
+  });
+
+  await t.test("returns nothing for empty output", () => {
+    assert.deepEqual(parseResolvectlDns(""), []);
+    assert.deepEqual(parseResolvectlDns(undefined), []);
   });
 });
 
@@ -462,6 +567,85 @@ test("parseDnfCheckUpdate", async (t) => {
   });
 });
 
+test("parseWindowsUpdates", async (t) => {
+  const hoursAgo = (h) => new Date(Date.now() - h * 3600 * 1000).toISOString();
+
+  await t.test("reports a Windows Update check as a check", () => {
+    const r = parseWindowsUpdates(JSON.stringify({ pending: 2, lastCheck: hoursAgo(3), source: "check" }));
+    assert.deepEqual(r, { pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
+  });
+
+  await t.test("reports the hotfix fallback as an install, not a check", () => {
+    const r = parseWindowsUpdates(JSON.stringify({ pending: 0, lastCheck: hoursAgo(48), source: "install" }));
+    assert.equal(r.lastUpdateCheck, "2 days ago");
+    assert.equal(r.lastUpdateKind, "installed");
+    assert.equal(r.pendingUpdates, 0);
+  });
+
+  await t.test("reads a UTC timestamp as UTC, whatever the local timezone", () => {
+    // The script now emits round-trip UTC ("...Z"); an offset-less string was
+    // read as local time and landed hours in the future west of UTC.
+    const utc = new Date(Date.now() - 2 * 3600 * 1000).toISOString();
+    assert.ok(utc.endsWith("Z"));
+    assert.equal(parseWindowsUpdates(JSON.stringify({ lastCheck: utc, source: "check" })).lastUpdateCheck, "2 hours ago");
+  });
+
+  await t.test("never says \"just now ago\", and distrusts a time well in the future", () => {
+    // A clock a minute fast is still "just now"; an hour ahead says nothing.
+    const at = (ms) => parseWindowsUpdates(JSON.stringify({ lastCheck: new Date(Date.now() + ms).toISOString(), source: "check" }));
+    assert.equal(at(60 * 1000).lastUpdateCheck, "just now");
+    assert.deepEqual(at(3600 * 1000), { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null });
+  });
+
+  await t.test("reports unknown when nothing could be read", () => {
+    const unknown = { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null };
+    assert.deepEqual(parseWindowsUpdates(JSON.stringify({ pending: null, lastCheck: null, source: null })), unknown);
+    assert.deepEqual(parseWindowsUpdates("not json"), unknown);
+    assert.deepEqual(parseWindowsUpdates(""), unknown);
+  });
+});
+
+test("parseDefaultAudio", async (t) => {
+  await t.test("returns both endpoint names, cleaned", () => {
+    const stdout = JSON.stringify({ output: "Headphones (2- Jabra Evolve 65)", input: "Microphone (Jabra Evolve 65)" });
+    assert.deepEqual(parseDefaultAudio(stdout), {
+      output: "Headphones (Jabra Evolve 65)",
+      input: "Microphone (Jabra Evolve 65)",
+    });
+  });
+
+  await t.test("keeps one side when the other has no default device", () => {
+    assert.deepEqual(parseDefaultAudio(JSON.stringify({ output: "Speakers (Realtek(R) Audio)", input: null })), {
+      output: "Speakers (Realtek(R) Audio)",
+      input: null,
+    });
+  });
+
+  await t.test("returns null when neither is known or the output is not JSON", () => {
+    assert.equal(parseDefaultAudio(JSON.stringify({ output: null, input: null })), null);
+    assert.equal(parseDefaultAudio("Add-Type : error"), null);
+    assert.equal(parseDefaultAudio(""), null);
+  });
+});
+
+test("detectMacAv", async (t) => {
+  await t.test("reports an installed product without claiming it is running or current", () => {
+    const products = detectMacAv((p) => p === "/Applications/Malwarebytes.app");
+    assert.deepEqual(products, [
+      { name: "Malwarebytes", version: null, running: null, updated: null, definitionsAge: null },
+    ]);
+  });
+
+  await t.test("finds Microsoft Defender", () => {
+    const products = detectMacAv((p) => p === "/Applications/Microsoft Defender.app");
+    assert.deepEqual(products.map((p) => p.name), ["Microsoft Defender"]);
+  });
+
+  await t.test("returns nothing when no known bundle exists", () => {
+    assert.deepEqual(detectMacAv(() => false), []);
+  });
+});
+
 test("parseWindowsAv", async (t) => {
   await t.test("parses a single product object", () => {
     const stdout = JSON.stringify({ name: "Windows Defender", enabled: true, updated: true, timestamp: null });
@@ -506,16 +690,16 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
   // Nested groups, with the leaf keys each screen indexes into.
   const groups = {
-    cpu: ["model", "cores", "perfCores", "effCores", "ghz", "family", "arch", "series"],
+    cpu: ["model", "cores", "threads", "perfCores", "effCores", "ghz", "family", "arch", "series"],
     ram: ["totalGB", "freeGB", "type", "pressure"],
     disk: ["totalGB", "freeGB", "usedPercent", "ssd"],
     display: ["resolution", "external"],
-    os: ["name", "version", "build", "lastUpdateCheck", "pendingUpdates"],
+    os: ["name", "version", "build", "lastUpdateCheck", "lastUpdateKind", "pendingUpdates"],
     network: ["interface", "type", "linkSpeed", "mtu", "mac", "ipv4",
-              "ipv6Disabled", "gateway", "dns", "ssid", "isWired"],
+              "ipv6Disabled", "gateway", "dns", "ssid", "isWired", "isVirtual"],
     bandwidth: ["downMbps", "upMbps", "ping", "jitter", "measuredAt"],
     vpn: ["detected", "name"],
-    power: ["onBattery", "batteryLevel", "plugged"],
+    power: ["hasBattery", "onBattery", "batteryLevel", "plugged"],
     audio: ["output", "input", "isWired", "headsetConnected", "headsetClass"],
   };
   for (const [group, keys] of Object.entries(groups)) {
@@ -542,7 +726,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
 test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
   const d = await detectDeferred();
-  for (const key of ["pendingUpdates", "lastUpdateCheck", "ssd", "backgroundApps"]) {
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps"]) {
     assert.ok(key in d, `deferred.${key} is missing`);
   }
   assert.ok(Array.isArray(d.backgroundApps.runningApps));
