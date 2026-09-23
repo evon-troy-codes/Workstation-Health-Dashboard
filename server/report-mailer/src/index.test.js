@@ -11,6 +11,7 @@ const report = {
   cpu: { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8 },
   ram: { totalGB: 16, freeGB: 8.1, pressure: "Normal" },
   disk: { totalGB: 262, freeGB: 225, usedPercent: 9 },
+  display: { count: 2, resolution: "2560 × 1440", external: true, externalSize: '27"', externalConnection: "DP" },
   os: { name: "Debian GNU/Linux", version: "13", pendingUpdates: 1, lastUpdateCheck: "10 min ago", lastUpdateKind: "checked" },
   network: { type: "Wireless", interface: "wlp0s20f3", linkSpeed: "Unknown", ipv4: "203.0.113.42", gateway: "203.0.113.1", dns: ["203.0.113.1"] },
   bandwidth: { downMbps: 587, upMbps: 40, ping: 58, jitter: 51.7 },
@@ -158,6 +159,9 @@ test("renderEmail", async (t) => {
   await t.test("lays out the report's facts in both HTML and text", () => {
     const { subject, html, text } = renderEmail(report, new Date("2026-09-23T18:00:00Z"));
     assert.equal(subject, "Workstation report: WORKSTATION-01");
+    // The inch mark is escaped in the HTML, as every report value is.
+    assert.ok(text.includes('Display: 2560 × 1440, external 27" DP'));
+    assert.ok(html.includes("2560 × 1440, external 27&quot; DP"));
     for (const s of ["Intel Core Ultra 5 236V", "587 Mbps", "ClamAV", "Active · definitions 2 hours", "80% · plugged in", "VS Code, Chrome"]) {
       assert.ok(text.includes(s), `text is missing ${s}`);
       assert.ok(html.includes(s), `html is missing ${s}`);

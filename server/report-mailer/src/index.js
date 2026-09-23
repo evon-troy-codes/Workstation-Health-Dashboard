@@ -151,6 +151,7 @@ function reportSections(r) {
   const cpu = obj(r.cpu), ram = obj(r.ram), disk = obj(r.disk), os = obj(r.os);
   const net = obj(r.network), bw = obj(r.bandwidth), vpn = obj(r.vpn);
   const power = obj(r.power), audio = obj(r.audio), apps = obj(r.backgroundApps);
+  const display = obj(r.display);
   const av = Array.isArray(obj(r.antivirus).products) ? obj(r.antivirus).products : [];
   const num = (v, unit) => (typeof v === "number" && Number.isFinite(v) ? `${v} ${unit}` : "—");
 
@@ -168,6 +169,9 @@ function reportSections(r) {
       ["Cores / threads", `${val(cpu.cores)} / ${val(cpu.threads)}`],
       ["Memory", `${num(ram.totalGB, "GB")} (${num(ram.freeGB, "GB")} free, pressure ${val(ram.pressure)})`],
       ["Disk", `${num(disk.totalGB, "GB")} (${num(disk.freeGB, "GB")} free, ${num(disk.usedPercent, "%").replace(" %", "%")} used)`],
+      ["Display", r.display
+        ? `${val(display.resolution)}${display.external ? `, external ${[display.externalSize, display.externalConnection].filter(Boolean).map(val).join(" ") || "monitor"}` : ""}`
+        : "—"],
       ["Pending updates", val(os.pendingUpdates)],
       [os.lastUpdateKind === "installed" ? "Last update installed" : "Last update check", val(os.lastUpdateCheck)],
     ]],

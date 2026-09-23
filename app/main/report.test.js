@@ -122,8 +122,10 @@ test("buildReport", async (t) => {
     const deferred = {
       pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked",
       ssd: true, backgroundApps: { browserExtensions: 1, runningApps: ["Zoom"] },
+      display: { count: 1, resolution: "1920 × 1080" },
     };
     const r = buildReport(scanned, deferred, {});
+    assert.deepEqual(r.display, deferred.display);
     assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
     assert.equal(r.disk.ssd, true);
     assert.deepEqual(r.backgroundApps, deferred.backgroundApps);

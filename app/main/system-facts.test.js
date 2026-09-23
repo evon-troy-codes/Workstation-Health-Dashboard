@@ -36,6 +36,7 @@ const {
   isVirtualInterface,
   isLinuxWlan,
   parseResolvectlDns,
+  summarizeDisplays,
 } = require("./system-facts");
 
 test("classifyHeadset", async (t) => {
@@ -179,6 +180,50 @@ test("pickPrimaryFs", async (t) => {
   await t.test("returns an empty object for no volumes", () => {
     assert.deepEqual(pickPrimaryFs([]), {});
     assert.deepEqual(pickPrimaryFs(null), {});
+  });
+});
+
+test("summarizeDisplays", async (t) => {
+  await t.test("reads the current mode when the panel resolution is missing (Linux)", () => {
+    // What systeminformation returned for this Debian laptop's built-in panel.
+    const d = summarizeDisplays({ displays: [{ main: true, builtin: true, connection: "eDP-1",
+      resolutionX: null, resolutionY: null, currentResX: 3072, currentResY: 1920,
+      sizeX: null, sizeY: null, currentRefreshRate: 59 }] });
+    assert.deepEqual(d, { count: 1, resolution: "3072 × 1920", refreshRate: "59 Hz",
+      external: false, externalCount: 0, externalSize: null, externalConnection: null });
+  });
+
+  await t.test("describes a docked laptop with an external monitor as its main display", () => {
+    const d = summarizeDisplays({ displays: [
+      { main: false, builtin: true, connection: "INTERNAL", currentResX: 1920, currentResY: 1200 },
+      // 60 × 34 cm is a 27" panel.
+      { main: true, builtin: false, connection: "DP", currentResX: 2560, currentResY: 1440,
+        sizeX: 60, sizeY: 34, currentRefreshRate: 143.98 },
+    ] });
+    assert.equal(d.count, 2);
+    assert.equal(d.resolution, "2560 × 1440");
+    assert.equal(d.refreshRate, "144 Hz");
+    assert.equal(d.external, true);
+    assert.equal(d.externalSize, '27"');
+    assert.equal(d.externalConnection, "DP");
+  });
+
+  await t.test("counts several external monitors and falls back to a generic connection", () => {
+    const d = summarizeDisplays({ displays: [
+      { builtin: false, resolutionX: 3840, resolutionY: 2160 },
+      { builtin: false, connection: "HDMI", resolutionX: 1920, resolutionY: 1080 },
+    ] });
+    assert.equal(d.resolution, "3840 × 2160"); // no main flag: the first
+    assert.equal(d.externalCount, 2);
+    assert.equal(d.externalConnection, "External");
+    assert.equal(d.externalSize, null);
+  });
+
+  await t.test("reports nothing found, not a guess, without displays", () => {
+    for (const g of [{}, { displays: [] }, null, undefined, { displays: [null] }]) {
+      assert.deepEqual(summarizeDisplays(g), { count: 0, resolution: "Unknown", refreshRate: null,
+        external: false, externalCount: 0, externalSize: null, externalConnection: null });
+    }
   });
 });
 
@@ -703,7 +748,6 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
     cpu: ["model", "cores", "threads", "perfCores", "effCores", "ghz", "family", "arch", "series"],
     ram: ["totalGB", "freeGB", "type", "pressure"],
     disk: ["totalGB", "freeGB", "usedPercent", "ssd"],
-    display: ["resolution", "external"],
     os: ["name", "version", "build", "lastUpdateCheck", "lastUpdateKind", "pendingUpdates"],
     network: ["interface", "type", "linkSpeed", "mtu", "mac", "ipv4",
               "ipv6Disabled", "gateway", "dns", "ssid", "isWired", "isVirtual"],
@@ -727,6 +771,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   // Filled in by detectDeferred after first paint; null means "still checking".
   assert.equal(facts.backgroundApps, null);
   assert.equal(facts.disk.ssd, null);
+  assert.equal(facts.display, null);
   assert.equal(facts.bandwidth.measuredAt, null);
 
   // A fallen-back probe must not surface as the string "undefined".
@@ -736,9 +781,13 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
 test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
   const d = await detectDeferred();
-  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps"]) {
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display"]) {
     assert.ok(key in d, `deferred.${key} is missing`);
   }
   assert.ok(Array.isArray(d.backgroundApps.runningApps));
   assert.equal(typeof d.backgroundApps.browserExtensions, "number");
+  // The Display card's rows.
+  for (const key of ["count", "resolution", "refreshRate", "external", "externalCount", "externalSize", "externalConnection"]) {
+    assert.ok(key in d.display, `deferred.display.${key} is missing`);
+  }
 });
