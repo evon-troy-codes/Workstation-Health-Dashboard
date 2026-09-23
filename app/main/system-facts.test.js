@@ -201,12 +201,17 @@ test("interfaceType", async (t) => {
   await t.test("capitalises what systeminformation reports", () => {
     assert.equal(interfaceType("wireless", false), "Wireless");
     assert.equal(interfaceType("wired", true), "Wired");
-    assert.equal(interfaceType("virtual", false), "Virtual");
+    assert.equal(interfaceType("unknown", false), "Unknown");
   });
 
   await t.test("falls back to the wired flag when the type is missing", () => {
     assert.equal(interfaceType("", true), "Wired");
     assert.equal(interfaceType(undefined, false), "Wireless");
+  });
+
+  await t.test("reads systeminformation's \"virtual\" (lo, bond*) by the wired flag", () => {
+    assert.equal(interfaceType("virtual", true), "Wired");
+    assert.equal(interfaceType("virtual", false), "Wireless");
   });
 
   await t.test("reports a tunnel as virtual, whatever the OS calls it", () => {
@@ -221,6 +226,11 @@ test("isVirtualInterface", async (t) => {
     // Windows reports a WireGuard adapter as wired.
     assert.equal(isVirtualInterface({ iface: "{GUID}", ifaceName: "WireGuard Tunnel", type: "wired" }), true);
     assert.equal(isVirtualInterface({ iface: "utun4", ifaceName: "utun4", type: "" }), true);
+  });
+
+  await t.test("leaves a bonded link alone, though systeminformation types it virtual", () => {
+    assert.equal(isVirtualInterface({ iface: "bond0", ifaceName: "bond0", type: "virtual", speed: 2000 }), false);
+    assert.equal(isVirtualInterface({ iface: "br0", ifaceName: "br0", type: "wired" }), false);
   });
 
   await t.test("leaves physical links alone", () => {
