@@ -142,7 +142,8 @@ async function collectFacts() {
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
 
   const { output: outputName, input: inputName, classifyBy } = audioNames(audio.defaultAudio, audio.drivers);
-  const headsetClass = classifyHeadset(classifyBy);
+  // No output device is "None", not a guessed "Built-in".
+  const headsetClass = classifyBy ? classifyHeadset(classifyBy) : "None";
 
   const facts = {
     hostname: os.hostname(),
@@ -289,7 +290,7 @@ function audioNames(defaultAudio, drivers) {
       // On Linux the bus lives in the device id, not in the name shown on
       // the card: "Studio Headphones" says nothing, "bluez_output.AC_12…"
       // says Bluetooth.
-      classifyBy: defaultAudio.outputId || defaultAudio.output || "",
+      classifyBy: defaultAudio.outputId || defaultAudio.output || null,
     };
   }
   const output = pickAudio(drivers, "out");
@@ -325,7 +326,9 @@ async function linuxDefaultAudio() {
   const pactl = findTool("/usr/bin/pactl", "/bin/pactl", "/usr/local/bin/pactl");
   if (!pactl) return wpctlDefaultAudio();
   const info = await runCmd(pactl, ["info"], { timeout: 3000 });
-  if (!info) return null;
+  // An installed pactl can still fail: pulseaudio-utils on a PipeWire system
+  // without pipewire-pulse has no server to talk to. WirePlumber may.
+  if (!info) return wpctlDefaultAudio();
   const { sink, source } = parsePactlInfo(info);
   const [sinks, sources] = await Promise.all([
     sink ? runCmd(pactl, ["list", "sinks"], { timeout: 3000 }) : null,

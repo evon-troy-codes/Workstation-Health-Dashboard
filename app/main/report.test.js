@@ -187,3 +187,11 @@ test("sendReport posts the address and the report together", async () => {
   assert.deepEqual(res, { ok: true, status: 200 });
   assert.deepEqual(JSON.parse(fetch.calls[0].init.body), payload);
 });
+
+test("classifyReportError reads undici's connect timeout as a timeout", () => {
+  const err = Object.assign(new TypeError("fetch failed"), {
+    cause: Object.assign(new Error("Connect Timeout Error"), { code: "UND_ERR_CONNECT_TIMEOUT" }),
+  });
+  assert.equal(classifyReportError(err), "timeout");
+  assert.equal(classifyReportError(causedBy("connect ECONNREFUSED 127.0.0.1:9")), "unreachable");
+});
