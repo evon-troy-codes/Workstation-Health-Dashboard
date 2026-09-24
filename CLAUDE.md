@@ -81,6 +81,12 @@ keeps working.
 - **Work on a branch** and merge to `main` once it's checked. A push to `main`
   runs CI on all three OSes and builds installers. Pull requests run CI without
   packaging, and **Actions → CI → Run workflow** packages any branch.
+- **Stacked PRs** (one PR based on another's branch): before merging the
+  bottom one, retarget the one above it with `gh pr edit <n> --base main`.
+  Deleting a PR's base branch (`gh pr merge --delete-branch`) makes GitHub
+  close the PR on top rather than move it, and a closed PR can't be
+  retargeted until its old base branch is pushed back. This happened on
+  2026-09-24 with #2 and #3.
 
 ## Decisions already made
 
