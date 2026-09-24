@@ -26,11 +26,23 @@ const round1 = (n) => Math.round(n * 10) / 10;
 // Run a probe that must never take the whole scan down with it. A machine with
 // no battery, a VM with no display adapter or a locked-down security policy
 // should cost one blank card, not the entire dashboard.
-function probe(promise, fallback) {
+//
+// A named probe records how long it took in `timings` (ms), which the smoke
+// test prints, so CI shows which checks are slow on each OS. Windows can't be
+// profiled from the Linux machine any other way.
+const timings = {};
+function probe(promise, fallback, name) {
+  const start = Date.now();
+  const done = () => { if (name) timings[name] = Date.now() - start; };
   return Promise.resolve(promise).then(
-    (v) => (v == null ? fallback : v),
-    () => fallback,
+    (v) => { done(); return v == null ? fallback : v; },
+    () => { done(); return fallback; },
   );
+}
+
+// The last duration of each named probe, slowest first, e.g. [["audio", 480]].
+function probeTimings() {
+  return Object.entries(timings).sort((a, b) => b[1] - a[1]);
 }
 
 // Run a command for its output. Resolves null when the tool is missing, fails
@@ -99,15 +111,17 @@ async function collectFacts() {
   // which is among the slowest calls on Windows, and si.graphics(), whose WMI
   // queries held up the first paint on Windows.
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
-         battery, audio, defIfaceName,
-         antivirus, defaultAudio, dnsServers] = await Promise.all([
-    probe(si.cpu(), {}), probe(si.mem(), {}), probe(si.memLayout(), []),
-    probe(si.osInfo(), {}), probe(si.system(), {}), probe(si.fsSize(), []),
-    probe(si.networkInterfaces(), []), probe(si.networkGatewayDefault(), ""),
-    probe(si.battery(), {}), probe(si.audio(), []),
-    probe(si.networkInterfaceDefault(), ""),
-    probe(detectAntivirus(), { products: [] }), probe(detectDefaultAudio(), null),
-    probe(detectDnsServers(), []),
+         battery, defIfaceName,
+         antivirus, audio, dnsServers] = await Promise.all([
+    probe(si.cpu(), {}, "cpu"), probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
+    probe(si.osInfo(), {}, "osInfo"), probe(si.system(), {}, "system"), probe(si.fsSize(), [], "fsSize"),
+    probe(si.networkInterfaces(), [], "networkInterfaces"),
+    probe(si.networkGatewayDefault(), "", "networkGatewayDefault"),
+    probe(si.battery(), {}, "battery"),
+    probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
+    probe(detectAntivirus(), { products: [] }, "antivirus"),
+    probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
+    probe(detectDnsServers(), [], "dns"),
   ]);
 
   // --- default network interface ---
@@ -127,13 +141,8 @@ async function collectFacts() {
   // --- memory type ---
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
 
-  // Prefer the real endpoint names; fall back to the driver list off Windows.
-  const outputName = (defaultAudio && defaultAudio.output) || pickAudio(audio, "out");
-  const inputName = (defaultAudio && defaultAudio.input) || pickAudio(audio, "in");
-  // On Linux the bus lives in the device id, not in the name shown on the
-  // card: "Studio Headphones" says nothing, "bluez_output.AC_12…" says
-  // Bluetooth.
-  const headsetClass = classifyHeadset((defaultAudio && defaultAudio.outputId) || outputName);
+  const { output: outputName, input: inputName, classifyBy } = audioNames(audio.defaultAudio, audio.drivers);
+  const headsetClass = classifyHeadset(classifyBy);
 
   const facts = {
     hostname: os.hostname(),
@@ -255,6 +264,38 @@ const PS_DEFAULT_AUDIO = [
   "[pscustomobject]@{output=[WhdAudio]::Name(0);input=[WhdAudio]::Name(1)} | ConvertTo-Json -Compress",
 ].join("\n");
 
+// The selected output and input devices. The OS's own answer comes first
+// (detectDefaultAudio); the driver listing, si.audio(), is fetched only when
+// that answer is missing altogether. si.audio() was the slowest call in the
+// first scan (about 480 ms on Linux, a WMI query on Windows) and its result
+// went unused whenever the OS answered, which is almost always.
+async function detectAudio(getDefault = detectDefaultAudio, getDrivers = () => si.audio()) {
+  const defaultAudio = await Promise.resolve().then(getDefault).catch(() => null);
+  if (defaultAudio) return { defaultAudio, drivers: [] };
+  const drivers = await Promise.resolve().then(getDrivers).catch(() => []);
+  return { defaultAudio: null, drivers: Array.isArray(drivers) ? drivers : [] };
+}
+
+// The names the Audio card shows, and what to classify the headset by.
+// When the OS named the default devices, a side it left empty has no device
+// ("None"), not whichever driver the listing happens to name first. Only
+// without that answer (macOS, or a failed query) do the drivers stand in.
+function audioNames(defaultAudio, drivers) {
+  if (defaultAudio) {
+    const output = defaultAudio.output || "None";
+    return {
+      output,
+      input: defaultAudio.input || "None",
+      // On Linux the bus lives in the device id, not in the name shown on
+      // the card: "Studio Headphones" says nothing, "bluez_output.AC_12…"
+      // says Bluetooth.
+      classifyBy: defaultAudio.outputId || defaultAudio.output || "",
+    };
+  }
+  const output = pickAudio(drivers, "out");
+  return { output, input: pickAudio(drivers, "in"), classifyBy: output };
+}
+
 // The devices sound is actually playing through, as opposed to whichever the
 // hardware listing happens to name first. Windows asks the audio policy COM
 // API; Linux asks PulseAudio/PipeWire. macOS falls back to the listing.
@@ -274,9 +315,15 @@ function detectDefaultAudio() {
 // PulseAudio and PipeWire both answer `pactl`, which names the default devices
 // but only as internal ids ("alsa_output.pci-0000_00_1f.3.analog-stereo"). The
 // human name lives in the matching entry of the device listing.
+//
+// `pactl` comes from pulseaudio-utils, which PipeWire desktops don't always
+// install (Debian 13 doesn't). Those have WirePlumber's `wpctl` instead, so it
+// is asked when `pactl` is missing. Without either, the Audio card fell back
+// to the driver listing and named a sound chip ("Device 0cdc") where the
+// default output was a USB interface.
 async function linuxDefaultAudio() {
   const pactl = findTool("/usr/bin/pactl", "/bin/pactl", "/usr/local/bin/pactl");
-  if (!pactl) return null;
+  if (!pactl) return wpctlDefaultAudio();
   const info = await runCmd(pactl, ["info"], { timeout: 3000 });
   if (!info) return null;
   const { sink, source } = parsePactlInfo(info);
@@ -289,6 +336,32 @@ async function linuxDefaultAudio() {
   // The ids carry the bus ("bluez_output…", "alsa_output.usb-…"), which the
   // readable description drops, so keep them for classifying the headset.
   return output || input ? { output, input, outputId: sink || null } : null;
+}
+
+// WirePlumber's view of the default sink and source: `wpctl inspect` on each
+// prints the node's properties, including its readable description and its
+// id (node.name, which carries the bus, as pactl's ids do).
+async function wpctlDefaultAudio() {
+  const wpctl = findTool("/usr/bin/wpctl", "/bin/wpctl", "/usr/local/bin/wpctl");
+  if (!wpctl) return null;
+  const [sink, source] = (await Promise.all([
+    runCmd(wpctl, ["inspect", "@DEFAULT_AUDIO_SINK@"], { timeout: 3000 }),
+    runCmd(wpctl, ["inspect", "@DEFAULT_AUDIO_SOURCE@"], { timeout: 3000 }),
+  ])).map(parseWpctlInspect);
+  const output = sink.description || sink.name;
+  const input = source.description || source.name;
+  return output || input ? { output, input, outputId: sink.name } : null;
+}
+
+// `wpctl inspect` output → { name, description }, each null when absent.
+// Property lines look like `  * node.description = "Elgato Wave 3 Analog
+// Stereo"`, the star marking properties set on the node itself.
+function parseWpctlInspect(stdout) {
+  const prop = (key) => {
+    const m = new RegExp(`^\\s*\\*?\\s*${key.replace(".", "\\.")}\\s*=\\s*"(.*)"\\s*$`, "m").exec(stdout || "");
+    return (m && m[1].trim()) || null;
+  };
+  return { name: prop("node.name"), description: prop("node.description") };
 }
 
 // The default devices named by `pactl info`. Matching spaces and tabs only,
@@ -530,10 +603,10 @@ function plural(n, unit) {
 // so one slow provider cannot strand the others.
 async function detectDeferred() {
   const [updates, ssd, backgroundApps, graphics] = await Promise.all([
-    probe(detectUpdates(), UNKNOWN_UPDATES),
-    probe(detectSsd(), null),
-    probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }),
-    probe(si.graphics(), {}),
+    probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
+    probe(detectSsd(), null, "deferred:ssd"),
+    probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
+    probe(si.graphics(), {}, "deferred:graphics"),
   ]);
   return { ...updates, ssd, backgroundApps, display: summarizeDisplays(graphics) };
 }
@@ -793,10 +866,12 @@ async function detectDnsServers() {
     /* fall through */
   }
   if (process.platform === "linux" && servers.length && servers.every(isLoopback)) {
-    const upstream = await new Promise((resolve) => {
-      execFile("resolvectl", ["dns"], { timeout: 5000 }, (err, stdout) =>
-        resolve(err ? [] : parseResolvectlDns(stdout)));
-    });
+    // By full path and in toolEnv, like the other Linux tools: run by name it
+    // inherited an AppImage's LD_LIBRARY_PATH, could fail to load, and left
+    // the card on the 127.0.0.53 stub in the shipped build only.
+    const resolvectl = findTool("/usr/bin/resolvectl", "/bin/resolvectl");
+    const out = resolvectl ? await runCmd(resolvectl, ["dns"], { timeout: 5000 }) : null;
+    const upstream = out ? parseResolvectlDns(out) : [];
     if (upstream.length) return upstream;
   }
   return servers;
@@ -950,6 +1025,7 @@ function humanUptime(sec) {
 module.exports = {
   collectFacts,
   detectDeferred,
+  probeTimings,
   // Exported for unit tests — pure helpers with no OS/process dependency.
   classifyHeadset,
   cleanAudioName,
@@ -981,4 +1057,7 @@ module.exports = {
   isLinuxWlan,
   summarizeDisplays,
   parseResolvectlDns,
+  detectAudio,
+  audioNames,
+  parseWpctlInspect,
 };
