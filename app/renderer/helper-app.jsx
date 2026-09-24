@@ -328,7 +328,7 @@ function SystemScreen() {
       <Card icon="microphone" title="Audio" sub={facts.audio.headsetClass}>
         <KV k="Output" v={facts.audio.output} />
         <KV k="Input" v={facts.audio.input} />
-        <KV k="Connection" v={facts.audio.isWired ? "Wired" : "Wireless/built-in"} />
+        <KV k="Connection" v={facts.audio.headsetClass === "None" ? "None" : facts.audio.isWired ? "Wired" : "Wireless/built-in"} />
       </Card>
 
       <Card icon="phone" title="Power" sub={power.hasBattery ? `${power.batteryLevel}% · ${power.plugged ? "Plugged in" : "On battery"}` : "No battery"}>

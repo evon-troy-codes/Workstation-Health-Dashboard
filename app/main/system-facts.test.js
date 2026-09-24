@@ -11,6 +11,7 @@ const path = require("path");
 const {
   collectFacts,
   detectDeferred,
+  probeTimings,
   classifyHeadset,
   cleanAudioName,
   detectVpn,
@@ -163,6 +164,80 @@ test("parseWpctlInspect", async (t) => {
     for (const out of [null, "", "Object '@DEFAULT_AUDIO_SOURCE@' not found"]) {
       assert.deepEqual(parseWpctlInspect(out), { name: null, description: null });
     }
+  });
+});
+
+test("audio edge cases", async (t) => {
+  // wpctl prints `%c %s = "%s"` with no escaping, so a quote inside a name
+  // arrives bare; the value runs to the last quote on the line.
+  await t.test("parseWpctlInspect keeps quotes and apostrophes inside a name", () => {
+    const out = '  * node.description = "Bob\'s "Pro" Headset"\n  * node.name = "bluez_output.AC_12_34_56_78_9A.1"\n';
+    assert.deepEqual(parseWpctlInspect(out),
+      { name: "bluez_output.AC_12_34_56_78_9A.1", description: 'Bob\'s "Pro" Headset' });
+  });
+
+  await t.test("parseWpctlInspect trims padding, copes with CRLF and non-ASCII", () => {
+    const out = '  * node.description = "  Café Wave 🎧  "\r\n  * node.name = "alsa_output.usb-X-00.analog-stereo"\r\n';
+    assert.deepEqual(parseWpctlInspect(out),
+      { name: "alsa_output.usb-X-00.analog-stereo", description: "Café Wave 🎧" });
+  });
+
+  await t.test("parseWpctlInspect treats an empty or unquoted value as absent", () => {
+    assert.deepEqual(parseWpctlInspect('  * node.description = ""\n  * node.name = "x"\n'), { name: "x", description: null });
+    assert.deepEqual(parseWpctlInspect("  * node.description = Unquoted\n"), { name: null, description: null });
+  });
+
+  await t.test("parseWpctlInspect does not treat the dot in a key as a wildcard", () => {
+    assert.deepEqual(parseWpctlInspect('  * nodeXname = "a"\n  * node_description = "b"\n'), { name: null, description: null });
+  });
+
+  await t.test("parseWpctlInspect ignores wpctl's usage text after a bad id", () => {
+    const usage = "Error: '@DEFAULT_AUDIO_FOO@' is not a valid number\n\nUsage:\n  wpctl [OPTION…] COMMAND [COMMAND_OPTIONS] - WirePlumber Control CLI\n";
+    assert.deepEqual(parseWpctlInspect(usage), { name: null, description: null });
+  });
+
+  await t.test("audioNames: a microphone and no speakers says None for the output", () => {
+    const r = audioNames({ output: null, input: "Elgato Wave 3 Mono", outputId: null }, [{ name: "HDA Intel PCH", type: "out" }]);
+    assert.equal(r.output, "None");
+    assert.equal(r.input, "Elgato Wave 3 Mono");
+    // Nothing to classify: the card says "None", not a guessed "Built-in".
+    assert.equal(r.classifyBy, null);
+  });
+
+  await t.test("audioNames: no OS answer and no drivers names nothing specific", () => {
+    for (const drivers of [[], null, undefined]) {
+      assert.deepEqual(audioNames(null, drivers),
+        { output: "System default", input: "System default", classifyBy: "System default" });
+    }
+  });
+
+  await t.test("audioNames: the fallback picks a driver per direction", () => {
+    const drivers = [{ name: "Device 0cdc", type: "" }, { name: "USB Mic", type: "Input" }, { name: "HDMI", type: "Speaker" }];
+    const r = audioNames(null, drivers);
+    assert.equal(r.output, "HDMI");
+    assert.equal(r.input, "USB Mic");
+  });
+
+  await t.test("detectAudio: a driver listing that is not an array becomes []", async () => {
+    for (const bad of [null, undefined, { name: "x" }, "Device 0cdc"]) {
+      assert.deepEqual(await detectAudio(async () => null, async () => bad), { defaultAudio: null, drivers: [] });
+    }
+  });
+
+  await t.test("detectAudio: a sync throw from the driver listing is caught too", async () => {
+    const r = await detectAudio(() => { throw new Error("os"); }, () => { throw new Error("wmi"); });
+    assert.deepEqual(r, { defaultAudio: null, drivers: [] });
+  });
+
+  await t.test("detectAudio: the listing is not started while the OS query is pending", async () => {
+    let release;
+    let calls = 0;
+    const pending = detectAudio(() => new Promise((r) => { release = r; }), async () => { calls++; return []; });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(calls, 0);
+    release(null);
+    await pending;
+    assert.equal(calls, 1);
   });
 });
 
@@ -874,4 +949,25 @@ test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, 
   for (const key of ["count", "resolution", "refreshRate", "external", "externalCount", "externalSize", "externalConnection"]) {
     assert.ok(key in d.display, `deferred.display.${key} is missing`);
   }
+});
+
+// The smoke test prints probeTimings() into public CI logs, so it must hold
+// check names and milliseconds only: no device, host or user names. Runs after
+// the live collectFacts/detectDeferred tests above, which fill it.
+test("probeTimings holds only check names and milliseconds, slowest first", { timeout: 90000 }, async () => {
+  if (!probeTimings().some(([k]) => k === "audio")) await collectFacts();
+  if (!probeTimings().some(([k]) => k.startsWith("deferred:"))) await detectDeferred();
+  const timings = probeTimings();
+  const expected = ["cpu", "mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
+    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
+    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics"];
+  assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
+  for (const [k, ms] of timings) {
+    assert.match(k, /^(deferred:)?[A-Za-z]+$/);
+    assert.ok(Number.isInteger(ms) && ms >= 0, `${k}: ${ms}`);
+  }
+  for (let i = 1; i < timings.length; i++) assert.ok(timings[i - 1][1] >= timings[i][1], "not sorted slowest first");
+  // A copy: a caller sorting or editing it can't change the next reading.
+  timings.length = 0;
+  assert.ok(probeTimings().length > 0);
 });
