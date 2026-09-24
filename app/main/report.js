@@ -33,6 +33,10 @@ function normalizeEmail(value) {
 // Maps a rejected fetch to a reason code.
 function classifyReportError(err) {
   if (err && (err.name === "TimeoutError" || err.name === "AbortError")) return "timeout";
+  // undici gives up connecting after 10 s, before REPORT_TIMEOUT_MS: a server
+  // that accepts the connection and never answers is a timeout, not "can't
+  // reach the server".
+  if (err && err.cause && err.cause.code === "UND_ERR_CONNECT_TIMEOUT") return "timeout";
   if (/redirect/i.test(String(err && err.cause && err.cause.message))) return "redirected";
   return "unreachable";
 }
