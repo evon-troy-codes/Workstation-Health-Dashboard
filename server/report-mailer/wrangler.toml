@@ -4,6 +4,10 @@
 name = "workstation-scanner-report-mailer"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
+# The app talks to the one workers.dev address. Per-version preview URLs
+# would be more public addresses running the mailer, and nothing needs them.
+workers_dev = true
+preview_urls = false
 
 [vars]
 # Must be on a domain verified in Resend. For now this is Resend's test
