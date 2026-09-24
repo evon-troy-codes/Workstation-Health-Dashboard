@@ -28,15 +28,20 @@ jobs:
       - run: npm ci
       # One warm-up of each mode first: the first PowerShell start on a fresh
       # runner pays for loading .NET, which would favour whichever runs second.
+      # Each scan gets 120 s. The first run of this workflow sat in the
+      # warm-up for 10 minutes, so a mode that hangs is itself a finding: it
+      # is reported as HUNG rather than stalling the whole job.
       - name: Warm up
         shell: bash
         run: |
-          node tools/bench-scan.js default > /dev/null
-          node tools/bench-scan.js persistent > /dev/null
+          for mode in default persistent; do
+            timeout 120 node tools/bench-scan.js $mode > /dev/null || echo "warm-up: $mode HUNG or failed (exit $?)"
+          done
       - name: Benchmark (3 rounds, alternating)
         shell: bash
         run: |
           for round in 1 2 3; do
-            node tools/bench-scan.js default
-            node tools/bench-scan.js persistent
+            for mode in default persistent; do
+              timeout 120 node tools/bench-scan.js $mode || echo "{\"mode\":\"$mode\",\"round\":$round,\"result\":\"HUNG or failed (exit $?)\"}"
+            done
           done
