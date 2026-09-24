@@ -1,0 +1,42 @@
+# Temporary: the Windows PowerShell experiment. Times the first scan with
+# systeminformation spawning a PowerShell per call (today) against one
+# persistent session (si.powerShellStart), in fresh processes, alternating,
+# three rounds. Runs only on the experiment branch; not merged to main.
+
+name: Bench PowerShell modes
+
+on:
+  push:
+    branches: [experiment/ps-session]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  bench:
+    runs-on: windows-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      # One warm-up of each mode first: the first PowerShell start on a fresh
+      # runner pays for loading .NET, which would favour whichever runs second.
+      - name: Warm up
+        shell: bash
+        run: |
+          node tools/bench-scan.js default > /dev/null
+          node tools/bench-scan.js persistent > /dev/null
+      - name: Benchmark (3 rounds, alternating)
+        shell: bash
+        run: |
+          for round in 1 2 3; do
+            node tools/bench-scan.js default
+            node tools/bench-scan.js persistent
+          done
