@@ -95,15 +95,16 @@ const exists = (p) => {
 async function collectFacts() {
   // Everything fast runs in one parallel batch. Deliberately excluded and
   // resolved lazily instead (see detectDeferred): si.diskLayout() (SSD flag,
-  // ~7s Windows storage provider), the OS update check, and si.processes(),
-  // which is among the slowest calls on Windows.
+  // ~7s Windows storage provider), the OS update check, si.processes(),
+  // which is among the slowest calls on Windows, and si.graphics(), whose WMI
+  // queries held up the first paint on Windows.
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
-         battery, graphics, audio, defIfaceName,
+         battery, audio, defIfaceName,
          antivirus, defaultAudio, dnsServers] = await Promise.all([
     probe(si.cpu(), {}), probe(si.mem(), {}), probe(si.memLayout(), []),
     probe(si.osInfo(), {}), probe(si.system(), {}), probe(si.fsSize(), []),
     probe(si.networkInterfaces(), []), probe(si.networkGatewayDefault(), ""),
-    probe(si.battery(), {}), probe(si.graphics(), {}), probe(si.audio(), []),
+    probe(si.battery(), {}), probe(si.audio(), []),
     probe(si.networkInterfaceDefault(), ""),
     probe(detectAntivirus(), { products: [] }), probe(detectDefaultAudio(), null),
     probe(detectDnsServers(), []),
@@ -122,13 +123,6 @@ async function collectFacts() {
 
   // --- disk (system volume); ssd flag filled in lazily (null = checking) ---
   const primaryFs = pickPrimaryFs(fsSize);
-
-  // --- display ---
-  const displays = (graphics && graphics.displays) || [];
-  const main = displays.find((d) => d.main) || displays[0] || {};
-  const externals = displays.filter(isExternalDisplay);
-  const external = externals.length > 0;
-  const ext = externals[0];
 
   // --- memory type ---
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
@@ -172,13 +166,7 @@ async function collectFacts() {
       usedPercent: Math.round(primaryFs.use || 0),
       ssd: null, // resolved lazily (slow Windows storage provider)
     },
-    display: {
-      resolution: main.resolutionX ? `${main.resolutionX} × ${main.resolutionY}` : "Unknown",
-      external,
-      // sizeX/sizeY come back in centimetres, not millimetres.
-      externalSize: ext && ext.sizeX ? `${Math.round(Math.hypot(ext.sizeX, ext.sizeY) / 2.54)}"` : null,
-      externalConnection: ext ? (ext.connection || "External") : null,
-    },
+    display: null, // resolved lazily (si.graphics is slow on Windows)
     os: {
       name: osInfo.distro || os.type(),
       version: osInfo.release || os.release(),
@@ -541,12 +529,36 @@ function plural(n, unit) {
 // together so the renderer merges them in a single re-render. Each is wrapped
 // so one slow provider cannot strand the others.
 async function detectDeferred() {
-  const [updates, ssd, backgroundApps] = await Promise.all([
+  const [updates, ssd, backgroundApps, graphics] = await Promise.all([
     probe(detectUpdates(), UNKNOWN_UPDATES),
     probe(detectSsd(), null),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }),
+    probe(si.graphics(), {}),
   ]);
-  return { ...updates, ssd, backgroundApps };
+  return { ...updates, ssd, backgroundApps, display: summarizeDisplays(graphics) };
+}
+
+// si.graphics() → the Display card's facts. The main display is the one the
+// OS marks main, else the first. Its resolution is the mode it is running in
+// now (currentResX/Y), falling back to the panel's own resolution: on Linux
+// systeminformation often fills only the former. sizeX/sizeY come back in
+// centimetres, not millimetres.
+function summarizeDisplays(graphics) {
+  const displays = ((graphics && graphics.displays) || []).filter((d) => d && typeof d === "object");
+  const main = displays.find((d) => d.main) || displays[0] || {};
+  const w = main.currentResX || main.resolutionX;
+  const h = main.currentResY || main.resolutionY;
+  const externals = displays.filter(isExternalDisplay);
+  const ext = externals[0];
+  return {
+    count: displays.length,
+    resolution: w && h ? `${w} × ${h}` : "Unknown",
+    refreshRate: main.currentRefreshRate > 0 ? `${Math.round(main.currentRefreshRate)} Hz` : null,
+    external: externals.length > 0,
+    externalCount: externals.length,
+    externalSize: ext && ext.sizeX > 0 && ext.sizeY > 0 ? `${Math.round(Math.hypot(ext.sizeX, ext.sizeY) / 2.54)}"` : null,
+    externalConnection: ext ? (ext.connection || "External") : null,
+  };
 }
 
 // Is the primary disk an SSD? si.diskLayout() is the reliable source but slow.
@@ -967,5 +979,6 @@ module.exports = {
   detectMacAv,
   isVirtualInterface,
   isLinuxWlan,
+  summarizeDisplays,
   parseResolvectlDns,
 };
