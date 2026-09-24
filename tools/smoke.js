@@ -23,7 +23,7 @@ const { app, session } = require("electron");
 const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
-const { collectFacts, detectDeferred } = require(path.join(ROOT, "app/main/system-facts"));
+const { collectFacts, detectDeferred, probeTimings } = require(path.join(ROOT, "app/main/system-facts"));
 
 const RENDER_TIMEOUT_MS = 90000;
 const DEFERRED_TIMEOUT_MS = 45000; // shared across the tabs, not per tab
@@ -191,6 +191,13 @@ async function summarise() {
   };
   console.log("detectors on this OS:");
   for (const [k, v] of Object.entries(rows)) console.log(`  ${k.padEnd(20)} ${v}`);
+
+  // How long each check took, slowest first: the only view of Windows and
+  // macOS performance there is. The app's own scan runs at the same time, as
+  // on a real first launch, so these are times under that load. Names and
+  // milliseconds only; nothing here identifies the machine.
+  console.log("check timings (ms, slowest first):");
+  for (const [k, ms] of probeTimings()) console.log(`  ${k.padEnd(24)} ${ms}`);
 
   // WHD_EXPECT names the rows this machine should be able to answer, so a
   // detector that quietly returns nothing fails the run. CI reads pass/fail,

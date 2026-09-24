@@ -11,6 +11,7 @@ const path = require("path");
 const {
   collectFacts,
   detectDeferred,
+  probeTimings,
   classifyHeadset,
   cleanAudioName,
   detectVpn,
@@ -37,6 +38,9 @@ const {
   isLinuxWlan,
   parseResolvectlDns,
   summarizeDisplays,
+  detectAudio,
+  audioNames,
+  parseWpctlInspect,
 } = require("./system-facts");
 
 test("classifyHeadset", async (t) => {
@@ -79,6 +83,161 @@ test("classifyHeadset", async (t) => {
   await t.test("handles a missing device name", () => {
     assert.equal(classifyHeadset(""), "Built-in");
     assert.equal(classifyHeadset(null), "Built-in");
+  });
+});
+
+test("detectAudio", async (t) => {
+  const countingDrivers = () => {
+    const fn = async () => { fn.calls++; return [{ name: "Speakers (Realtek)", type: "out" }]; };
+    fn.calls = 0;
+    return fn;
+  };
+
+  await t.test("skips the slow driver listing when the OS names the devices", async () => {
+    const drivers = countingDrivers();
+    const r = await detectAudio(async () => ({ output: "Headphones", input: null }), drivers);
+    assert.deepEqual(r, { defaultAudio: { output: "Headphones", input: null }, drivers: [] });
+    assert.equal(drivers.calls, 0);
+  });
+
+  await t.test("falls back to the drivers when the OS gives no answer or fails", async () => {
+    for (const getDefault of [async () => null, async () => { throw new Error("powershell blocked"); }, () => { throw new Error("sync"); }]) {
+      const drivers = countingDrivers();
+      const r = await detectAudio(getDefault, drivers);
+      assert.equal(r.defaultAudio, null);
+      assert.equal(r.drivers.length, 1);
+      assert.equal(drivers.calls, 1);
+    }
+  });
+
+  await t.test("survives a failing driver listing too", async () => {
+    const r = await detectAudio(async () => null, async () => { throw new Error("wmi"); });
+    assert.deepEqual(r, { defaultAudio: null, drivers: [] });
+  });
+});
+
+test("audioNames", async (t) => {
+  await t.test("says None for a side the OS left empty, rather than guessing a driver", () => {
+    // A desktop with speakers and no microphone.
+    assert.deepEqual(audioNames({ output: "Speakers (Realtek(R) Audio)", input: null }, []),
+      { output: "Speakers (Realtek(R) Audio)", input: "None", classifyBy: "Speakers (Realtek(R) Audio)" });
+  });
+
+  await t.test("classifies by the Linux device id, which carries the bus", () => {
+    const r = audioNames({ output: "Elgato Wave 3 Analog Stereo", input: "Elgato Wave 3 Mono",
+      outputId: "alsa_output.usb-Elgato_Systems_Elgato_Wave_3-00.analog-stereo" }, []);
+    assert.equal(r.classifyBy, "alsa_output.usb-Elgato_Systems_Elgato_Wave_3-00.analog-stereo");
+    assert.equal(classifyHeadset(r.classifyBy), "USB headset");
+  });
+
+  await t.test("uses the driver listing only without an OS answer", () => {
+    const drivers = [{ name: "Built-in Microphone", type: "in" }, { name: "Built-in Speakers", type: "out" }];
+    assert.deepEqual(audioNames(null, drivers),
+      { output: "Built-in Speakers", input: "Built-in Microphone", classifyBy: "Built-in Speakers" });
+  });
+});
+
+test("parseWpctlInspect", async (t) => {
+  // `wpctl inspect @DEFAULT_AUDIO_SINK@` on the Debian 13 laptop, trimmed.
+  const sink = [
+    "id 57, type PipeWire:Interface:Node",
+    "    alsa.card = \"2\"",
+    "  * media.class = \"Audio/Sink\"",
+    "  * node.description = \"Elgato Wave 3 Analog Stereo\"",
+    "  * node.name = \"alsa_output.usb-Elgato_Systems_Elgato_Wave_3_BS10M1A02503-00.analog-stereo\"",
+    "  * node.nick = \"Elgato Wave 3\"",
+  ].join("\n");
+
+  await t.test("reads the readable name and the id", () => {
+    assert.deepEqual(parseWpctlInspect(sink), {
+      name: "alsa_output.usb-Elgato_Systems_Elgato_Wave_3_BS10M1A02503-00.analog-stereo",
+      description: "Elgato Wave 3 Analog Stereo",
+    });
+  });
+
+  await t.test("reads properties without the star, and ignores look-alike keys", () => {
+    const out = "    node.description = \"Speakers\"\n  * node.description.extra = \"no\"\n    node.name = \"alsa_output.pci-0000_00_1f.3.analog-stereo\"";
+    assert.deepEqual(parseWpctlInspect(out), { name: "alsa_output.pci-0000_00_1f.3.analog-stereo", description: "Speakers" });
+  });
+
+  await t.test("returns nulls when there is no default device or no output", () => {
+    for (const out of [null, "", "Object '@DEFAULT_AUDIO_SOURCE@' not found"]) {
+      assert.deepEqual(parseWpctlInspect(out), { name: null, description: null });
+    }
+  });
+});
+
+test("audio edge cases", async (t) => {
+  // wpctl prints `%c %s = "%s"` with no escaping, so a quote inside a name
+  // arrives bare; the value runs to the last quote on the line.
+  await t.test("parseWpctlInspect keeps quotes and apostrophes inside a name", () => {
+    const out = '  * node.description = "Bob\'s "Pro" Headset"\n  * node.name = "bluez_output.AC_12_34_56_78_9A.1"\n';
+    assert.deepEqual(parseWpctlInspect(out),
+      { name: "bluez_output.AC_12_34_56_78_9A.1", description: 'Bob\'s "Pro" Headset' });
+  });
+
+  await t.test("parseWpctlInspect trims padding, copes with CRLF and non-ASCII", () => {
+    const out = '  * node.description = "  Café Wave 🎧  "\r\n  * node.name = "alsa_output.usb-X-00.analog-stereo"\r\n';
+    assert.deepEqual(parseWpctlInspect(out),
+      { name: "alsa_output.usb-X-00.analog-stereo", description: "Café Wave 🎧" });
+  });
+
+  await t.test("parseWpctlInspect treats an empty or unquoted value as absent", () => {
+    assert.deepEqual(parseWpctlInspect('  * node.description = ""\n  * node.name = "x"\n'), { name: "x", description: null });
+    assert.deepEqual(parseWpctlInspect("  * node.description = Unquoted\n"), { name: null, description: null });
+  });
+
+  await t.test("parseWpctlInspect does not treat the dot in a key as a wildcard", () => {
+    assert.deepEqual(parseWpctlInspect('  * nodeXname = "a"\n  * node_description = "b"\n'), { name: null, description: null });
+  });
+
+  await t.test("parseWpctlInspect ignores wpctl's usage text after a bad id", () => {
+    const usage = "Error: '@DEFAULT_AUDIO_FOO@' is not a valid number\n\nUsage:\n  wpctl [OPTION…] COMMAND [COMMAND_OPTIONS] - WirePlumber Control CLI\n";
+    assert.deepEqual(parseWpctlInspect(usage), { name: null, description: null });
+  });
+
+  await t.test("audioNames: a microphone and no speakers says None for the output", () => {
+    const r = audioNames({ output: null, input: "Elgato Wave 3 Mono", outputId: null }, [{ name: "HDA Intel PCH", type: "out" }]);
+    assert.equal(r.output, "None");
+    assert.equal(r.input, "Elgato Wave 3 Mono");
+    // Nothing to classify: the card says "None", not a guessed "Built-in".
+    assert.equal(r.classifyBy, null);
+  });
+
+  await t.test("audioNames: no OS answer and no drivers names nothing specific", () => {
+    for (const drivers of [[], null, undefined]) {
+      assert.deepEqual(audioNames(null, drivers),
+        { output: "System default", input: "System default", classifyBy: "System default" });
+    }
+  });
+
+  await t.test("audioNames: the fallback picks a driver per direction", () => {
+    const drivers = [{ name: "Device 0cdc", type: "" }, { name: "USB Mic", type: "Input" }, { name: "HDMI", type: "Speaker" }];
+    const r = audioNames(null, drivers);
+    assert.equal(r.output, "HDMI");
+    assert.equal(r.input, "USB Mic");
+  });
+
+  await t.test("detectAudio: a driver listing that is not an array becomes []", async () => {
+    for (const bad of [null, undefined, { name: "x" }, "Device 0cdc"]) {
+      assert.deepEqual(await detectAudio(async () => null, async () => bad), { defaultAudio: null, drivers: [] });
+    }
+  });
+
+  await t.test("detectAudio: a sync throw from the driver listing is caught too", async () => {
+    const r = await detectAudio(() => { throw new Error("os"); }, () => { throw new Error("wmi"); });
+    assert.deepEqual(r, { defaultAudio: null, drivers: [] });
+  });
+
+  await t.test("detectAudio: the listing is not started while the OS query is pending", async () => {
+    let release;
+    let calls = 0;
+    const pending = detectAudio(() => new Promise((r) => { release = r; }), async () => { calls++; return []; });
+    await new Promise((r) => setImmediate(r));
+    assert.equal(calls, 0);
+    release(null);
+    await pending;
+    assert.equal(calls, 1);
   });
 });
 
@@ -790,4 +949,25 @@ test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, 
   for (const key of ["count", "resolution", "refreshRate", "external", "externalCount", "externalSize", "externalConnection"]) {
     assert.ok(key in d.display, `deferred.display.${key} is missing`);
   }
+});
+
+// The smoke test prints probeTimings() into public CI logs, so it must hold
+// check names and milliseconds only: no device, host or user names. Runs after
+// the live collectFacts/detectDeferred tests above, which fill it.
+test("probeTimings holds only check names and milliseconds, slowest first", { timeout: 90000 }, async () => {
+  if (!probeTimings().some(([k]) => k === "audio")) await collectFacts();
+  if (!probeTimings().some(([k]) => k.startsWith("deferred:"))) await detectDeferred();
+  const timings = probeTimings();
+  const expected = ["cpu", "mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
+    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
+    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics"];
+  assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
+  for (const [k, ms] of timings) {
+    assert.match(k, /^(deferred:)?[A-Za-z]+$/);
+    assert.ok(Number.isInteger(ms) && ms >= 0, `${k}: ${ms}`);
+  }
+  for (let i = 1; i < timings.length; i++) assert.ok(timings[i - 1][1] >= timings[i][1], "not sorted slowest first");
+  // A copy: a caller sorting or editing it can't change the next reading.
+  timings.length = 0;
+  assert.ok(probeTimings().length > 0);
 });
