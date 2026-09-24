@@ -37,6 +37,9 @@ const {
   isLinuxWlan,
   parseResolvectlDns,
   summarizeDisplays,
+  detectAudio,
+  audioNames,
+  parseWpctlInspect,
 } = require("./system-facts");
 
 test("classifyHeadset", async (t) => {
@@ -79,6 +82,87 @@ test("classifyHeadset", async (t) => {
   await t.test("handles a missing device name", () => {
     assert.equal(classifyHeadset(""), "Built-in");
     assert.equal(classifyHeadset(null), "Built-in");
+  });
+});
+
+test("detectAudio", async (t) => {
+  const countingDrivers = () => {
+    const fn = async () => { fn.calls++; return [{ name: "Speakers (Realtek)", type: "out" }]; };
+    fn.calls = 0;
+    return fn;
+  };
+
+  await t.test("skips the slow driver listing when the OS names the devices", async () => {
+    const drivers = countingDrivers();
+    const r = await detectAudio(async () => ({ output: "Headphones", input: null }), drivers);
+    assert.deepEqual(r, { defaultAudio: { output: "Headphones", input: null }, drivers: [] });
+    assert.equal(drivers.calls, 0);
+  });
+
+  await t.test("falls back to the drivers when the OS gives no answer or fails", async () => {
+    for (const getDefault of [async () => null, async () => { throw new Error("powershell blocked"); }, () => { throw new Error("sync"); }]) {
+      const drivers = countingDrivers();
+      const r = await detectAudio(getDefault, drivers);
+      assert.equal(r.defaultAudio, null);
+      assert.equal(r.drivers.length, 1);
+      assert.equal(drivers.calls, 1);
+    }
+  });
+
+  await t.test("survives a failing driver listing too", async () => {
+    const r = await detectAudio(async () => null, async () => { throw new Error("wmi"); });
+    assert.deepEqual(r, { defaultAudio: null, drivers: [] });
+  });
+});
+
+test("audioNames", async (t) => {
+  await t.test("says None for a side the OS left empty, rather than guessing a driver", () => {
+    // A desktop with speakers and no microphone.
+    assert.deepEqual(audioNames({ output: "Speakers (Realtek(R) Audio)", input: null }, []),
+      { output: "Speakers (Realtek(R) Audio)", input: "None", classifyBy: "Speakers (Realtek(R) Audio)" });
+  });
+
+  await t.test("classifies by the Linux device id, which carries the bus", () => {
+    const r = audioNames({ output: "Elgato Wave 3 Analog Stereo", input: "Elgato Wave 3 Mono",
+      outputId: "alsa_output.usb-Elgato_Systems_Elgato_Wave_3-00.analog-stereo" }, []);
+    assert.equal(r.classifyBy, "alsa_output.usb-Elgato_Systems_Elgato_Wave_3-00.analog-stereo");
+    assert.equal(classifyHeadset(r.classifyBy), "USB headset");
+  });
+
+  await t.test("uses the driver listing only without an OS answer", () => {
+    const drivers = [{ name: "Built-in Microphone", type: "in" }, { name: "Built-in Speakers", type: "out" }];
+    assert.deepEqual(audioNames(null, drivers),
+      { output: "Built-in Speakers", input: "Built-in Microphone", classifyBy: "Built-in Speakers" });
+  });
+});
+
+test("parseWpctlInspect", async (t) => {
+  // `wpctl inspect @DEFAULT_AUDIO_SINK@` on the Debian 13 laptop, trimmed.
+  const sink = [
+    "id 57, type PipeWire:Interface:Node",
+    "    alsa.card = \"2\"",
+    "  * media.class = \"Audio/Sink\"",
+    "  * node.description = \"Elgato Wave 3 Analog Stereo\"",
+    "  * node.name = \"alsa_output.usb-Elgato_Systems_Elgato_Wave_3_BS10M1A02503-00.analog-stereo\"",
+    "  * node.nick = \"Elgato Wave 3\"",
+  ].join("\n");
+
+  await t.test("reads the readable name and the id", () => {
+    assert.deepEqual(parseWpctlInspect(sink), {
+      name: "alsa_output.usb-Elgato_Systems_Elgato_Wave_3_BS10M1A02503-00.analog-stereo",
+      description: "Elgato Wave 3 Analog Stereo",
+    });
+  });
+
+  await t.test("reads properties without the star, and ignores look-alike keys", () => {
+    const out = "    node.description = \"Speakers\"\n  * node.description.extra = \"no\"\n    node.name = \"alsa_output.pci-0000_00_1f.3.analog-stereo\"";
+    assert.deepEqual(parseWpctlInspect(out), { name: "alsa_output.pci-0000_00_1f.3.analog-stereo", description: "Speakers" });
+  });
+
+  await t.test("returns nulls when there is no default device or no output", () => {
+    for (const out of [null, "", "Object '@DEFAULT_AUDIO_SOURCE@' not found"]) {
+      assert.deepEqual(parseWpctlInspect(out), { name: null, description: null });
+    }
   });
 });
 
