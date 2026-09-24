@@ -131,6 +131,10 @@ carries.
 - New fields: `network.isVirtual` (the default route runs over a VPN or
   tunnel) and `os.lastUpdateKind` (`"checked"` or `"installed"`, saying which
   event `os.lastUpdateCheck` dates; `null` when unknown).
+- `display` arrives with the slow scans (it is `null` in the first scan), and
+  gains `count`, `refreshRate` and `externalCount`. `display.resolution` is
+  now the mode the main display is running in, which systeminformation
+  reports on Linux where the old field was often empty ("Unknown").
 - Antivirus products may report `running: null` (installed, with no way to see
   whether it runs, e.g. on macOS), rather than a guessed `true`.
 - Reports are emailed: the endpoint receives `{ email, report }`, where it

@@ -335,7 +335,25 @@ function SystemScreen() {
         <KV k="Battery" v={power.hasBattery ? `${power.batteryLevel}%` : "None"} />
         <KV k="Power source" v={power.plugged ? "AC adapter" : "Battery"} />
       </Card>
+
+      <DisplayCard display={facts.display} pending={deferredFailed ? "Unknown" : "Checking…"} />
     </div>
+  );
+}
+
+// The Display card. Its facts arrive with the slow scans, so until then every
+// row says "Checking…" (or "Unknown" if those scans failed).
+function DisplayCard({ display: d, pending }) {
+  const external = !d ? pending
+    : !d.external ? "None"
+    : [d.externalCount > 1 ? `${d.externalCount} monitors` : null, d.externalSize, d.externalConnection]
+      .filter(Boolean).join(" · ") || "Connected";
+  return (
+    <Card icon="display" title="Display" sub={!d ? pending : `${d.count} display${d.count === 1 ? "" : "s"}`}>
+      <KV k="Resolution" v={d ? d.resolution : pending} />
+      <KV k="Refresh rate" v={d ? d.refreshRate || "Unknown" : pending} />
+      <KV k="External monitor" v={external} />
+    </Card>
   );
 }
 
@@ -505,6 +523,7 @@ function App() {
         os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck, lastUpdateKind: d.lastUpdateKind },
         disk: { ...f.disk, ssd: d.ssd },
         backgroundApps: d.backgroundApps || f.backgroundApps,
+        display: d.display || f.display,
       }));
     }).catch(() => {
       // Left alone, the cards would say "Checking…" forever.

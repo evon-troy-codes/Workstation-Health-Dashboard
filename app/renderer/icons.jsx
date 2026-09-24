@@ -52,6 +52,7 @@ const ICONS = {
   scroll: <><path d="M6 4h12v14a3 3 0 0 1-3 3H6a3 3 0 0 1-3-3V7"/><path d="M6 4a3 3 0 0 0-3 3v0h6"/><path d="M9 12h6M9 16h6"/></>,
   circle: <circle cx="12" cy="12" r="9"/>,
   globe: <><circle cx="12" cy="12" r="9"/><path d="M3 12h18M12 3a14 14 0 0 1 0 18M12 3a14 14 0 0 0 0 18"/></>,
+  display: <><rect x="3" y="4" width="18" height="12" rx="2"/><path d="M12 16v4M8 20h8"/></>,
 };
 
 function Icon({ name, size = 14, color, strokeWidth = 1.8, fill = "none", style, className, title, ...rest }) {

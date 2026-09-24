@@ -184,6 +184,8 @@ async function summarise() {
     "last update check": deferred.error ? "error" : has(deferred.lastUpdateCheck),
     // true/false are both readings; only null means the probe found nothing.
     "disk type": deferred.error ? "error" : deferred.ssd == null ? "no" : deferred.ssd ? "ssd" : "hdd",
+    "display resolution": deferred.error ? "error"
+      : deferred.display && deferred.display.resolution !== "Unknown" ? "yes" : "no",
     "running apps found": count(apps.runningApps),
     "browser extensions": num(apps.browserExtensions),
   };
