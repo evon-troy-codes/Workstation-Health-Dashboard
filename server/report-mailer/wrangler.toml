@@ -6,8 +6,10 @@ main = "src/index.js"
 compatibility_date = "2026-09-01"
 
 [vars]
-# Must be on a domain verified in Resend.
-FROM_ADDRESS = "Workstation Scanner <reports@example.com>"
+# Must be on a domain verified in Resend. For now this is Resend's test
+# sender, which needs no domain but delivers only to the Resend account's own
+# address. With a domain: verify it in Resend and change this line.
+FROM_ADDRESS = "Workstation Scanner <onboarding@resend.dev>"
 # Comma-separated recipient domains, e.g. "example.com,example.org". Empty
 # lets any address receive reports, relying on the rate limits alone.
 ALLOWED_DOMAINS = ""
