@@ -50,15 +50,16 @@ async function settle(t, promise, limitMs = 200_000) {
 // one is. Every call is recorded with the size asked for (the bytes= query on a
 // download, the body size on an upload). With `stall`, a download body sends
 // one chunk and then nothing, erroring only when the request is aborted, as a
-// real fetch body does.
-function stubFetch(respond, { stall = false } = {}) {
+// real fetch body does. `latency(path, size)` sets how long a request takes, in
+// ms (default LATENCY_MS), for simulating a slow link.
+function stubFetch(respond, { stall = false, latency = () => LATENCY_MS } = {}) {
   const calls = [];
   const original = globalThis.fetch;
   globalThis.fetch = async (url, init = {}) => {
     const u = new URL(url);
     const size = u.pathname === "/__up" ? init.body.size : Number(u.searchParams.get("bytes"));
     calls.push({ path: u.pathname, size });
-    await new Promise((r) => setTimeout(r, LATENCY_MS));
+    await new Promise((r) => setTimeout(r, latency(u.pathname, size)));
     const status = respond(u.pathname, size);
     let body = null;
     if (status === 200 && u.pathname === "/__down") {
@@ -251,6 +252,26 @@ test("measureUpload", async (t) => {
       assert.ok(mbps > 0);
     } finally {
       f.restore();
+    }
+  });
+
+  await t.test("measures a slow uplink at its real speed, counting late chunks against their real time", async (t) => {
+    useFakeClock(t);
+    // A 5 Mbps uplink shared by the three streams: a 2 MB chunk takes 9.6 s.
+    // Each stream finishes one chunk inside the 10 s window and a second at
+    // 19.2 s. Counting both against a 10 s window reported 9.6 Mbps.
+    // A fast link has the same late-chunk effect in miniature, and must not be
+    // under-reported by the fix.
+    for (const LINK_MBPS of [5, 100]) {
+      const perStreamBps = (LINK_MBPS * 1_000_000) / 3;
+      const f = stubFetch(() => 200, { latency: (_p, size) => (size * 8) / perStreamBps * 1000 });
+      try {
+        const { value: mbps } = await settle(t, measureUpload(null, noSignal(), 10_000));
+        assert.ok(Math.abs(mbps - LINK_MBPS) / LINK_MBPS < 0.05,
+          `measured ${mbps.toFixed(2)} Mbps on a ${LINK_MBPS} Mbps link`);
+      } finally {
+        f.restore();
+      }
     }
   });
 

@@ -229,6 +229,10 @@ async function measureUpload(onProgress, signal, durationMs = 10000) {
   const start = performance.now();
   const deadline = start + durationMs;
   let totalBytes = 0;
+  // When the last counted chunk finished. An upload only counts once it
+  // completes, and one still in flight at the deadline finishes after it, so
+  // its bytes are measured against the time they really took, not the window.
+  let lastDone = start;
 
   const report = () => {
     if (!onProgress) return;
@@ -257,6 +261,7 @@ async function measureUpload(onProgress, signal, durationMs = 10000) {
       }
       if (!res.ok) break;
       totalBytes += size;
+      lastDone = performance.now();
       report();
     }
   }
@@ -266,7 +271,7 @@ async function measureUpload(onProgress, signal, durationMs = 10000) {
   );
   await Promise.all(streams);
   if (totalBytes === 0) return null;
-  const elapsedSec = (Math.min(performance.now(), deadline) - start) / 1000;
+  const elapsedSec = (lastDone - start) / 1000;
   return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : null;
 }
 

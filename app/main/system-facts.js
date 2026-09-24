@@ -13,7 +13,7 @@ const si = require("systeminformation");
 const { execFile } = require("child_process");
 
 // App version for display. Resolved from the project's package.json.
-let APP_VERSION = "1.1.0";
+let APP_VERSION = "1.2.0";
 try {
   APP_VERSION = require("../../package.json").version || APP_VERSION;
 } catch (_) {
@@ -838,9 +838,13 @@ function isExternalDisplay(d) {
 // systeminformation reports "wired" / "wireless" (and "virtual" / "unknown" on
 // Linux); every other label in the app is capitalised. A VPN tunnel reads as
 // "Virtual" even where the OS calls its adapter wired, as Windows does.
+//
+// systeminformation's own "virtual" is not a tunnel: on Linux it gives that
+// type to lo and to bond* (link aggregation over real cables), so it is read
+// like a missing type, and tunnels are recognised by name instead.
 function interfaceType(type, isWired, isVirtual = false) {
   if (isVirtual) return "Virtual";
-  if (!type) return isWired ? "Wired" : "Wireless";
+  if (!type || /^virtual$/i.test(type)) return isWired ? "Wired" : "Wireless";
   return type.charAt(0).toUpperCase() + type.slice(1);
 }
 
@@ -873,11 +877,12 @@ const VPN_RE =
 
 const ifaceNames = (n) => `${n.iface || ""} ${n.ifaceName || ""}`;
 
-// Is this interface a tunnel rather than a physical link? Linux reports
-// "virtual"; elsewhere only the name gives it away.
+// Is this interface a tunnel rather than a physical link? Only the name gives
+// it away. systeminformation's type "virtual" does not: on Linux it also
+// covers bond* (several real cables bonded into one link), which is not a VPN.
 function isVirtualInterface(iface) {
   if (!iface) return false;
-  return /virtual/i.test(iface.type || "") || VPN_RE.test(ifaceNames(iface));
+  return VPN_RE.test(ifaceNames(iface));
 }
 
 // Heuristic VPN detection: look for an *active* tunnel interface (up + has an

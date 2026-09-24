@@ -114,6 +114,28 @@ A new `reason` code needs both ends: `main/report.js` produces it and
 `renderer/report-messages.js` words it, and each has a `.test.js` beside it
 that should cover the new code.
 
+## Report format changes
+
+Anyone reading the reports should key on `appVersion`, which every report
+carries.
+
+**1.2.0**
+
+- `cpu.cores` is now **physical** cores. It used to be systeminformation's
+  `cores`, which counts logical processors (threads). The thread count moved
+  to the new `cpu.threads`.
+- `power.batteryLevel` is `null` on a machine with no battery; it used to be
+  `100`. The new `power.hasBattery` says which.
+- `audio.headsetConnected` is true only when the selected output is a headset.
+  It used to be true whenever any sound driver was installed.
+- New fields: `network.isVirtual` (the default route runs over a VPN or
+  tunnel) and `os.lastUpdateKind` (`"checked"` or `"installed"`, saying which
+  event `os.lastUpdateCheck` dates; `null` when unknown).
+- Antivirus products may report `running: null` (installed, with no way to see
+  whether it runs, e.g. on macOS), rather than a guessed `true`.
+- Reports are emailed: the endpoint receives `{ email, report }`, where it
+  used to receive the report alone (see "Emailing reports" above).
+
 ## Production hardening
 
 Done:

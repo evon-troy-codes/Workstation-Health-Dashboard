@@ -1,7 +1,5 @@
 # Claude Code: keep local settings and session state out, share the agents.
 .claude/*
 !.claude/agents/
-vendor/
-composer.lock
 node_modules/
 dist/
