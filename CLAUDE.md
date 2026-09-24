@@ -115,6 +115,11 @@ keeps working.
   `ALLOWED_DOMAINS`) are deliberate; keep them. The app finds the Worker
   through `workstationScanner.reportUrl` in `package.json`
   (`WHD_REPORT_URL` overrides).
+- **No persistent PowerShell on Windows.** systeminformation's
+  `si.powerShellStart()` (one shared session instead of a PowerShell per
+  call) hung on every attempt on windows-latest (4 of 4, past 120 s), while
+  the default mode's first scan took ~4 s. Don't adopt it. The benchmark is
+  `tools/bench-scan.js` on branch `experiment/ps-session`.
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 
