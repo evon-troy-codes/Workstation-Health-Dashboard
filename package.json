@@ -35,7 +35,7 @@
   },
   "homepage": "https://github.com/evon-troy-codes/Workstation-Health-Dashboard#readme",
   "workstationScanner": {
-    "reportUrl": ""
+    "reportUrl": "https://workstation-scanner-report-mailer.evon-codes.workers.dev/"
   },
   "devDependencies": {
     "electron": "^42.4.0",
