@@ -135,6 +135,11 @@ carries.
   gains `count`, `refreshRate` and `externalCount`. `display.resolution` is
   now the mode the main display is running in, which systeminformation
   reports on Linux where the old field was often empty ("Unknown").
+- `display.monitors` lists every monitor, main first:
+  `{ name, builtin, main, resolution, refreshRate, connection, size }`. The
+  single-display fields still describe the main display. On GNOME with
+  Wayland the facts come from Mutter (GNOME's display service), because the
+  X11 view systeminformation reads there reports scaled, wrong modes.
 - Antivirus products may report `running: null` (installed, with no way to see
   whether it runs, e.g. on macOS), rather than a guessed `true`.
 - Reports are emailed: the endpoint receives `{ email, report }`, where it

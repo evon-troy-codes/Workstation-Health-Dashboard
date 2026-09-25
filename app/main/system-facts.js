@@ -609,32 +609,140 @@ async function detectDeferred() {
     probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
     probe(detectSsd(), null, "deferred:ssd"),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
-    probe(si.graphics(), {}, "deferred:graphics"),
+    probe(detectDisplays(), [], "deferred:graphics"),
   ]);
-  return { ...updates, ssd, backgroundApps, display: summarizeDisplays(graphics) };
+  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics) };
 }
 
-// si.graphics() → the Display card's facts. The main display is the one the
-// OS marks main, else the first. Its resolution is the mode it is running in
-// now (currentResX/Y), falling back to the panel's own resolution: on Linux
-// systeminformation often fills only the former. sizeX/sizeY come back in
-// centimetres, not millimetres.
-function summarizeDisplays(graphics) {
+// The monitors, one entry each: { name, connection, builtin, main, width,
+// height, refreshHz, sizeInches }.
+//
+// On GNOME with Wayland the X11 view systeminformation reads (through
+// XWayland) is scaled: a 5120 × 1440 120 Hz monitor read 10240 × 2880 at
+// 23.69 Hz, and a 1920 × 1200 panel 3072 × 1920. GNOME's own display service,
+// Mutter, has the real modes, so it is asked first there. Everywhere else, and
+// whenever Mutter can't answer, systeminformation's list is used.
+async function detectDisplays() {
+  const fromMutter = await mutterMonitors().catch(() => null);
+  if (fromMutter && fromMutter.length) return fromMutter;
+  return monitorsFromGraphics(await si.graphics().catch(() => ({})));
+}
+
+// Mutter's DisplayConfig over D-Bus, on a GNOME session. Resolves null
+// anywhere else (no gdbus, no Mutter, not Linux).
+async function mutterMonitors() {
+  if (process.platform !== "linux") return null;
+  const gdbus = findTool("/usr/bin/gdbus", "/bin/gdbus");
+  if (!gdbus) return null;
+  const out = await runCmd(gdbus, [
+    "call", "--session",
+    "--dest", "org.gnome.Mutter.DisplayConfig",
+    "--object-path", "/org/gnome/Mutter/DisplayConfig",
+    "--method", "org.gnome.Mutter.DisplayConfig.GetCurrentState",
+  ], { timeout: 3000 });
+  return out ? parseMutterState(out) : null;
+}
+
+// `GetCurrentState`, as gdbus prints it, → monitors. The text is a GVariant:
+//   (serial, [((connector, vendor, product, serial), [modes], {props}), …],
+//    [(x, y, scale, transform, primary, [(connector, …)], {props}), …], {…})
+// Each mode is ('5120x1440@119.999', 5120, 1440, 119.999…, scale, [scales],
+// {'is-current': <true>, …}). A monitor that is connected but switched off
+// has no current mode and is left out, as it shows nothing. Its serial number
+// is never kept.
+function parseMutterState(stdout) {
+  const text = String(stdout || "");
+  const header = /\(\('((?:[^'\\]|\\.)*)', '((?:[^'\\]|\\.)*)', '((?:[^'\\]|\\.)*)', '(?:[^'\\]|\\.)*'\), \[/g;
+  const starts = [];
+  for (let m; (m = header.exec(text));) starts.push({ at: m.index, connector: m[1], vendor: m[2], product: m[3] });
+  // Which connector the primary logical monitor shows.
+  const primary = (/\(-?\d+, -?\d+, [\d.]+, (?:uint32 )?\d+, true, \[\('((?:[^'\\]|\\.)*)'/.exec(text) || [])[1];
+  const unescape = (v) => v.replace(/\\(.)/g, "$1");
+  const monitors = [];
+  starts.forEach((mon, i) => {
+    const seg = text.slice(mon.at, i + 1 < starts.length ? starts[i + 1].at : text.length);
+    let current = null;
+    const mode = /\('\d+x\d+@[\d.]+', (\d+), (\d+), ([\d.]+), [\d.]+, \[[^\]]*\], \{([^}]*)\}\)/g;
+    for (let m; (m = mode.exec(seg));) {
+      if (/'is-current': <true>/.test(m[4])) {
+        current = { width: Number(m[1]), height: Number(m[2]), refreshHz: Number(m[3]) };
+        break;
+      }
+    }
+    if (!current) return;
+    const builtinMatch = /'is-builtin': <(true|false)>/.exec(seg);
+    const nameMatch = /'display-name': <'((?:[^'\\]|\\.)*)'>/.exec(seg);
+    const builtin = builtinMatch ? builtinMatch[1] === "true" : /^(eDP|LVDS|DSI)/i.test(mon.connector);
+    monitors.push({
+      name: nameMatch ? unescape(nameMatch[1]) : builtin ? "Built-in display" : unescape(mon.connector),
+      connection: unescape(mon.connector),
+      builtin,
+      main: unescape(mon.connector) === (primary && unescape(primary)),
+      ...current,
+      sizeInches: null,
+    });
+  });
+  return monitors;
+}
+
+// systeminformation's si.graphics() → monitors. Each display's resolution is
+// the mode it runs in now (currentResX/Y), falling back to the panel's own:
+// on Linux systeminformation often fills only the former. sizeX/sizeY come
+// back in centimetres, not millimetres.
+function monitorsFromGraphics(graphics) {
   const displays = ((graphics && graphics.displays) || []).filter((d) => d && typeof d === "object");
-  const main = displays.find((d) => d.main) || displays[0] || {};
-  const w = main.currentResX || main.resolutionX;
-  const h = main.currentResY || main.resolutionY;
-  const externals = displays.filter(isExternalDisplay);
+  return displays.map((d, i) => {
+    const builtin = !isExternalDisplay(d);
+    const named = [d.model, d.deviceName].find((v) => typeof v === "string" && v.trim() && !/^\\\\\.\\/.test(v));
+    return {
+      name: named ? named.trim() : builtin ? "Built-in display" : d.connection ? `External display (${d.connection})` : `Display ${i + 1}`,
+      connection: d.connection || null,
+      builtin,
+      main: Boolean(d.main),
+      width: d.currentResX || d.resolutionX || null,
+      height: d.currentResY || d.resolutionY || null,
+      refreshHz: d.currentRefreshRate > 0 ? d.currentRefreshRate : null,
+      sizeInches: d.sizeX > 0 && d.sizeY > 0 ? Math.round(Math.hypot(d.sizeX, d.sizeY) / 2.54) : null,
+    };
+  });
+}
+
+// Monitors → the Display card's facts. `monitors` lists every display with its
+// own resolution and refresh rate, the main one first. The single-display
+// fields (resolution, refreshRate, external…) describe the main display and
+// the first external one, as they did before, for older report readers.
+function summarizeMonitors(list) {
+  const monitors = (Array.isArray(list) ? list : []).filter((m) => m && typeof m === "object");
+  const main = monitors.find((m) => m.main) || monitors[0];
+  const ordered = main ? [main, ...monitors.filter((m) => m !== main)] : [];
+  const resolution = (m) => (m && m.width && m.height ? `${m.width} × ${m.height}` : "Unknown");
+  const refresh = (m) => (m && m.refreshHz > 0 ? `${Math.round(m.refreshHz)} Hz` : null);
+  const externals = ordered.filter((m) => !m.builtin);
   const ext = externals[0];
   return {
-    count: displays.length,
-    resolution: w && h ? `${w} × ${h}` : "Unknown",
-    refreshRate: main.currentRefreshRate > 0 ? `${Math.round(main.currentRefreshRate)} Hz` : null,
+    count: monitors.length,
+    monitors: ordered.map((m) => ({
+      name: m.name,
+      builtin: Boolean(m.builtin),
+      main: m === main,
+      resolution: resolution(m),
+      refreshRate: refresh(m),
+      connection: m.connection || null,
+      size: m.sizeInches ? `${m.sizeInches}"` : null,
+    })),
+    resolution: resolution(main),
+    refreshRate: refresh(main),
     external: externals.length > 0,
     externalCount: externals.length,
-    externalSize: ext && ext.sizeX > 0 && ext.sizeY > 0 ? `${Math.round(Math.hypot(ext.sizeX, ext.sizeY) / 2.54)}"` : null,
+    externalSize: ext && ext.sizeInches ? `${ext.sizeInches}"` : null,
     externalConnection: ext ? (ext.connection || "External") : null,
   };
+}
+
+// si.graphics() straight to the card's facts, for callers (and tests) that
+// start from systeminformation's output.
+function summarizeDisplays(graphics) {
+  return summarizeMonitors(monitorsFromGraphics(graphics));
 }
 
 // Is the primary disk an SSD? si.diskLayout() is the reliable source but slow.
@@ -1059,6 +1167,9 @@ module.exports = {
   isVirtualInterface,
   isLinuxWlan,
   summarizeDisplays,
+  summarizeMonitors,
+  monitorsFromGraphics,
+  parseMutterState,
   parseResolvectlDns,
   detectAudio,
   audioNames,
