@@ -157,6 +157,16 @@ async function measureDownload(onProgress, runSignal, durationMs = 12000, capByt
   const deadline = start + durationMs;
   let totalBytes = 0;
   let cappedAt = null; // when the data cap was reached, if it was
+  // When the first byte arrived, on any stream. The rate is measured from
+  // here, not from the phase start: opening four connections and waiting for
+  // the first byte (typically 100–200 ms) is not transfer time. Across a full
+  // 12 s window that setup diluted to 1–2%, but a fast link reaches the data
+  // cap in about 2 s, where it would read 5–10% low.
+  let firstByteAt = null;
+  // Bytes that arrived after that first instant. What arrived at it had its
+  // transfer time before the clock started, so it can't be counted against
+  // time measured from there.
+  let timedBytes = 0;
   // The read loop checks the deadline after each chunk, but a read that never
   // returns never gets there. Aborting at the deadline ends a stalled stream
   // with the phase, keeping the bytes it had already counted.
@@ -192,6 +202,9 @@ async function measureDownload(onProgress, runSignal, durationMs = 12000, capByt
           while (true) {
             const { done, value } = await reader.read();
             if (done) return "next";
+            const now = performance.now();
+            if (firstByteAt == null) firstByteAt = now;
+            else if (now > firstByteAt) timedBytes += value.length;
             totalBytes += value.length;
             report();
             // Reaching the cap ends the phase for every stream at once, and
@@ -228,6 +241,11 @@ async function measureDownload(onProgress, runSignal, durationMs = 12000, capByt
   // reporting it as a number would be a lie the UI cannot distinguish.
   if (totalBytes === 0) return null;
   const end = cappedAt != null ? cappedAt : Math.min(performance.now(), deadline);
+  // Everything arrived in one instant (a stream that then stalled, say):
+  // nothing to time from the first byte, so fall back to the whole window.
+  if (timedBytes > 0 && end > firstByteAt) {
+    return (timedBytes * 8) / ((end - firstByteAt) / 1000) / 1_000_000;
+  }
   const elapsedSec = (end - start) / 1000;
   return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : null;
 }

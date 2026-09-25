@@ -207,6 +207,25 @@ test("measureDownload", async (t) => {
     }
   });
 
+  await t.test("measures from the first byte, so connection setup doesn't read as a slow link", async (t) => {
+    useFakeClock(t);
+    // Each stream's first request waits 150 ms (connecting, TLS, first byte);
+    // after that a 64 KB chunk lands every 10 ms per stream, four streams:
+    // 4 × 64 KB / 10 ms ≈ 210 Mbps. The 2.5 MB cap is reached about 100 ms
+    // after the first byte. Timed from the phase start, the 150 ms of setup
+    // would count too and the link would read about 85 Mbps.
+    let calls = 0;
+    const f = stubFetch(() => 200, { latency: () => (++calls <= 4 ? 150 : 10) });
+    try {
+      const { value: mbps } = await settle(t, measureDownload(null, noSignal(), 12_000, 2_500_000));
+      const trueMbps = (4 * 65536 * 8) / 0.010 / 1_000_000;
+      assert.ok(Math.abs(mbps - trueMbps) / trueMbps < 0.03,
+        `measured ${mbps.toFixed(1)} Mbps on a ${trueMbps.toFixed(1)} Mbps link`);
+    } finally {
+      f.restore();
+    }
+  });
+
   await t.test("ends at its deadline when a body stalls, keeping the bytes it read", async (t) => {
     useFakeClock(t);
     const f = stubFetch(() => 200, { stall: true });
