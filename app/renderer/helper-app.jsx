@@ -341,18 +341,21 @@ function SystemScreen() {
   );
 }
 
-// The Display card. Its facts arrive with the slow scans, so until then every
-// row says "Checking…" (or "Unknown" if those scans failed).
+// The Display card: one row per monitor, each with its own resolution and
+// refresh rate, the main one first. Its facts arrive with the slow scans, so
+// until then it says "Checking…" (or "Unknown" if those scans failed).
 function DisplayCard({ display: d, pending }) {
-  const external = !d ? pending
-    : !d.external ? "None"
-    : [d.externalCount > 1 ? `${d.externalCount} monitors` : null, d.externalSize, d.externalConnection]
-      .filter(Boolean).join(" · ") || "Connected";
+  // Reports from before per-monitor detection carry no list.
+  const monitors = d && Array.isArray(d.monitors) ? d.monitors : null;
   return (
     <Card icon="display" title="Display" sub={!d ? pending : `${d.count} display${d.count === 1 ? "" : "s"}`}>
-      <KV k="Resolution" v={d ? d.resolution : pending} />
-      <KV k="Refresh rate" v={d ? d.refreshRate || "Unknown" : pending} />
-      <KV k="External monitor" v={external} />
+      {!d && <KV k="Displays" v={pending} />}
+      {d && monitors && monitors.length === 0 && <KV k="Displays" v="None found" />}
+      {monitors && monitors.map((m, i) => (
+        <KV key={i} k={m.main && monitors.length > 1 ? `${m.name} (main)` : m.name}
+          v={[m.resolution, m.refreshRate, m.size].filter(Boolean).join(" · ")} />
+      ))}
+      {d && !monitors && <KV k="Resolution" v={[d.resolution, d.refreshRate].filter(Boolean).join(" · ")} />}
     </Card>
   );
 }
