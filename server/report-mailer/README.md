@@ -35,7 +35,10 @@ picks. It is built so that isn't worth abusing:
 - The email contains only report fields, escaped, cut to 200 characters each
   and 20 items per list, in a fixed layout. A caller can't send a message of
   their own.
-- Five reports a minute per client IP, and five per recipient address.
+- About five reports a minute per client IP, and per recipient address.
+  Cloudflare's rate limiting counts per server and syncs in the background, so
+  a burst can get a few more through before it starts answering 429. Resend's
+  own daily sending limit is the hard ceiling.
 - `ALLOWED_DOMAINS` can limit recipients to your organization's domains. Set it
   if the app is only for your own people.
 
@@ -59,6 +62,12 @@ a domain you can add DNS records to, for Resend to send from.
 
    Wrangler prints the Worker's URL, like
    `https://workstation-scanner-report-mailer.<you>.workers.dev`.
+
+   Deploying from the Cloudflare dashboard instead (pasting `src/index.js`
+   into its editor) works, but leaves out the rate limits, which only
+   `wrangler deploy` sets up from `wrangler.toml`. Deploy with wrangler before
+   anyone else uses it. A wrangler deploy replaces the dashboard's variables
+   with `wrangler.toml`'s, and keeps secrets such as `RESEND_API_KEY`.
 4. **Point the app at it:** put that URL in the repo's `package.json`,
 
    ```json
