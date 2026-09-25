@@ -169,6 +169,16 @@ test("renderEmail", async (t) => {
     assert.ok(text.includes("2026-09-23 18:00 UTC"));
   });
 
+  await t.test("lists each monitor with its own resolution and refresh rate", () => {
+    const { text, html } = renderEmail({ ...report, display: { count: 2, monitors: [
+      { name: 'Samsung Electric Company 49"', main: true, resolution: "5120 × 1440", refreshRate: "120 Hz" },
+      { name: "Built-in display", main: false, resolution: "1920 × 1200", refreshRate: "60 Hz", size: null },
+    ] } });
+    assert.ok(text.includes('Samsung Electric Company 49" (main): 5120 × 1440 · 120 Hz'));
+    assert.ok(text.includes("Built-in display: 1920 × 1200 · 60 Hz"));
+    assert.ok(html.includes("Samsung Electric Company 49&quot; (main)"));
+  });
+
   await t.test("escapes report values, so a hostname can't inject markup", () => {
     const { html, subject } = renderEmail({ hostname: "<img src=x onerror=alert(1)>", user: "a&b" });
     assert.ok(!html.includes("<img"));
