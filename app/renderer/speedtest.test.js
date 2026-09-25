@@ -190,6 +190,42 @@ test("measureDownload", async (t) => {
     }
   });
 
+  await t.test("stops at its data cap, well inside the window, and measures up to it", async (t) => {
+    useFakeClock(t);
+    const f = stubFetch(() => 200);
+    try {
+      // Each request answers 64 KB after 10 ms, four streams at once: 1 MB is
+      // reached at 40 ms of a 12 s window.
+      const cap = 1_000_000;
+      const { value: mbps, elapsed } = await settle(t, measureDownload(null, noSignal(), 12_000, cap));
+      assert.ok(elapsed <= 50, `phase ran ${elapsed} ms past a 40 ms cap`);
+      assert.ok(f.calls.length <= 20, `${f.calls.length} requests; the cap should stop new ones`);
+      // 16 chunks of 64 KB in 40 ms, about 210 Mbps: the rate up to the cap.
+      assert.ok(mbps > 180 && mbps < 240, `measured ${mbps.toFixed(1)} Mbps`);
+    } finally {
+      f.restore();
+    }
+  });
+
+  await t.test("measures from the first byte, so connection setup doesn't read as a slow link", async (t) => {
+    useFakeClock(t);
+    // Each stream's first request waits 150 ms (connecting, TLS, first byte);
+    // after that a 64 KB chunk lands every 10 ms per stream, four streams:
+    // 4 × 64 KB / 10 ms ≈ 210 Mbps. The 2.5 MB cap is reached about 100 ms
+    // after the first byte. Timed from the phase start, the 150 ms of setup
+    // would count too and the link would read about 85 Mbps.
+    let calls = 0;
+    const f = stubFetch(() => 200, { latency: () => (++calls <= 4 ? 150 : 10) });
+    try {
+      const { value: mbps } = await settle(t, measureDownload(null, noSignal(), 12_000, 2_500_000));
+      const trueMbps = (4 * 65536 * 8) / 0.010 / 1_000_000;
+      assert.ok(Math.abs(mbps - trueMbps) / trueMbps < 0.03,
+        `measured ${mbps.toFixed(1)} Mbps on a ${trueMbps.toFixed(1)} Mbps link`);
+    } finally {
+      f.restore();
+    }
+  });
+
   await t.test("ends at its deadline when a body stalls, keeping the bytes it read", async (t) => {
     useFakeClock(t);
     const f = stubFetch(() => 200, { stall: true });
@@ -272,6 +308,26 @@ test("measureUpload", async (t) => {
       } finally {
         f.restore();
       }
+    }
+  });
+
+  await t.test("starts no upload past its data cap, and measures the chunks it sent", async (t) => {
+    useFakeClock(t);
+    // A 1 Gbps uplink shared by three streams: a 2 MB chunk takes 48 ms. With
+    // a 10 MB cap: one round lands at 48 ms (6 MB); in the second, at 96 ms,
+    // the first stream to finish sees 8 MB and starts one more chunk, and the
+    // other two see the cap and stop. Seven uploads in all, not hundreds.
+    const f = stubFetch(() => 200, { latency: (_p, size) => (size * 8) / (1_000_000_000 / 3) * 1000 });
+    try {
+      const { value: mbps, elapsed } = await settle(t, measureUpload(null, noSignal(), 10_000, 10_000_000));
+      assert.equal(f.calls.length, 7);
+      assert.ok(elapsed < 200, `phase ran ${elapsed} ms of a 10 s window`);
+      // 14 MB by 144 ms is 778 Mbps. The stub keeps a lone last chunk at a
+      // third of the link, where a real one would get all of it, so this
+      // reads low; the point is the cap, checked above.
+      assert.ok(mbps > 700 && mbps <= 1000, `measured ${mbps.toFixed(1)} Mbps on a 1 Gbps link`);
+    } finally {
+      f.restore();
     }
   });
 

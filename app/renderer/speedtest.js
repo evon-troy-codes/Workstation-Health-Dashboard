@@ -9,6 +9,13 @@
 // which is a bad failure for a tool people open *because* the network is sick.
 
 const HARD_CAP_MS = 75000; // absolute ceiling for a full run
+// Data caps. The test runs on every launch, and on a fast link a full 12 s
+// download moved 1–1.5 GB: costly on a hotspot or a metered connection. A
+// phase now also ends once it has moved this much. A slow or ordinary link
+// never gets there inside its window, so it measures exactly as before; a
+// gigabit link reaches 250 MB in about 2 s, still a steady sample.
+const DOWN_CAP_BYTES = 250_000_000;
+const UP_CAP_BYTES = 100_000_000;
 const REQUEST_TIMEOUT_MS = 20000; // ceiling for any single request
 const DOWN_STREAMS = 4; // one stream cannot saturate a fast link
 const UP_STREAMS = 3;
@@ -144,11 +151,22 @@ async function measureLatency(onProgress, signal) {
 // window, across parallel streams. Timing each request separately and summing
 // counts DNS/TCP/TLS setup and TTFB as transfer time, which under-reports the
 // link badly when latency is high.
-async function measureDownload(onProgress, runSignal, durationMs = 12000) {
+async function measureDownload(onProgress, runSignal, durationMs = 12000, capBytes = DOWN_CAP_BYTES) {
   const ladder = chunkLadder(CHUNK_LADDER);
   const start = performance.now();
   const deadline = start + durationMs;
   let totalBytes = 0;
+  let cappedAt = null; // when the data cap was reached, if it was
+  // When the first byte arrived, on any stream. The rate is measured from
+  // here, not from the phase start: opening four connections and waiting for
+  // the first byte (typically 100–200 ms) is not transfer time. Across a full
+  // 12 s window that setup diluted to 1–2%, but a fast link reaches the data
+  // cap in about 2 s, where it would read 5–10% low.
+  let firstByteAt = null;
+  // Bytes that arrived after that first instant. What arrived at it had its
+  // transfer time before the clock started, so it can't be counted against
+  // time measured from there.
+  let timedBytes = 0;
   // The read loop checks the deadline after each chunk, but a read that never
   // returns never gets there. Aborting at the deadline ends a stalled stream
   // with the phase, keeping the bytes it had already counted.
@@ -184,8 +202,17 @@ async function measureDownload(onProgress, runSignal, durationMs = 12000) {
           while (true) {
             const { done, value } = await reader.read();
             if (done) return "next";
+            const now = performance.now();
+            if (firstByteAt == null) firstByteAt = now;
+            else if (now > firstByteAt) timedBytes += value.length;
             totalBytes += value.length;
             report();
+            // Reaching the cap ends the phase for every stream at once, and
+            // the speed is measured up to this moment.
+            if (totalBytes >= capBytes && cappedAt == null) {
+              cappedAt = performance.now();
+              phase.abort();
+            }
             if (performance.now() >= deadline || signal.aborted) {
               await reader.cancel().catch(() => {});
               return "stop";
@@ -213,12 +240,18 @@ async function measureDownload(onProgress, runSignal, durationMs = 12000) {
   // endpoint, no route). That is a failed measurement, not a 0 Mbps link, and
   // reporting it as a number would be a lie the UI cannot distinguish.
   if (totalBytes === 0) return null;
-  const elapsedSec = (Math.min(performance.now(), deadline) - start) / 1000;
+  const end = cappedAt != null ? cappedAt : Math.min(performance.now(), deadline);
+  // Everything arrived in one instant (a stream that then stalled, say):
+  // nothing to time from the first byte, so fall back to the whole window.
+  if (timedBytes > 0 && end > firstByteAt) {
+    return (timedBytes * 8) / ((end - firstByteAt) / 1000) / 1_000_000;
+  }
+  const elapsedSec = (end - start) / 1000;
   return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : null;
 }
 
 // ── Upload ────────────────────────────────────────────────────────
-async function measureUpload(onProgress, signal, durationMs = 10000) {
+async function measureUpload(onProgress, signal, durationMs = 10000, capBytes = UP_CAP_BYTES) {
   // Repeating pattern — crypto.getRandomValues caps at 65 536 bytes/call.
   // One buffer at the largest size; smaller rungs send a slice of it.
   const data = new Uint8Array(UP_LADDER[0]);
@@ -241,7 +274,9 @@ async function measureUpload(onProgress, signal, durationMs = 10000) {
   };
 
   async function stream() {
-    while (performance.now() < deadline && !signal.aborted) {
+    // Past the data cap no new chunk starts; ones already in flight finish
+    // and count, measured to when they finished (lastDone).
+    while (performance.now() < deadline && !signal.aborted && totalBytes < capBytes) {
       const asked = ladder.rung;
       const size = ladder.size(asked);
       const res = await fetchWithTimeout(
