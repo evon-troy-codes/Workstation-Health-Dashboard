@@ -38,6 +38,9 @@ const {
   isLinuxWlan,
   parseResolvectlDns,
   summarizeDisplays,
+  summarizeMonitors,
+  monitorsFromGraphics,
+  parseMutterState,
   detectAudio,
   audioNames,
   parseWpctlInspect,
@@ -349,7 +352,9 @@ test("summarizeDisplays", async (t) => {
       resolutionX: null, resolutionY: null, currentResX: 3072, currentResY: 1920,
       sizeX: null, sizeY: null, currentRefreshRate: 59 }] });
     assert.deepEqual(d, { count: 1, resolution: "3072 × 1920", refreshRate: "59 Hz",
-      external: false, externalCount: 0, externalSize: null, externalConnection: null });
+      external: false, externalCount: 0, externalSize: null, externalConnection: null,
+      monitors: [{ name: "Built-in display", builtin: true, main: true, resolution: "3072 × 1920",
+        refreshRate: "59 Hz", connection: "eDP-1", size: null }] });
   });
 
   await t.test("describes a docked laptop with an external monitor as its main display", () => {
@@ -367,6 +372,21 @@ test("summarizeDisplays", async (t) => {
     assert.equal(d.externalConnection, "DP");
   });
 
+  await t.test("lists every monitor with its own resolution and refresh rate, main first", () => {
+    const d = summarizeDisplays({ displays: [
+      { main: false, builtin: true, connection: "INTERNAL", currentResX: 1920, currentResY: 1200, currentRefreshRate: 60 },
+      { main: true, builtin: false, model: "LC49G95T", connection: "DP", currentResX: 5120, currentResY: 1440,
+        currentRefreshRate: 119.999 },
+      { main: false, builtin: false, connection: "HDMI", currentResX: 2560, currentResY: 1440,
+        currentRefreshRate: 143.98, sizeX: 60, sizeY: 34 },
+    ] });
+    assert.deepEqual(d.monitors.map((m) => [m.name, m.main, m.resolution, m.refreshRate, m.size]), [
+      ["LC49G95T", true, "5120 × 1440", "120 Hz", null],
+      ["Built-in display", false, "1920 × 1200", "60 Hz", null],
+      ["External display (HDMI)", false, "2560 × 1440", "144 Hz", '27"'],
+    ]);
+  });
+
   await t.test("counts several external monitors and falls back to a generic connection", () => {
     const d = summarizeDisplays({ displays: [
       { builtin: false, resolutionX: 3840, resolutionY: 2160 },
@@ -381,7 +401,57 @@ test("summarizeDisplays", async (t) => {
   await t.test("reports nothing found, not a guess, without displays", () => {
     for (const g of [{}, { displays: [] }, null, undefined, { displays: [null] }]) {
       assert.deepEqual(summarizeDisplays(g), { count: 0, resolution: "Unknown", refreshRate: null,
-        external: false, externalCount: 0, externalSize: null, externalConnection: null });
+        external: false, externalCount: 0, externalSize: null, externalConnection: null, monitors: [] });
+    }
+  });
+});
+
+test("parseMutterState", async (t) => {
+  // gdbus's GetCurrentState on the Debian laptop under GNOME Wayland, with a
+  // Samsung Odyssey G9 attached (the monitor's serial number replaced).
+  // XWayland, which systeminformation reads, reported that screen as
+  // 10240 × 2880 at 23.69 Hz and the panel as 3072 × 1920.
+  const fixture = require("fs").readFileSync(require("path").join(__dirname, "fixtures", "mutter-state-gnome.txt"), "utf8");
+
+  await t.test("reads each monitor's real current mode, name and role", () => {
+    const monitors = parseMutterState(fixture);
+    assert.deepEqual(monitors.map((m) => ({ ...m, refreshHz: Math.round(m.refreshHz) })), [
+      { name: 'Samsung Electric Company 49"', connection: "DP-7", builtin: false, main: true,
+        width: 5120, height: 1440, refreshHz: 120, sizeInches: null },
+      { name: "Built-in display", connection: "eDP-1", builtin: true, main: false,
+        width: 1920, height: 1200, refreshHz: 60, sizeInches: null },
+    ]);
+  });
+
+  await t.test("keeps no serial numbers", () => {
+    assert.ok(!JSON.stringify(parseMutterState(fixture)).includes("SERIAL0001"));
+  });
+
+  await t.test("finds the current mode when it is also the preferred one", () => {
+    // The panel's current mode carries {'is-current': <true>, 'is-preferred': <true>}.
+    assert.equal(parseMutterState(fixture)[1].height, 1200);
+  });
+
+  await t.test("leaves out a monitor that is connected but switched off", () => {
+    const off = "(uint32 1, [(('HDMI-1', 'DEL', 'U2720Q', 'X'), [('3840x2160@60.000', 3840, 2160, 60.0, 1.0, [1.0], {})], " +
+      "{'is-builtin': <false>, 'display-name': <'Dell 27\"'>})], [], {})";
+    assert.deepEqual(parseMutterState(off), []);
+  });
+
+  await t.test("unescapes names and copes with a missing display-name", () => {
+    const one = "(uint32 1, [(('DP-1', 'ACM', 'X1', 'S'), [('1920x1080@60.000', 1920, 1080, 60.0, 1.0, [1.0], {'is-current': <true>})], " +
+      "{'is-builtin': <false>, 'display-name': <'Sam\\'s monitor'>}), " +
+      "(('eDP-1', 'BOE', 'P', 'S'), [('1920x1200@60.000', 1920, 1200, 60.0, 1.0, [1.0], {'is-current': <true>})], {})], " +
+      "[(0, 0, 1.0, uint32 0, true, [('eDP-1', 'BOE', 'P', 'S')], {})], {})";
+    const [a, b] = parseMutterState(one);
+    assert.equal(a.name, "Sam's monitor");
+    assert.equal(a.main, false);
+    assert.deepEqual([b.name, b.builtin, b.main], ["Built-in display", true, true]);
+  });
+
+  await t.test("returns nothing for empty or unrelated output", () => {
+    for (const out of ["", null, "Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown"]) {
+      assert.deepEqual(parseMutterState(out), []);
     }
   });
 });
@@ -946,8 +1016,15 @@ test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, 
   assert.ok(Array.isArray(d.backgroundApps.runningApps));
   assert.equal(typeof d.backgroundApps.browserExtensions, "number");
   // The Display card's rows.
-  for (const key of ["count", "resolution", "refreshRate", "external", "externalCount", "externalSize", "externalConnection"]) {
+  for (const key of ["count", "monitors", "resolution", "refreshRate", "external", "externalCount", "externalSize", "externalConnection"]) {
     assert.ok(key in d.display, `deferred.display.${key} is missing`);
+  }
+  // One row per monitor on the card.
+  assert.ok(Array.isArray(d.display.monitors));
+  for (const m of d.display.monitors) {
+    for (const key of ["name", "builtin", "main", "resolution", "refreshRate", "connection", "size"]) {
+      assert.ok(key in m, `deferred.display.monitors[].${key} is missing`);
+    }
   }
 });
 

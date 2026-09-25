@@ -146,6 +146,22 @@ const fileSafe = (s) => val(s).replace(/[^A-Za-z0-9._-]+/g, "-").slice(0, 60) ||
 
 const obj = (o) => (o && typeof o === "object" && !Array.isArray(o) ? o : {});
 
+// One row per monitor, each with its own resolution and refresh rate. Reports
+// from before per-monitor detection carry only the main display's.
+function displayRows(raw, display) {
+  if (!raw) return [["Display", "—"]];
+  const monitors = Array.isArray(display.monitors) ? display.monitors.slice(0, MAX_LIST) : null;
+  if (!monitors) {
+    return [["Display", `${val(display.resolution)}${display.external ? `, external ${[display.externalSize, display.externalConnection].filter(Boolean).map(val).join(" ") || "monitor"}` : ""}`]];
+  }
+  if (!monitors.length) return [["Display", "None found"]];
+  return monitors.map((m) => {
+    const q = obj(m);
+    const label = q.main && monitors.length > 1 ? `${val(q.name)} (main)` : val(q.name);
+    return [label, [q.resolution, q.refreshRate, q.size].filter((v) => typeof v === "string" && v).map(val).join(" · ") || "—"];
+  });
+}
+
 // Sections of [label, value] rows, taken only from known report fields.
 function reportSections(r) {
   const cpu = obj(r.cpu), ram = obj(r.ram), disk = obj(r.disk), os = obj(r.os);
@@ -169,9 +185,7 @@ function reportSections(r) {
       ["Cores / threads", `${val(cpu.cores)} / ${val(cpu.threads)}`],
       ["Memory", `${num(ram.totalGB, "GB")} (${num(ram.freeGB, "GB")} free, pressure ${val(ram.pressure)})`],
       ["Disk", `${num(disk.totalGB, "GB")} (${num(disk.freeGB, "GB")} free, ${num(disk.usedPercent, "%").replace(" %", "%")} used)`],
-      ["Display", r.display
-        ? `${val(display.resolution)}${display.external ? `, external ${[display.externalSize, display.externalConnection].filter(Boolean).map(val).join(" ") || "monitor"}` : ""}`
-        : "—"],
+      ...displayRows(r.display, display),
       ["Pending updates", val(os.pendingUpdates)],
       [os.lastUpdateKind === "installed" ? "Last update installed" : "Last update check", val(os.lastUpdateCheck)],
     ]],
