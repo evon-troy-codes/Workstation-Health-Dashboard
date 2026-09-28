@@ -149,6 +149,9 @@ jobs:
           fi
           sudo apt-get remove -y workstation-scanner
           test ! -e /etc/apparmor.d/workstation-scanner
+          # No broken launcher left behind: postrm must remove the
+          # update-alternatives entry, not just try to.
+          test ! -e /usr/bin/workstation-scanner && test ! -L /usr/bin/workstation-scanner
 
       - name: Keep the installer
         if: github.event_name != 'pull_request'

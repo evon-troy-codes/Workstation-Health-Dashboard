@@ -18,6 +18,9 @@ test("reportFailure", async (t) => {
     assert.equal(reportFailure({ reason: "unreachable" }), "Report failed: couldn't reach the server");
     assert.equal(reportFailure({ reason: "redirected" }), "Report failed: endpoint redirected, not sent");
     assert.equal(reportFailure({ reason: "http", status: 503 }), "Report failed (HTTP 503)");
+    // The mailer's own reason: Resend refused this address.
+    assert.equal(reportFailure({ reason: "http", status: 502, error: "send-failed" }),
+      "Report not sent: the mail service can't deliver to that address yet");
     assert.equal(reportFailure({ reason: "no-scan" }), "Report failed: no scan to send yet");
     assert.equal(reportFailure({ reason: "invalid-email" }), "Report not sent: enter a valid email address");
   });

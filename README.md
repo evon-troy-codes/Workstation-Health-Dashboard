@@ -152,7 +152,7 @@ the same.
 | Area                                                  | Source                                        |
 | ----------------------------------------------------- | --------------------------------------------- |
 | CPU, RAM + pressure, disk, OS, power, uptime          | `systeminformation` + Node `os`               |
-| Displays: resolution, refresh rate, external monitors | `systeminformation` (fetched after first paint) |
+| Displays: each monitor's resolution and refresh rate  | GNOME's display service (Mutter) on GNOME/Wayland, else `systeminformation` (fetched after first paint) |
 | Antivirus                                             | Windows Security Center / macOS app bundles / Linux install markers + process check |
 | VPN                                                   | active tunnel-interface scan                  |
 | DNS                                                   | Node `dns`, or `resolvectl` behind systemd-resolved |

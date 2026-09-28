@@ -291,3 +291,18 @@ test("requestExplanation", async (t) => {
     assert.equal((await requestExplanation("https://127.0.0.1:9/explain", {}, fetch)).reason, "unreachable");
   });
 });
+
+test("sendReport passes the report mailer's reason through", async (t) => {
+  await t.test("reads { error } from a JSON refusal", async () => {
+    const fetch = fakeFetch(() => new Response(JSON.stringify({ ok: false, error: "send-failed", status: 403 }), { status: 502 }));
+    const res = await sendReport("https://mailer.example/", { email: "a@b.co", report: {} }, fetch);
+    assert.deepEqual(res, { ok: false, reason: "http", status: 502, error: "send-failed" });
+  });
+
+  await t.test("leaves it out when the body isn't JSON or has no error", async () => {
+    for (const body of ["<html>Bad gateway</html>", JSON.stringify({ ok: false }), null]) {
+      const fetch = fakeFetch(() => new Response(body, { status: 502 }));
+      assert.deepEqual(await sendReport("https://mailer.example/", {}, fetch), { ok: false, reason: "http", status: 502 });
+    }
+  });
+});

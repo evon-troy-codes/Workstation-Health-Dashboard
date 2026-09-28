@@ -59,7 +59,15 @@ function stubFetch(respond, { stall = false, latency = () => LATENCY_MS } = {}) 
     const u = new URL(url);
     const size = u.pathname === "/__up" ? init.body.size : Number(u.searchParams.get("bytes"));
     calls.push({ path: u.pathname, size });
-    await new Promise((r) => setTimeout(r, latency(u.pathname, size)));
+    // Honours an abort as a real fetch does, so a request that outlasts the
+    // 20 s timeout fails here too instead of quietly completing.
+    await new Promise((resolve, reject) => {
+      const timer = setTimeout(resolve, latency(u.pathname, size));
+      if (init.signal) {
+        if (init.signal.aborted) { clearTimeout(timer); return reject(init.signal.reason); }
+        init.signal.addEventListener("abort", () => { clearTimeout(timer); reject(init.signal.reason); }, { once: true });
+      }
+    });
     const status = respond(u.pathname, size);
     let body = null;
     if (status === 200 && u.pathname === "/__down") {
@@ -279,12 +287,15 @@ test("measureUpload", async (t) => {
     }
   });
 
-  await t.test("steps 2 MB -> 1 MB on a throttle and counts only accepted chunks", async (t) => {
+  await t.test("grows to 2 MB, and on a throttle steps back to 1 MB and stays", async (t) => {
     useFakeClock(t);
     const f = stubFetch((_p, size) => (size > 1_000_000 ? 429 : 200));
     try {
       const { value: mbps } = await settle(t, measureUpload(null, noSignal(), 800));
-      assert.deepEqual(sizesSeen(f.calls, "/__up"), [2_000_000, 1_000_000]);
+      // Fast replies grow each stream 250 KB → 1 MB → 2 MB; 2 MB is refused.
+      assert.deepEqual(sizesSeen(f.calls, "/__up"), [250_000, 1_000_000, 2_000_000]);
+      // After the throttle, no stream grows back into the refused size.
+      assert.equal(countAt(f.calls, "/__up", 2_000_000), 3);
       assert.ok(mbps > 0);
     } finally {
       f.restore();
@@ -313,36 +324,74 @@ test("measureUpload", async (t) => {
 
   await t.test("starts no upload past its data cap, and measures the chunks it sent", async (t) => {
     useFakeClock(t);
-    // A 1 Gbps uplink shared by three streams: a 2 MB chunk takes 48 ms. With
-    // a 10 MB cap: one round lands at 48 ms (6 MB); in the second, at 96 ms,
-    // the first stream to finish sees 8 MB and starts one more chunk, and the
-    // other two see the cap and stop. Seven uploads in all, not hundreds.
+    // A 1 Gbps uplink shared by three streams (a 2 MB chunk takes 48 ms) and a
+    // 10 MB cap. Each stream grows from 250 KB to 2 MB, and no chunk starts
+    // past the cap: what's sent is at most the cap plus one 2 MB chunk per
+    // stream in flight, a dozen uploads rather than hundreds.
     const f = stubFetch(() => 200, { latency: (_p, size) => (size * 8) / (1_000_000_000 / 3) * 1000 });
     try {
       const { value: mbps, elapsed } = await settle(t, measureUpload(null, noSignal(), 10_000, 10_000_000));
-      assert.equal(f.calls.length, 7);
+      const sent = f.calls.reduce((sum, c) => sum + c.size, 0);
+      assert.ok(sent <= 10_000_000 + 3 * 2_000_000, `${sent} bytes sent under a 10 MB cap`);
+      assert.ok(f.calls.length < 20, `${f.calls.length} uploads`);
       assert.ok(elapsed < 200, `phase ran ${elapsed} ms of a 10 s window`);
-      // 14 MB by 144 ms is 778 Mbps. The stub keeps a lone last chunk at a
-      // third of the link, where a real one would get all of it, so this
-      // reads low; the point is the cap, checked above.
-      assert.ok(mbps > 700 && mbps <= 1000, `measured ${mbps.toFixed(1)} Mbps on a 1 Gbps link`);
+      assert.ok(mbps > 900 && mbps <= 1000, `measured ${mbps.toFixed(1)} Mbps on a 1 Gbps link`);
     } finally {
       f.restore();
     }
   });
 
-  await t.test("steps down to 250 KB and keeps retrying there when every upload is refused", async (t) => {
+  await t.test("doesn't count connection setup as upload time when the data cap ends the phase early", async (t) => {
+    useFakeClock(t);
+    // The download is timed from its first byte because a capped phase is
+    // short, and 100–200 ms of connecting then reads as a slow link. The
+    // upload's cap makes its phase just as short: at 1 Gbps the default
+    // 100 MB is sent in about 0.8 s. Each stream's first request here waits
+    // 150 ms for setup before sending. With no setup this stub reads about
+    // 924 Mbps (its lone-last-chunk effect, see above); the setup must not
+    // take it much lower.
+    let calls = 0;
+    const f = stubFetch(() => 200, {
+      latency: (_p, size) => (size * 8) / (1_000_000_000 / 3) * 1000 + (++calls <= 3 ? 150 : 0),
+    });
+    try {
+      const { value: mbps } = await settle(t, measureUpload(null, noSignal(), 10_000));
+      assert.ok(mbps > 900 && mbps <= 1000, `measured ${mbps.toFixed(1)} Mbps on a 1 Gbps uplink`);
+    } finally {
+      f.restore();
+    }
+  });
+
+  await t.test("keeps retrying at 250 KB, once a second, when every upload is refused", async (t) => {
     useFakeClock(t);
     const f = stubFetch(() => 429);
     try {
-      // Each stream reaches 250 KB at 520 ms and retries once a second, at
-      // 1530 ms; the next wait is cut off by the 2500 ms deadline.
+      // Upload starts at 250 KB, the smallest size, so a refusal there waits
+      // a second: each stream asks at 0, 1010 and 2020 ms of a 2.5 s window.
       const { value: mbps } = await settle(t, measureUpload(null, noSignal(), 2500));
-      assert.deepEqual(sizesSeen(f.calls, "/__up"), [2_000_000, 1_000_000, 250_000]);
-      assert.equal(countAt(f.calls, "/__up", 250_000), 2 * 3);
+      assert.deepEqual(sizesSeen(f.calls, "/__up"), [250_000]);
+      assert.equal(countAt(f.calls, "/__up", 250_000), 3 * 3);
       assert.equal(mbps, null);
     } finally {
       f.restore();
+    }
+  });
+
+  await t.test("measures a weak uplink instead of timing out (1 and 2 Mbps)", async (t) => {
+    useFakeClock(t);
+    // Starting at 2 MB, a chunk on a 2 Mbps uplink (a third of it per stream)
+    // took 24 s, past the 20 s request timeout: every stream gave up and the
+    // result was "—". Starting at 250 KB, each chunk takes about 3 s.
+    for (const LINK_MBPS of [1, 2]) {
+      const perStreamBps = (LINK_MBPS * 1_000_000) / 3;
+      const f = stubFetch(() => 200, { latency: (_p, size) => (size * 8) / perStreamBps * 1000 });
+      try {
+        const { value: mbps } = await settle(t, measureUpload(null, noSignal(), 10_000));
+        assert.ok(mbps != null && Math.abs(mbps - LINK_MBPS) / LINK_MBPS < 0.05,
+          `measured ${mbps} Mbps on a ${LINK_MBPS} Mbps uplink`);
+      } finally {
+        f.restore();
+      }
     }
   });
 });
