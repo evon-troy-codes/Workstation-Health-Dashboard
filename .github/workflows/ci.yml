@@ -65,6 +65,11 @@ jobs:
 
       - run: npm ci
 
+      # The report mailer's tests run with the rest and import its own
+      # dependencies (the Anthropic SDK for /explain).
+      - name: Install the report mailer's dependencies
+        run: npm ci --prefix server/report-mailer
+
       - name: Unit tests
         run: npm test
 

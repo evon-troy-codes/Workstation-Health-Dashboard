@@ -7,6 +7,7 @@ import { Icon, Spinner } from "./icons.jsx";
 import { Toast } from "./toast.jsx";
 import * as speedtest from "./speedtest.js";
 import { ReportDialog } from "./report-dialog.jsx";
+import { ExplainDialog } from "./explain-dialog.jsx";
 
 const {
   useState, useEffect, useRef, useCallback, useContext, createContext,
@@ -150,6 +151,20 @@ function HelperApp() {
     if (reportButton.current) reportButton.current.focus();
   }, []);
   const sendReport = useCallback((email) => window.whd.sendReport(facts, email), [facts]);
+
+  // "Explain my results": shown only in builds with a report endpoint, since
+  // the AI assessment runs on the same Worker.
+  const [explainOpen, setExplainOpen] = useState(false);
+  const explainButton = useRef(null);
+  useEffect(() => {
+    window.whd.reportEnabled().then(setReportEnabled, () => setReportEnabled(false));
+  }, []);
+  const closeExplain = useCallback(() => {
+    setExplainOpen(false);
+    if (explainButton.current) explainButton.current.focus();
+  }, []);
+  const explainPreview = useCallback(() => window.whd.explainPreview(facts), [facts]);
+  const explain = useCallback(() => window.whd.explain(facts), [facts]);
   const onSent = useCallback((email) => {
     closeReport();
     toast(`Report emailed to ${email}`);
@@ -170,10 +185,15 @@ function HelperApp() {
             <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Data source</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
               Collected locally via native OS APIs. Nothing leaves this machine
-              unless you email a report.
+              unless you email a report or ask for an AI explanation.
             </div>
           </div>
           <div className="foot-actions">
+            {reportEnabled && (
+              <button ref={explainButton} className="foot-btn" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
+                <Icon name="comment" size={12} /> Explain my results
+              </button>
+            )}
             <button ref={reportButton} className="foot-btn" onClick={openReport} disabled={dialogOpen}>
               <Icon name="envelope" size={12} /> Send report
             </button>
@@ -187,6 +207,9 @@ function HelperApp() {
       </div>
       {dialogOpen && (
         <ReportDialog enabled={reportEnabled} onClose={closeReport} onSend={sendReport} onSent={onSent} />
+      )}
+      {explainOpen && (
+        <ExplainDialog getPreview={explainPreview} onExplain={explain} onClose={closeExplain} />
       )}
     </div>
   );

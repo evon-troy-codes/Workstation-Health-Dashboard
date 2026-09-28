@@ -122,4 +122,92 @@ async function sendReport(endpoint, payload, fetchImpl = fetch) {
   }
 }
 
-module.exports = { sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail };
+// ---- AI assessment ("Explain my results") ---------------------------------
+//
+// The report mailer's /explain asks Claude to explain a scan. What leaves the
+// machine is buildAiScan's copy: an allow-list of readings, with nothing that
+// identifies the machine or the person (no hostname, user, MAC, IP, gateway,
+// DNS servers, Wi-Fi name, audio or monitor names). A field added to the
+// report later stays out until it is added here. The Worker filters again.
+
+const AI_TIMEOUT_MS = 60000;
+
+function buildAiScan(report) {
+  const r = report || {};
+  const o = (v) => (v && typeof v === "object" ? v : {});
+  const cpu = o(r.cpu), ram = o(r.ram), disk = o(r.disk), os = o(r.os), net = o(r.network);
+  const bw = o(r.bandwidth), power = o(r.power), apps = o(r.backgroundApps), display = o(r.display);
+  return {
+    machineType: r.machineType,
+    uptime: r.uptime,
+    os: { name: os.name, version: os.version, pendingUpdates: os.pendingUpdates,
+      lastUpdateCheck: os.lastUpdateCheck, lastUpdateKind: os.lastUpdateKind },
+    cpu: { model: cpu.model, cores: cpu.cores, threads: cpu.threads, ghz: cpu.ghz },
+    ram: { totalGB: ram.totalGB, freeGB: ram.freeGB, pressure: ram.pressure, type: ram.type },
+    disk: { totalGB: disk.totalGB, freeGB: disk.freeGB, usedPercent: disk.usedPercent, ssd: disk.ssd },
+    display: { monitors: (Array.isArray(display.monitors) ? display.monitors : []).map((m) => ({
+      builtin: o(m).builtin, main: o(m).main, resolution: o(m).resolution, refreshRate: o(m).refreshRate })) },
+    network: { type: net.type, isWired: net.isWired, isVirtual: net.isVirtual, linkSpeed: net.linkSpeed },
+    vpn: { detected: o(r.vpn).detected },
+    bandwidth: { downMbps: bw.downMbps, upMbps: bw.upMbps, ping: bw.ping, jitter: bw.jitter,
+      partial: bw.partial, failed: bw.failed },
+    antivirus: { products: (Array.isArray(o(r.antivirus).products) ? r.antivirus.products : []).map((p) => ({
+      name: o(p).name, running: o(p).running, definitionsAge: o(p).definitionsAge })) },
+    power: { hasBattery: power.hasBattery, batteryLevel: power.batteryLevel, onBattery: power.onBattery },
+    audio: { headsetClass: o(r.audio).headsetClass },
+    backgroundApps: { runningApps: Array.isArray(apps.runningApps) ? apps.runningApps : [],
+      browserExtensions: apps.browserExtensions },
+  };
+}
+
+// The Worker's /explain, next to the report endpoint ("…/" → "…/explain").
+function explainEndpoint(reportUrl) {
+  if (!reportUrl) return "";
+  try {
+    return new URL("explain", reportUrl.endsWith("/") ? reportUrl : `${reportUrl}/`).href;
+  } catch (_) {
+    return "";
+  }
+}
+
+// POSTs { scan } to /explain. Same rules as sendReport: https only, no
+// redirects, a time limit. Resolves { ok: true, summary, findings, model } or
+// { ok: false, reason, status?, error? }.
+async function requestExplanation(endpoint, scan, fetchImpl = fetch) {
+  if (!endpoint) return { ok: false, reason: "no-endpoint" };
+  if (!/^https:\/\//i.test(endpoint)) {
+    return { ok: false, reason: "insecure-url", error: "the report URL must be an https:// URL" };
+  }
+  try {
+    const res = await fetchImpl(endpoint, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ scan }),
+      signal: AbortSignal.timeout(AI_TIMEOUT_MS),
+      redirect: "error",
+    });
+    let body = null;
+    try {
+      body = await res.json();
+    } catch (_) {
+      /* not JSON */
+    }
+    if (res.ok && body && body.ok && typeof body.summary === "string") {
+      return {
+        ok: true,
+        summary: body.summary,
+        findings: Array.isArray(body.findings) ? body.findings : [],
+        model: typeof body.model === "string" ? body.model : null,
+      };
+    }
+    const error = body && typeof body.error === "string" ? body.error : undefined;
+    return error ? { ok: false, reason: "http", status: res.status, error } : { ok: false, reason: "http", status: res.status };
+  } catch (err) {
+    return { ok: false, reason: classifyReportError(err), error: errorDetail(err) };
+  }
+}
+
+module.exports = {
+  sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail,
+  buildAiScan, explainEndpoint, requestExplanation,
+};

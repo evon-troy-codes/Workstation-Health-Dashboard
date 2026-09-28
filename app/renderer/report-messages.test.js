@@ -50,3 +50,21 @@ test("isEmail", async (t) => {
     }
   });
 });
+
+test("explainFailure", async (t) => {
+  const { explainFailure } = await load();
+
+  await t.test("names each cause", () => {
+    assert.equal(explainFailure({ reason: "no-endpoint" }), "AI explanations aren't set up in this build.");
+    assert.equal(explainFailure({ reason: "timeout" }), "The AI took too long to answer. Try again in a moment.");
+    assert.equal(explainFailure({ reason: "unreachable" }), "Couldn't reach the AI service. Check the connection and try again.");
+    assert.equal(explainFailure({ reason: "http", status: 500, error: "not-configured" }), "The AI service isn't set up yet.");
+    assert.equal(explainFailure({ reason: "http", status: 429, error: "rate-limited" }), "The AI service is busy. Try again in a minute.");
+    assert.equal(explainFailure({ reason: "http", status: 502, error: "ai-refused" }), "The AI declined to assess this scan.");
+  });
+
+  await t.test("falls back to a plain message", () => {
+    assert.equal(explainFailure({ reason: "http", status: 502, error: "something-new" }), "Couldn't get an explanation. Try again in a moment.");
+    assert.equal(explainFailure(undefined), "Couldn't get an explanation. Try again in a moment.");
+  });
+});

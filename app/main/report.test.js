@@ -3,7 +3,10 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
-const { sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail } = require("./report");
+const {
+  sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail,
+  buildAiScan, explainEndpoint, requestExplanation,
+} = require("./report");
 
 // A fetch stand-in that records its calls and answers with `respond()`.
 function fakeFetch(respond) {
@@ -194,6 +197,99 @@ test("classifyReportError reads undici's connect timeout as a timeout", () => {
   });
   assert.equal(classifyReportError(err), "timeout");
   assert.equal(classifyReportError(causedBy("connect ECONNREFUSED 127.0.0.1:9")), "unreachable");
+});
+
+// A report as main builds it, with every identifying field the app collects.
+const fullReport = {
+  hostname: "EVONS-LAPTOP", user: "evon", uptime: "3 days, 2 hours", appVersion: "1.2.0",
+  machineType: "Dell Inc. Dell Pro 14 Plus PB14250",
+  cpu: { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8, perfCores: 8, effCores: 0, ghz: 4.7 },
+  ram: { totalGB: 16, freeGB: 1.2, type: "LPDDR5", pressure: "High" },
+  disk: { totalGB: 262, freeGB: 12, usedPercent: 95, ssd: true },
+  display: { count: 1, monitors: [{ name: "Evon's monitor", builtin: false, main: true, resolution: "5120 × 1440",
+    refreshRate: "120 Hz", connection: "DP-7", size: null }] },
+  os: { name: "Debian GNU/Linux", version: "13", build: "", pendingUpdates: 2, lastUpdateCheck: "41 min ago", lastUpdateKind: "checked" },
+  network: { interface: "wlp0s20f3", type: "Wireless", linkSpeed: "Unknown", mtu: 1500, mac: "aa:bb:cc:dd:ee:ff",
+    ipv4: "192.168.1.138", ipv6Disabled: false, gateway: "192.168.1.1", dns: ["192.168.1.1"], ssid: "Evon's Wi-Fi",
+    isWired: false, isVirtual: false },
+  bandwidth: { downMbps: 607, upMbps: 37, ping: 46, jitter: 51.7, measuredAt: 1790000000000 },
+  vpn: { detected: true, name: "Evon's Corp VPN" },
+  antivirus: { products: [{ name: "ClamAV", version: null, running: true, updated: null, definitionsAge: "2 hours" }] },
+  backgroundApps: { browserExtensions: 6, runningApps: ["Zoom", "Chrome"] },
+  power: { hasBattery: true, onBattery: false, batteryLevel: 80, plugged: true },
+  audio: { output: "Evon's AirPods", input: "Evon's AirPods", isWired: false, headsetConnected: true, headsetClass: "Bluetooth" },
+};
+
+test("buildAiScan", async (t) => {
+  await t.test("leaves out everything that identifies the machine or the person", () => {
+    const sent = JSON.stringify(buildAiScan(fullReport));
+    for (const secret of ["EVONS-LAPTOP", "evon", "Evon", "aa:bb:cc", "192.168.1", "wlp0s20f3", "DP-7", "1790000000000"]) {
+      assert.ok(!sent.includes(secret), `the AI scan carries ${secret}`);
+    }
+  });
+
+  await t.test("keeps the readings an assessment needs", () => {
+    const s = buildAiScan(fullReport);
+    assert.equal(s.cpu.model, "Intel Core Ultra 5 236V");
+    assert.equal(s.disk.usedPercent, 95);
+    assert.equal(s.ram.pressure, "High");
+    assert.equal(s.bandwidth.jitter, 51.7);
+    assert.deepEqual(s.display.monitors, [{ builtin: false, main: true, resolution: "5120 × 1440", refreshRate: "120 Hz" }]);
+    assert.deepEqual(s.vpn, { detected: true });
+    assert.deepEqual(s.audio, { headsetClass: "Bluetooth" });
+    assert.deepEqual(s.antivirus.products, [{ name: "ClamAV", running: true, definitionsAge: "2 hours" }]);
+  });
+
+  await t.test("copes with a report missing whole sections", () => {
+    const s = buildAiScan({ hostname: "x" });
+    assert.deepEqual(s.display.monitors, []);
+    assert.deepEqual(s.antivirus.products, []);
+    assert.deepEqual(s.backgroundApps.runningApps, []);
+    assert.doesNotThrow(() => buildAiScan(null));
+  });
+});
+
+test("explainEndpoint", () => {
+  assert.equal(explainEndpoint("https://mailer.example.workers.dev/"), "https://mailer.example.workers.dev/explain");
+  assert.equal(explainEndpoint("https://mailer.example.workers.dev"), "https://mailer.example.workers.dev/explain");
+  assert.equal(explainEndpoint("https://example.com/reports/"), "https://example.com/reports/explain");
+  assert.equal(explainEndpoint(""), "");
+  assert.equal(explainEndpoint("not a url"), "");
+});
+
+test("requestExplanation", async (t) => {
+  const answer = { ok: true, summary: "Mostly fine.", findings: [{ severity: "high", title: "Disk", detail: "95%", fix: "Clean up" }], model: "claude-opus-5" };
+
+  await t.test("posts { scan } and returns the assessment", async () => {
+    const fetch = fakeFetch(() => new Response(JSON.stringify(answer), { status: 200 }));
+    const res = await requestExplanation("https://mailer.example/explain", { cpu: {} }, fetch);
+    assert.deepEqual(res, { ok: true, summary: "Mostly fine.", findings: answer.findings, model: "claude-opus-5" });
+    assert.deepEqual(JSON.parse(fetch.calls[0].init.body), { scan: { cpu: {} } });
+    assert.equal(fetch.calls[0].init.redirect, "error");
+  });
+
+  await t.test("refuses to send over http, and without an endpoint", async () => {
+    const fetch = fakeFetch(() => new Response("{}", { status: 200 }));
+    assert.equal((await requestExplanation("http://mailer.example/explain", {}, fetch)).reason, "insecure-url");
+    assert.deepEqual(await requestExplanation("", {}, fetch), { ok: false, reason: "no-endpoint" });
+    assert.equal(fetch.calls.length, 0);
+  });
+
+  await t.test("passes the Worker's reason through", async () => {
+    const fetch = fakeFetch(() => new Response(JSON.stringify({ ok: false, error: "ai-busy" }), { status: 503 }));
+    assert.deepEqual(await requestExplanation("https://mailer.example/explain", {}, fetch),
+      { ok: false, reason: "http", status: 503, error: "ai-busy" });
+  });
+
+  await t.test("treats a 200 without a summary as a failure", async () => {
+    const fetch = fakeFetch(() => new Response(JSON.stringify({ ok: true }), { status: 200 }));
+    assert.equal((await requestExplanation("https://mailer.example/explain", {}, fetch)).ok, false);
+  });
+
+  await t.test("reports an unreachable service", async () => {
+    const fetch = async () => { throw causedBy("connect ECONNREFUSED 127.0.0.1:9"); };
+    assert.equal((await requestExplanation("https://127.0.0.1:9/explain", {}, fetch)).reason, "unreachable");
+  });
 });
 
 test("sendReport passes the report mailer's reason through", async (t) => {

@@ -122,6 +122,13 @@ keeps working.
   `ALLOWED_DOMAINS`) are deliberate; keep them. The app finds the Worker
   through `workstationScanner.reportUrl` in `package.json`
   (`WHD_REPORT_URL` overrides).
+- **AI "Explain my results"** (prototype): the Worker's `POST /explain` asks
+  Claude (`AI_MODEL`, default `claude-opus-5`, with `fallbacks: "default"`)
+  for a summary and up to five findings in a fixed JSON schema. What leaves
+  the machine is `buildAiScan` in `app/main/report.js`, an allow-list with
+  nothing identifying; the Worker filters again (`sanitizeScan`). Opt-in per
+  click, the payload shown first, the answer labelled as AI. Keep all three.
+  The Anthropic key is a Worker secret, never in the app.
 - **No persistent PowerShell on Windows.** systeminformation's
   `si.powerShellStart()` (one shared session instead of a PowerShell per
   call) hung on every attempt on windows-latest (4 of 4, past 120 s), while

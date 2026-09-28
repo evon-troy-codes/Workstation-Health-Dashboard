@@ -17,6 +17,10 @@ FROM_ADDRESS = "Workstation Scanner <onboarding@resend.dev>"
 # Comma-separated recipient domains, e.g. "example.com,example.org". Empty
 # lets any address receive reports, relying on the rate limits alone.
 ALLOWED_DOMAINS = ""
+# POST /explain (the AI assessment): the Claude model and how hard it thinks.
+# The key is a secret: npx wrangler secret put ANTHROPIC_API_KEY
+AI_MODEL = "claude-opus-5"
+AI_EFFORT = "medium"
 
 # Five reports a minute per client IP, and per recipient address.
 [[ratelimits]]
