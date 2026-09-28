@@ -27,6 +27,11 @@ const CHUNK_LADDER = [25_000_000, 10_000_000, 5_000_000, 1_000_000];
 // Upload gets its own, smaller ladder: its chunks are sent whether or not
 // Cloudflare accepts them, so retrying a throttled 2 MB body just burns uplink.
 const UP_LADDER = [2_000_000, 1_000_000, 250_000];
+// Upload starts at the smallest size and grows while chunks come back fast.
+// Starting at 2 MB, a chunk on an uplink under ~2.4 Mbps (a third of it per
+// stream) outlasted the 20 s request timeout, every stream gave up, and the
+// test read "—" on exactly the weak links it is for.
+const UP_GROW_MS = 1000;
 const THROTTLE_BACKOFF_MS = 250;
 // Once the smallest size is refused too, nothing smaller is left to try, and
 // asking four times a second only feeds a limiter that counts bytes requested.
@@ -58,16 +63,24 @@ const discard = (res) => {
 // it chose. Stepping once per 429 skipped straight past the middle sizes. At
 // the smallest size a 429 just waits and retries until the window closes —
 // the same policy in both directions, so no stream gives up on a throttle.
-function chunkLadder(sizes) {
-  let rung = 0;
+function chunkLadder(sizes, startRung = 0) {
+  let rung = startRung;
+  let throttledOnce = false;
   return {
     get rung() { return rung; },
     size: (r) => sizes[r],
+    // One size up, if this stream's size is still current. Never after a
+    // throttle: growing back into the size Cloudflare just refused would
+    // only earn another 429.
+    grow(asked) {
+      if (!throttledOnce && rung === asked && rung > 0) rung--;
+    },
     // Steps down if this stream's size is still current, then waits: briefly
     // while there is a smaller size to try, longer once there is not. The wait
     // never runs past `deadline` (a performance.now() time), so a stream backing
     // off when its window closes stops then, not up to a second later.
     throttled(asked, signal, deadline = Infinity) {
+      throttledOnce = true;
       const floor = sizes.length - 1;
       if (rung === asked && rung < floor) rung++;
       const wait = asked === floor ? FLOOR_BACKOFF_MS : THROTTLE_BACKOFF_MS;
@@ -257,7 +270,7 @@ async function measureUpload(onProgress, signal, durationMs = 10000, capBytes = 
   const data = new Uint8Array(UP_LADDER[0]);
   for (let i = 0; i < data.length; i++) data[i] = i & 0xff;
   const blob = new Blob([data], { type: "application/octet-stream" });
-  const ladder = chunkLadder(UP_LADDER);
+  const ladder = chunkLadder(UP_LADDER, UP_LADDER.length - 1);
 
   const start = performance.now();
   const deadline = start + durationMs;
@@ -266,6 +279,13 @@ async function measureUpload(onProgress, signal, durationMs = 10000, capBytes = 
   // completes, and one still in flight at the deadline finishes after it, so
   // its bytes are measured against the time they really took, not the window.
   let lastDone = start;
+  // Timed from the first chunk to complete, like the download from its first
+  // byte: the capped phase can be under a second on a fast uplink, where
+  // 100–200 ms of connecting read as a slow link. Only chunks started after
+  // that moment count, since their whole transfer falls inside the timing.
+  let firstDoneAt = null;
+  let timedBytes = 0;
+  let lastTimedDone = null;
 
   const report = () => {
     if (!onProgress) return;
@@ -279,6 +299,7 @@ async function measureUpload(onProgress, signal, durationMs = 10000, capBytes = 
     while (performance.now() < deadline && !signal.aborted && totalBytes < capBytes) {
       const asked = ladder.rung;
       const size = ladder.size(asked);
+      const startedAt = performance.now();
       const res = await fetchWithTimeout(
         "https://speed.cloudflare.com/__up",
         { method: "POST", body: blob.slice(0, size, blob.type), mode: "cors", cache: "no-store" },
@@ -295,8 +316,16 @@ async function measureUpload(onProgress, signal, durationMs = 10000, capBytes = 
         continue;
       }
       if (!res.ok) break;
+      const now = performance.now();
       totalBytes += size;
-      lastDone = performance.now();
+      lastDone = now;
+      if (firstDoneAt == null) {
+        firstDoneAt = now;
+      } else if (startedAt >= firstDoneAt) {
+        timedBytes += size;
+        lastTimedDone = now;
+      }
+      if (now - startedAt < UP_GROW_MS) ladder.grow(asked);
       report();
     }
   }
@@ -306,6 +335,11 @@ async function measureUpload(onProgress, signal, durationMs = 10000, capBytes = 
   );
   await Promise.all(streams);
   if (totalBytes === 0) return null;
+  if (timedBytes > 0 && lastTimedDone > firstDoneAt) {
+    return (timedBytes * 8) / ((lastTimedDone - firstDoneAt) / 1000) / 1_000_000;
+  }
+  // Too few chunks to time from the first one (a very slow link): the whole
+  // phase, as before.
   const elapsedSec = (lastDone - start) / 1000;
   return elapsedSec > 0 ? (totalBytes * 8) / elapsedSec / 1_000_000 : null;
 }
