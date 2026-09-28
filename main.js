@@ -10,7 +10,10 @@ const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
-const { sendReport, buildReport, reportEndpoint, normalizeEmail } = require("./app/main/report");
+const {
+  sendReport, buildReport, reportEndpoint, normalizeEmail,
+  buildAiScan, explainEndpoint, requestExplanation,
+} = require("./app/main/report");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -144,6 +147,19 @@ if (!gotLock) {
       const to = normalizeEmail(email);
       if (!to) return { ok: false, reason: "invalid-email" };
       return sendReport(REPORT_ENDPOINT, { email: to, report: buildReport(lastFacts, lastDeferred, fromRenderer) });
+    });
+
+    // "Explain my results": the AI assessment. The preview returns exactly
+    // what would be sent, so the dialog can show it before anything leaves;
+    // explaining sends it to the report mailer's /explain.
+    handle("whd:explain-preview", (fromRenderer) => {
+      if (!lastFacts) return null;
+      return buildAiScan(buildReport(lastFacts, lastDeferred, fromRenderer));
+    });
+    handle("whd:explain", async (fromRenderer) => {
+      if (!lastFacts) return { ok: false, reason: "no-scan" };
+      const scan = buildAiScan(buildReport(lastFacts, lastDeferred, fromRenderer));
+      return requestExplanation(explainEndpoint(REPORT_ENDPOINT), scan);
     });
 
     createWindow();

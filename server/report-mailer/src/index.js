@@ -63,6 +63,8 @@ async function underLimit(env, key) {
   return success;
 }
 
+import { explainScan } from "./explain.js";
+
 async function handleRequest(request, env, fetchImpl = fetch) {
   if (request.method !== "POST") return json(405, { ok: false, error: "method-not-allowed" });
 
@@ -77,6 +79,20 @@ async function handleRequest(request, env, fetchImpl = fetch) {
   } catch (_) {
     return json(400, { ok: false, error: "bad-request" });
   }
+
+  // POST /explain: an AI assessment of a scan (explain.js). Same size limit,
+  // and its own rate-limit key, so explaining can't use up the email quota.
+  if (new URL(request.url).pathname === "/explain") {
+    const scan = body && body.scan;
+    if (!scan || typeof scan !== "object" || Array.isArray(scan)) return json(400, { ok: false, error: "invalid-scan" });
+    const ip = request.headers.get("CF-Connecting-IP") || "unknown";
+    if (!(await underLimit(env, `ai:${ip}`))) return json(429, { ok: false, error: "rate-limited" });
+    // The SDK gets the Worker's own fetch only in tests: handed the global
+    // fetch, it would call it detached, which the Workers runtime rejects.
+    const out = await explainScan(scan, env, fetchImpl === fetch ? undefined : fetchImpl);
+    return json(out.status, out.body);
+  }
+
   const email = normalizeEmail(body && body.email);
   if (!email) return json(400, { ok: false, error: "invalid-email" });
   const report = body.report;

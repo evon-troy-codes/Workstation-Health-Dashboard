@@ -228,3 +228,27 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 }
 .dialog-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .dialog-primary:disabled, .foot-btn:disabled { opacity: 0.6; cursor: default; }
+
+/* ---- "Explain my results" dialog (explain-dialog.jsx) ---- */
+.dialog-wide { max-width: 560px; max-height: calc(100vh - 32px); overflow-y: auto; }
+.ai-tag {
+  margin-left: auto; padding: 2px 8px; border-radius: 999px;
+  background: var(--accent-wash); color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+}
+.ai-preview { margin-top: 12px; font-size: 12px; color: var(--text-muted); }
+.ai-preview summary { cursor: pointer; font-weight: 600; color: var(--text-body); }
+.ai-preview pre {
+  margin: 8px 0 0; padding: 10px; max-height: 220px; overflow: auto; border-radius: 8px;
+  background: var(--surface-page); border: 1px solid var(--line-soft); color: var(--text-body); font-size: 11px;
+}
+.ai-asking { display: flex; align-items: center; gap: 8px; }
+.ai-summary { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--text-strong); }
+.ai-findings { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
+.ai-finding { padding: 10px 12px; border-radius: 8px; background: var(--surface-page); border: 1px solid var(--line-soft); }
+.ai-finding-head { display: flex; align-items: center; gap: 8px; }
+.ai-finding-title { font-size: 13px; font-weight: 700; color: var(--text-strong); }
+.ai-finding-detail, .ai-finding-fix { margin-top: 6px; font-size: 12px; line-height: 1.5; color: var(--text-body); }
+.ai-sev { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.ai-sev-high { background: rgba(239, 132, 118, 0.16); color: var(--danger); }
+.ai-sev-medium { background: var(--accent-wash); color: var(--accent); }
+.ai-sev-low, .ai-sev-ok { background: var(--surface-track); color: var(--text-muted); }
