@@ -22,6 +22,9 @@ export function reportFailure(res) {
     case "http":
       if (res.status === 403) return "Report not sent: that email domain isn't allowed";
       if (res.status === 429) return "Report not sent: too many reports, try again in a minute";
+      // The mail service refused this address. Until the mailer sends from a
+      // verified domain, that's every address but the account owner's.
+      if (res.error === "send-failed") return "Report not sent: the mail service can't deliver to that address yet";
       return `Report failed (HTTP ${res.status})`;
     case "no-scan":      return "Report failed: no scan to send yet";
     case "invalid-email": return "Report not sent: enter a valid email address";

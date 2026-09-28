@@ -41,6 +41,7 @@ const {
   summarizeMonitors,
   monitorsFromGraphics,
   parseMutterState,
+  withoutXwaylandModes,
   detectAudio,
   audioNames,
   parseWpctlInspect,
@@ -453,6 +454,75 @@ test("parseMutterState", async (t) => {
     for (const out of ["", null, "Error: GDBus.Error:org.freedesktop.DBus.Error.ServiceUnknown"]) {
       assert.deepEqual(parseMutterState(out), []);
     }
+  });
+});
+
+// Output shapes Mutter really produces that the fixture above doesn't carry.
+// Mutter builds mode ids as "%dx%d%s@%s%s": an "i" after the height for an
+// interlaced mode and "+vrr" after the rate for a variable-refresh one (both
+// strings are in this machine's libmutter-16, GNOME 48). And GVariant's
+// printer, which gdbus uses, switches to double quotes for a string holding an
+// apostrophe (checked with GLib.Variant.print_ on this machine).
+test("parseMutterState copes with every mode id and string form gdbus prints", async (t) => {
+  const panel = "(('eDP-1', 'LGD', '0x07a6', '0x00000000'), [('1920x1200@60.001', 1920, 1200, 60.00077819824219, 1.0, " +
+    "[1.0, 1.25], {'is-current': <true>, 'is-preferred': <true>})], {'is-builtin': <true>, 'display-name': <'Built-in display'>})";
+  const logical = (id) => `[(0, 0, 1.0, uint32 0, true, [${id}], @a{sv} {}), ` +
+    "(5120, 0, 1.25, 0, false, [('eDP-1', 'LGD', '0x07a6', '0x00000000')], {})]";
+
+  await t.test("keeps a monitor running a variable-refresh (+vrr) mode", () => {
+    const id = "('DP-8', 'SAM', 'LC49G95T', 'S1')";
+    const out = `(uint32 5, [(${id}, [` +
+      "('5120x1440@119.999', 5120, 1440, 119.99920654296875, 1.0, [1.0, 1.25], {'refresh-rate-mode': <'fixed'>}), " +
+      "('5120x1440@119.999+vrr', 5120, 1440, 119.99920654296875, 1.0, [1.0, 1.25], {'is-current': <true>, 'refresh-rate-mode': <'variable'>})], " +
+      `{'is-builtin': <false>, 'display-name': <'Samsung Electric Company 49"'>, 'min-refresh-rate': <60>}), ${panel}], ` +
+      `${logical(id)}, {'layout-mode': <uint32 1>})`;
+    const monitors = parseMutterState(out);
+    assert.deepEqual(monitors.map((m) => [m.connection, m.main, m.width, m.height, Math.round(m.refreshHz)]),
+      [["DP-8", true, 5120, 1440, 120], ["eDP-1", false, 1920, 1200, 60]]);
+  });
+
+  await t.test("keeps a monitor running an interlaced mode", () => {
+    const id = "('HDMI-1', 'SNY', 'TV', '')";
+    const out = `(uint32 5, [(${id}, [` +
+      "('1920x1080i@60.000', 1920, 1080, 60.0, 1.0, [1.0], {'is-current': <true>, 'is-interlaced': <true>})], " +
+      `{'is-builtin': <false>, 'display-name': <'Sony 40"'>}), ${panel}], ${logical(id)}, {})`;
+    const monitors = parseMutterState(out);
+    assert.deepEqual(monitors.map((m) => [m.connection, m.width, m.height]), [["HDMI-1", 1920, 1080], ["eDP-1", 1920, 1200]]);
+  });
+
+  await t.test("reads a display name and product that gdbus prints in double quotes", () => {
+    const id = "('DP-1', 'ACM', \"O'Neil 27\", 'S')";
+    const out = `(uint32 5, [(${id}, [('2560x1440@59.951', 2560, 1440, 59.95, 1.0, [1.0], {'is-current': <true>})], ` +
+      `{'is-builtin': <false>, 'display-name': <"Sam's monitor">}), ${panel}], ${logical(id)}, {})`;
+    const monitors = parseMutterState(out);
+    assert.deepEqual(monitors.map((m) => [m.name, m.connection, m.main]),
+      [["Sam's monitor", "DP-1", true], ["Built-in display", "eDP-1", false]]);
+  });
+
+  await t.test("reads a double-quoted display name when the product is plain", () => {
+    const id = "('DP-1', 'ACM', 'X1', 'S')";
+    const out = `(uint32 5, [(${id}, [('2560x1440@59.951', 2560, 1440, 59.95, 1.0, [1.0], {'is-current': <true>})], ` +
+      `{'is-builtin': <false>, 'display-name': <"Sam's monitor">}), ${panel}], ${logical(id)}, {})`;
+    assert.equal(parseMutterState(out)[0].name, "Sam's monitor");
+  });
+});
+
+test("withoutXwaylandModes", async (t) => {
+  // si.graphics() on the Debian laptop with GNOME's display service
+  // unreachable: XWayland's scaled view of a 5120 × 1440 120 Hz monitor.
+  const scaled = [{ name: "External display (DP-8)", connection: "DP-8", builtin: false, main: false,
+    width: 10240, height: 2880, refreshHz: 23, sizeInches: null }];
+
+  await t.test("drops modes in a Linux Wayland session, keeping name and role", () => {
+    const [m] = withoutXwaylandModes(scaled, { WAYLAND_DISPLAY: "wayland-0" }, "linux");
+    assert.deepEqual([m.name, m.builtin, m.width, m.height, m.refreshHz], ["External display (DP-8)", false, null, null, null]);
+    assert.equal(summarizeMonitors([m]).monitors[0].resolution, "Unknown");
+  });
+
+  await t.test("leaves X11 sessions, Windows and macOS alone", () => {
+    assert.deepEqual(withoutXwaylandModes(scaled, {}, "linux"), scaled);
+    assert.deepEqual(withoutXwaylandModes(scaled, { WAYLAND_DISPLAY: "wayland-0" }, "win32"), scaled);
+    assert.deepEqual(withoutXwaylandModes(scaled, { WAYLAND_DISPLAY: "wayland-0" }, "darwin"), scaled);
   });
 });
 

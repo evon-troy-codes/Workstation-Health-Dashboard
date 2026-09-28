@@ -106,9 +106,17 @@ async function sendReport(endpoint, payload, fetchImpl = fetch) {
       // body and all, to a plain http:// URL, undoing the check above.
       redirect: "error",
     });
-    return res.ok
-      ? { ok: true, status: res.status }
-      : { ok: false, reason: "http", status: res.status };
+    if (res.ok) return { ok: true, status: res.status };
+    // The report mailer says why in its JSON body ({ error: "send-failed" }
+    // when the mail service refused the address). Other endpoints may not.
+    let error;
+    try {
+      const body = await res.json();
+      if (body && typeof body.error === "string") error = body.error;
+    } catch (_) {
+      /* not JSON */
+    }
+    return error ? { ok: false, reason: "http", status: res.status, error } : { ok: false, reason: "http", status: res.status };
   } catch (err) {
     return { ok: false, reason: classifyReportError(err), error: errorDetail(err) };
   }

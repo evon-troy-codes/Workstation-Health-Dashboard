@@ -625,7 +625,17 @@ async function detectDeferred() {
 async function detectDisplays() {
   const fromMutter = await mutterMonitors().catch(() => null);
   if (fromMutter && fromMutter.length) return fromMutter;
-  return monitorsFromGraphics(await si.graphics().catch(() => ({})));
+  return withoutXwaylandModes(monitorsFromGraphics(await si.graphics().catch(() => ({}))));
+}
+
+// In a Linux Wayland session, systeminformation's modes come from XWayland,
+// which scales them (a 5120 × 1440 120 Hz monitor read 10240 × 2880 at
+// 23.69 Hz). Without Mutter to ask (KDE, or GNOME's service unreachable),
+// each monitor keeps its name and role, and its resolution and refresh rate
+// read "Unknown" rather than a number that may be wrong.
+function withoutXwaylandModes(monitors, env = process.env, platform = process.platform) {
+  if (platform !== "linux" || !env.WAYLAND_DISPLAY) return monitors;
+  return monitors.map((m) => ({ ...m, width: null, height: null, refreshHz: null }));
 }
 
 // Mutter's DisplayConfig over D-Bus, on a GNOME session. Resolves null
@@ -652,17 +662,28 @@ async function mutterMonitors() {
 // is never kept.
 function parseMutterState(stdout) {
   const text = String(stdout || "");
-  const header = /\(\('((?:[^'\\]|\\.)*)', '((?:[^'\\]|\\.)*)', '((?:[^'\\]|\\.)*)', '(?:[^'\\]|\\.)*'\), \[/g;
+  // A GVariant string as gdbus prints it: single-quoted, or double-quoted
+  // when it contains a ' ("Sam's monitor"), with backslash escapes either way.
+  const STR = String.raw`(?:'(?:[^'\\]|\\.)*'|"(?:[^"\\]|\\.)*")`;
+  const unquote = (v) => v.slice(1, -1).replace(/\\(.)/g, "$1");
+  const header = new RegExp(String.raw`\(\((${STR}), (${STR}), (${STR}), ${STR}\), \[`, "g");
   const starts = [];
-  for (let m; (m = header.exec(text));) starts.push({ at: m.index, connector: m[1], vendor: m[2], product: m[3] });
+  for (let m; (m = header.exec(text));) {
+    starts.push({ at: m.index, connector: unquote(m[1]), vendor: unquote(m[2]), product: unquote(m[3]) });
+  }
   // Which connector the primary logical monitor shows.
-  const primary = (/\(-?\d+, -?\d+, [\d.]+, (?:uint32 )?\d+, true, \[\('((?:[^'\\]|\\.)*)'/.exec(text) || [])[1];
-  const unescape = (v) => v.replace(/\\(.)/g, "$1");
+  const primaryMatch = new RegExp(String.raw`\(-?\d+, -?\d+, [\d.]+, (?:uint32 )?\d+, true, \[\((${STR})`).exec(text);
+  const primary = primaryMatch ? unquote(primaryMatch[1]) : null;
+  // The mode id's own form varies (interlaced "1920x1080i@60.000",
+  // variable refresh "5120x1440@119.999+vrr"), so any string is taken, and
+  // the numbers after it are what's read.
+  const mode = new RegExp(String.raw`\(${STR}, (\d+), (\d+), ([\d.]+), [\d.]+, \[[^\]]*\], \{([^}]*)\}\)`, "g");
+  const nameRe = new RegExp(String.raw`'display-name': <(${STR})>`);
   const monitors = [];
   starts.forEach((mon, i) => {
     const seg = text.slice(mon.at, i + 1 < starts.length ? starts[i + 1].at : text.length);
     let current = null;
-    const mode = /\('\d+x\d+@[\d.]+', (\d+), (\d+), ([\d.]+), [\d.]+, \[[^\]]*\], \{([^}]*)\}\)/g;
+    mode.lastIndex = 0;
     for (let m; (m = mode.exec(seg));) {
       if (/'is-current': <true>/.test(m[4])) {
         current = { width: Number(m[1]), height: Number(m[2]), refreshHz: Number(m[3]) };
@@ -671,13 +692,13 @@ function parseMutterState(stdout) {
     }
     if (!current) return;
     const builtinMatch = /'is-builtin': <(true|false)>/.exec(seg);
-    const nameMatch = /'display-name': <'((?:[^'\\]|\\.)*)'>/.exec(seg);
+    const nameMatch = nameRe.exec(seg);
     const builtin = builtinMatch ? builtinMatch[1] === "true" : /^(eDP|LVDS|DSI)/i.test(mon.connector);
     monitors.push({
-      name: nameMatch ? unescape(nameMatch[1]) : builtin ? "Built-in display" : unescape(mon.connector),
-      connection: unescape(mon.connector),
+      name: nameMatch ? unquote(nameMatch[1]) : builtin ? "Built-in display" : mon.connector,
+      connection: mon.connector,
       builtin,
-      main: unescape(mon.connector) === (primary && unescape(primary)),
+      main: mon.connector === primary,
       ...current,
       sizeInches: null,
     });
@@ -1170,6 +1191,7 @@ module.exports = {
   summarizeMonitors,
   monitorsFromGraphics,
   parseMutterState,
+  withoutXwaylandModes,
   parseResolvectlDns,
   detectAudio,
   audioNames,

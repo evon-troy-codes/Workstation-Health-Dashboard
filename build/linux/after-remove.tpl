@@ -3,9 +3,12 @@
 # the ${...} values). electron-builder's own after-remove.tpl, plus removing
 # the AppArmor profile after-install.tpl installed.
 
-# Delete the link to the binary
+# Delete the link to the binary. update-alternatives --remove takes the
+# registered alternative, the real binary under /opt, not the /usr/bin link:
+# given the link, it succeeded silently and left a broken /usr/bin entry
+# behind. electron-builder 26's own template has the same fix.
 if type update-alternatives >/dev/null 2>&1; then
-    update-alternatives --remove '${executable}' '/usr/bin/${executable}'
+    update-alternatives --remove '${executable}' '/opt/${sanitizedProductName}/${executable}'
 else
     rm -f '/usr/bin/${executable}'
 fi
