@@ -235,12 +235,6 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   margin-left: auto; padding: 2px 8px; border-radius: 999px;
   background: var(--accent-wash); color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
 }
-.ai-preview { margin-top: 12px; font-size: 12px; color: var(--text-muted); }
-.ai-preview summary { cursor: pointer; font-weight: 600; color: var(--text-body); }
-.ai-preview pre {
-  margin: 8px 0 0; padding: 10px; max-height: 220px; overflow: auto; border-radius: 8px;
-  background: var(--surface-page); border: 1px solid var(--line-soft); color: var(--text-body); font-size: 11px;
-}
 .ai-asking { display: flex; align-items: center; gap: 8px; }
 .ai-summary { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--text-strong); }
 .ai-findings { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
