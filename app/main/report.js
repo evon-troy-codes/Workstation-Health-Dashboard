@@ -142,7 +142,10 @@ function buildAiScan(report) {
     uptime: r.uptime,
     os: { name: os.name, version: os.version, pendingUpdates: os.pendingUpdates,
       lastUpdateCheck: os.lastUpdateCheck, lastUpdateKind: os.lastUpdateKind },
-    cpu: { model: cpu.model, cores: cpu.cores, threads: cpu.threads, ghz: cpu.ghz },
+    // The speed only with its kind (maximum or base clock), and none when
+    // neither is known, rather than the 0 that stands for that.
+    cpu: { model: cpu.model, cores: cpu.cores, threads: cpu.threads,
+      ghz: cpu.ghzKind ? cpu.ghz : null, ghzKind: cpu.ghzKind || null },
     ram: { totalGB: ram.totalGB, freeGB: ram.freeGB, pressure: ram.pressure, type: ram.type },
     disk: { totalGB: disk.totalGB, freeGB: disk.freeGB, usedPercent: disk.usedPercent, ssd: disk.ssd },
     display: { monitors: (Array.isArray(display.monitors) ? display.monitors : []).map((m) => ({

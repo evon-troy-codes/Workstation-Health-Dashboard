@@ -30,6 +30,7 @@ Rules:
 - Use only the readings in the scan. Never invent a number, a product or a problem it doesn't show.
 - A missing or null reading means it wasn't measured. Don't treat it as a problem, and don't guess its value.
 - Speeds are in Mbps, ping and jitter in milliseconds, sizes in GB.
+- cpu.ghz is the processor's maximum boost clock when cpu.ghzKind is "max", and its base clock when it is "base". Neither is the speed it runs at now.
 - If nothing needs attention, say so in the summary and return few or no findings.
 - Plain language, no jargon without a short explanation. Be calm and specific, never alarming.`;
 
@@ -75,7 +76,10 @@ function sanitizeScan(raw) {
     uptime: str(s.uptime),
     os: { name: str(os.name), version: str(os.version), pendingUpdates: num(os.pendingUpdates),
       lastUpdateCheck: str(os.lastUpdateCheck), lastUpdateKind: str(os.lastUpdateKind) },
-    cpu: { model: str(cpu.model), cores: num(cpu.cores), threads: num(cpu.threads), ghz: num(cpu.ghz) },
+    cpu: { model: str(cpu.model), cores: num(cpu.cores), threads: num(cpu.threads),
+      // 0 was the app's "not known"; say so as null, as the prompt expects.
+      ghz: num(cpu.ghz) > 0 ? num(cpu.ghz) : null,
+      ghzKind: ["max", "base"].includes(cpu.ghzKind) ? cpu.ghzKind : null },
     ram: { totalGB: num(ram.totalGB), freeGB: num(ram.freeGB), pressure: str(ram.pressure), type: str(ram.type) },
     disk: { totalGB: num(disk.totalGB), freeGB: num(disk.freeGB), usedPercent: num(disk.usedPercent), ssd: bool(disk.ssd) },
     displays: list(display.monitors, (m) => ({ builtin: bool(obj(m).builtin), main: bool(obj(m).main),
@@ -104,15 +108,28 @@ function shapeAnswer(parsed) {
   return { summary: cap(p.summary), findings };
 }
 
-// Ask Claude. Resolves { status, body } for the Worker to return.
+// Out of prepaid credit: the API's billing_error, or, as it has answered
+// before, a 400 whose message says the balance is too low.
+function isOutOfCredit(err) {
+  const type = err && err.error && err.error.error && err.error.error.type;
+  if (type === "billing_error") return true;
+  return err instanceof Anthropic.BadRequestError && /credit balance/i.test(String(err.message));
+}
+
+// Ask Claude. Resolves { status, body, billed } for the Worker to return.
+// billed is false when Claude never ran (no key, a refused or failed API
+// call, no connection), so the Worker can give the call back to the budget.
+// A timeout counts as billed: the request may have run after we gave up.
 async function explainScan(rawScan, env, fetchImpl) {
-  if (!env.ANTHROPIC_API_KEY) return { status: 500, body: { ok: false, error: "not-configured" } };
+  if (!env.ANTHROPIC_API_KEY) return { status: 500, body: { ok: false, error: "not-configured" }, billed: false };
   const scan = sanitizeScan(rawScan);
   const client = new Anthropic({
     apiKey: env.ANTHROPIC_API_KEY,
-    // One retry, and well inside the app's own 60 s wait.
-    maxRetries: 1,
-    timeout: 45_000,
+    // No retry, and one attempt well inside the app's own 60 s wait: the
+    // timeout is per attempt, so 45 s plus a retry could run to 90 s, long
+    // after the app gave up, and bill for an answer nobody sees.
+    maxRetries: 0,
+    timeout: 50_000,
     ...(fetchImpl ? { fetch: fetchImpl } : {}),
   });
   let response;
@@ -129,24 +146,27 @@ async function explainScan(rawScan, env, fetchImpl) {
       fallbacks: "default",
     });
   } catch (err) {
-    if (err instanceof Anthropic.RateLimitError) return { status: 503, body: { ok: false, error: "ai-busy" } };
-    if (err instanceof Anthropic.AuthenticationError) return { status: 500, body: { ok: false, error: "not-configured" } };
-    if (err instanceof Anthropic.APIConnectionError) return { status: 502, body: { ok: false, error: "ai-unreachable" } };
-    if (err instanceof Anthropic.APIError) return { status: 502, body: { ok: false, error: "ai-failed", status: err.status } };
+    const unbilled = (status, body) => ({ status, body, billed: false });
+    if (isOutOfCredit(err)) return unbilled(503, { ok: false, error: "ai-unavailable" });
+    if (err instanceof Anthropic.RateLimitError) return unbilled(503, { ok: false, error: "ai-busy" });
+    if (err instanceof Anthropic.AuthenticationError) return unbilled(500, { ok: false, error: "not-configured" });
+    if (err instanceof Anthropic.APIConnectionTimeoutError) return { status: 504, body: { ok: false, error: "ai-timeout" }, billed: true };
+    if (err instanceof Anthropic.APIConnectionError) return unbilled(502, { ok: false, error: "ai-unreachable" });
+    if (err instanceof Anthropic.APIError) return unbilled(502, { ok: false, error: "ai-failed", status: err.status });
     throw err;
   }
-  if (response.stop_reason === "refusal") return { status: 502, body: { ok: false, error: "ai-refused" } };
-  if (response.stop_reason === "max_tokens") return { status: 502, body: { ok: false, error: "ai-incomplete" } };
+  if (response.stop_reason === "refusal") return { status: 502, body: { ok: false, error: "ai-refused" }, billed: true };
+  if (response.stop_reason === "max_tokens") return { status: 502, body: { ok: false, error: "ai-incomplete" }, billed: true };
   const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed;
   try {
     parsed = JSON.parse(text);
   } catch (_) {
-    return { status: 502, body: { ok: false, error: "ai-bad-answer" } };
+    return { status: 502, body: { ok: false, error: "ai-bad-answer" }, billed: true };
   }
   const answer = shapeAnswer(parsed);
-  if (!answer.summary) return { status: 502, body: { ok: false, error: "ai-bad-answer" } };
-  return { status: 200, body: { ok: true, ...answer, model: response.model } };
+  if (!answer.summary) return { status: 502, body: { ok: false, error: "ai-bad-answer" }, billed: true };
+  return { status: 200, body: { ok: true, ...answer, model: response.model }, billed: true };
 }
 
 export { explainScan, sanitizeScan, shapeAnswer, SYSTEM_PROMPT, ANSWER_SCHEMA, DEFAULT_MODEL };

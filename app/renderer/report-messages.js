@@ -49,6 +49,9 @@ export function explainFailure(res) {
     case "ai-daily-limit": return "AI explanations have reached today's limit. Try again tomorrow.";
     case "ai-monthly-limit": return "AI explanations have reached this month's limit.";
     case "ai-refused": return "The AI declined to assess this scan.";
+    // Out of prepaid credit: trying again won't help, so it doesn't say to.
+    case "ai-unavailable": return "AI explanations are unavailable right now.";
+    case "ai-timeout": return "The AI took too long to answer. Try again in a moment.";
     case "ai-unreachable": return "The AI service couldn't reach the AI model. Try again in a moment.";
     default: return "Couldn't get an explanation. Try again in a moment.";
   }
