@@ -137,7 +137,11 @@ keeps working.
   words that identifying details are removed; it no longer shows the JSON
   payload (removed 2026-09-29: users aren't technical and it meant nothing
   to them).
-  The Anthropic key is a Worker secret, never in the app.
+  The Anthropic key is a Worker secret, never in the app. `/explain` has no
+  login, so its spend is capped: per-IP rate limit, then a global Durable
+  Object counter (`src/budget.js`, `AI_MONTHLY_LIMIT` 100 and
+  `AI_DAILY_LIMIT` 10, UTC), sized for a $5-a-month budget. Keep it, and
+  resize the limits if the model or budget changes.
 - **No persistent PowerShell on Windows.** systeminformation's
   `si.powerShellStart()` (one shared session instead of a PowerShell per
   call) hung on every attempt on windows-latest (4 of 4, past 120 s), while

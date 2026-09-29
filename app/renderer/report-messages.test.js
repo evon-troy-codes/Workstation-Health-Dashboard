@@ -61,6 +61,8 @@ test("explainFailure", async (t) => {
     assert.equal(explainFailure({ reason: "http", status: 500, error: "not-configured" }), "The AI service isn't set up yet.");
     assert.equal(explainFailure({ reason: "http", status: 429, error: "rate-limited" }), "The AI service is busy. Try again in a minute.");
     assert.equal(explainFailure({ reason: "http", status: 502, error: "ai-refused" }), "The AI declined to assess this scan.");
+    assert.equal(explainFailure({ reason: "http", status: 429, error: "ai-daily-limit" }), "AI explanations have reached today's limit. Try again tomorrow.");
+    assert.equal(explainFailure({ reason: "http", status: 429, error: "ai-monthly-limit" }), "AI explanations have reached this month's limit.");
   });
 
   await t.test("falls back to a plain message", () => {

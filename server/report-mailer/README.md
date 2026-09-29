@@ -42,6 +42,29 @@ picks. It is built so that isn't worth abusing:
 - `ALLOWED_DOMAINS` can limit recipients to your organization's domains. Set it
   if the app is only for your own people.
 
+## AI explanations (`POST /explain`)
+
+The app's **Explain my results** posts `{ "scan": { … } }` here, a copy of its
+report with everything identifying removed. The Worker keeps only the fields
+it knows (`src/explain.js`), asks Claude for a summary and up to five findings,
+and answers `{ ok: true, summary, findings, model }`. The Anthropic key is a
+Worker secret, `ANTHROPIC_API_KEY`.
+
+Every call spends Anthropic credit and anyone can make one, so it is capped
+three ways:
+
+- About five calls a minute per client IP (`RATE_LIMITER`, key `ai:<ip>`).
+- `AI_MONTHLY_LIMIT` calls a calendar month and `AI_DAILY_LIMIT` a day, in
+  UTC, across all callers (`src/budget.js`, a Durable Object bound as
+  `AI_BUDGET`). Past either, `/explain` answers 429 `ai-monthly-limit` or
+  `ai-daily-limit` and doesn't call Claude. The defaults, 100 and 10, keep a
+  month under about $5 at 3-4 cents a call on Opus 5.5; change them in
+  `wrangler.toml`. The daily limit stops one burst of abuse using up the
+  month on its first day. If the counter can't be reached, the call is
+  refused (503 `ai-busy`).
+- A spend limit on the Anthropic workspace, set in the Anthropic console. That
+  is the hard ceiling; the caps above keep the Worker well inside it.
+
 ## Deploy
 
 You need a Cloudflare account and a Resend account (both have free tiers), and
@@ -56,7 +79,8 @@ a domain you can add DNS records to, for Resend to send from.
    ```bash
    npm install
    npx wrangler login
-   npx wrangler secret put RESEND_API_KEY   # paste the Resend key
+   npx wrangler secret put RESEND_API_KEY      # paste the Resend key
+   npx wrangler secret put ANTHROPIC_API_KEY   # for /explain; paste the key
    npx wrangler deploy
    ```
 
@@ -64,8 +88,8 @@ a domain you can add DNS records to, for Resend to send from.
    `https://workstation-scanner-report-mailer.<you>.workers.dev`.
 
    Deploying from the Cloudflare dashboard instead (pasting `src/index.js`
-   into its editor) works, but leaves out the rate limits, which only
-   `wrangler deploy` sets up from `wrangler.toml`. Deploy with wrangler before
+   into its editor) works, but leaves out the rate limits and the AI budget
+   counter, which only `wrangler deploy` sets up from `wrangler.toml`. Deploy with wrangler before
    anyone else uses it. A wrangler deploy replaces the dashboard's variables
    with `wrangler.toml`'s, and keeps secrets such as `RESEND_API_KEY`.
 4. **Point the app at it:** put that URL in the repo's `package.json`,
@@ -82,4 +106,6 @@ a domain you can add DNS records to, for Resend to send from.
 ## Tests
 
 `src/index.test.js` runs with the rest of the repo's tests (`npm test` at the
-repo root). Resend and the rate limiter are stubbed, so the tests send nothing.
+repo root), with `src/explain.test.js` and `src/budget.test.js`. Resend, the
+Anthropic API, the rate limiter and the budget counter are stubbed, so the
+tests send nothing and spend nothing.
