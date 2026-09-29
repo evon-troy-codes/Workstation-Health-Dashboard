@@ -51,7 +51,48 @@ const {
   parseOsRelease,
   linuxOsRelease,
   cpuSpeed,
+  pacmanPending,
+  matchBackgroundApps,
 } = require("./system-facts");
+
+test("pacmanPending", async (t) => {
+  await t.test("counts the listed updates", () => {
+    assert.equal(pacmanPending({ code: 0, stdout: "linux 6.16.8-1 -> 6.16.9-1\nmesa 25.2.3-1 -> 25.2.4-1\n", stderr: "" }), 2);
+  });
+
+  await t.test("exit 1 with nothing printed means none pending", () => {
+    assert.equal(pacmanPending({ code: 1, stdout: "", stderr: "" }), 0);
+  });
+
+  await t.test("exit 1 with an error is unknown, not up to date", () => {
+    assert.equal(pacmanPending({ code: 1, stdout: "", stderr: "error: config file /nonexistent.conf could not be read: No such file or directory\n" }), null);
+    assert.equal(pacmanPending({ code: 1, stdout: "", stderr: "warning: something\nerror: failed to initialize alpm library\n" }), null);
+  });
+
+  await t.test("any other exit, or pacman not running at all, is unknown", () => {
+    assert.equal(pacmanPending({ code: 2, stdout: "", stderr: "" }), null);
+    assert.equal(pacmanPending(null), null);
+  });
+});
+
+test("matchBackgroundApps", async (t) => {
+  await t.test("matches whole process names on each OS", () => {
+    assert.deepEqual(matchBackgroundApps(["Zoom.exe", "Slack", "chrome.exe", "Code.exe"]), ["Zoom", "Slack", "Chrome", "VS Code"]);
+    assert.deepEqual(matchBackgroundApps(["zoom.us", "Google Chrome", "Microsoft Teams", "Spotify"]), ["Zoom", "Microsoft Teams", "Spotify", "Chrome"]);
+    assert.deepEqual(matchBackgroundApps(["discord", "firefox", "code", "steam"]), ["Discord", "Steam", "Firefox", "VS Code"]);
+  });
+
+  await t.test("a name that only contains an app's name is not that app", () => {
+    // VS Code, and every Electron app, runs chrome_crashpad_handler; Xcode
+    // contains "code"; Microsoft's Teams-adjacent services aren't Teams.
+    assert.deepEqual(matchBackgroundApps(["chrome_crashpad_handler", "Xcode", "msteamsupdate", "zoomwebviewhost", "codex"]), []);
+  });
+
+  await t.test("lists each app once, and survives junk", () => {
+    assert.deepEqual(matchBackgroundApps(["chrome", "chrome", "Google Chrome", null, 7, ""]), ["Chrome"]);
+    assert.deepEqual(matchBackgroundApps(undefined), []);
+  });
+});
 
 test("cpuSpeed", async (t) => {
   await t.test("the maximum boost clock, when known", () => {
@@ -75,30 +116,67 @@ test("parseOsRelease and linuxOsRelease", async (t) => {
   const arch = 'NAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\nID=arch\nBUILD_ID=rolling\n';
 
   await t.test("reads NAME and VERSION_ID, unquoted", () => {
-    assert.deepEqual(parseOsRelease(omarchy), { name: "Omarchy", version: "4.0.4" });
-    assert.deepEqual(parseOsRelease("NAME='Fedora Linux'\nVERSION_ID=42\n"), { name: "Fedora Linux", version: "42" });
+    assert.deepEqual(parseOsRelease(omarchy), { name: "Omarchy", version: "4.0.4", build: "4.0.4" });
+    assert.deepEqual(parseOsRelease("NAME='Fedora Linux'\nVERSION_ID=42\n"), { name: "Fedora Linux", version: "42", build: null });
   });
 
   await t.test("takes NAME over PRETTY_NAME, which may hold the version already", () => {
     const debian = 'PRETTY_NAME="Debian GNU/Linux 13 (trixie)"\nNAME="Debian GNU/Linux"\nVERSION_ID="13"\n';
-    assert.deepEqual(parseOsRelease(debian), { name: "Debian GNU/Linux", version: "13" });
+    assert.deepEqual(parseOsRelease(debian), { name: "Debian GNU/Linux", version: "13", build: null });
   });
 
   await t.test("a rolling release has no version", () => {
-    assert.deepEqual(parseOsRelease(arch), { name: "Arch Linux", version: null });
+    assert.deepEqual(parseOsRelease(arch), { name: "Arch Linux", version: null, build: "rolling" });
   });
 
   await t.test("/etc/os-release wins over /usr/lib/os-release", () => {
     const files = { "/etc/os-release": omarchy, "/usr/lib/os-release": arch };
     const read = (f) => { if (f in files) return files[f]; throw new Error("ENOENT"); };
-    assert.deepEqual(linuxOsRelease(read), { name: "Omarchy", version: "4.0.4" });
+    assert.deepEqual(linuxOsRelease(read), { name: "Omarchy", version: "4.0.4", build: "4.0.4" });
   });
 
   await t.test("falls back to /usr/lib/os-release, then null", () => {
     const only = (text) => (f) => { if (f === "/usr/lib/os-release") return text; throw new Error("ENOENT"); };
-    assert.deepEqual(linuxOsRelease(only(arch)), { name: "Arch Linux", version: null });
+    assert.deepEqual(linuxOsRelease(only(arch)), { name: "Arch Linux", version: null, build: "rolling" });
     assert.equal(linuxOsRelease(() => { throw new Error("ENOENT"); }), null);
   });
+
+  // QA 2026-09-29: an os-release saved with Windows line endings parsed as
+  // empty, so linuxOsRelease fell through to /usr/lib and showed the base
+  // distribution's name, the very mix-up the /etc-first rule exists to stop.
+  await t.test("reads a file with CRLF line endings", () => {
+    assert.deepEqual(parseOsRelease(omarchy.replace(/\n/g, "\r\n")), { name: "Omarchy", version: "4.0.4", build: "4.0.4" });
+    const files = { "/etc/os-release": omarchy.replace(/\n/g, "\r\n"), "/usr/lib/os-release": arch };
+    assert.deepEqual(linuxOsRelease((f) => files[f]), { name: "Omarchy", version: "4.0.4", build: "4.0.4" });
+  });
+
+  await t.test("undoes shell quoting, and keeps an unbalanced quote as text", () => {
+    assert.equal(parseOsRelease('NAME="Sam\\"s \\$OS"\n').name, 'Sam"s $OS');
+    assert.equal(parseOsRelease("NAME='Plain OS'\n").name, "Plain OS");
+    assert.equal(parseOsRelease('NAME="Arch\n').name, '"Arch');
+  });
+});
+
+// QA 2026-09-29: os.name and os.version come from the winning os-release, but
+// os.build still came from systeminformation, which lets /usr/lib/os-release
+// overwrite /etc/os-release. On Omarchy the OS card read "Version 4.0.4
+// (rolling)": Omarchy's version with Arch's BUILD_ID. The build must come
+// from the same file as the name (or be empty). Live: only meaningful on a
+// Linux machine whose two files disagree, and passes trivially elsewhere.
+test("collectFacts takes os.build from the same os-release as os.name", { timeout: 90000 }, async (t) => {
+  if (process.platform !== "linux") return t.skip("Linux only");
+  let text = null;
+  for (const file of ["/etc/os-release", "/usr/lib/os-release"]) {
+    try {
+      const candidate = fs.readFileSync(file, "utf8");
+      if (parseOsRelease(candidate).name) { text = candidate; break; }
+    } catch (_) { /* next */ }
+  }
+  if (!text) return t.skip("no os-release");
+  const m = /^BUILD_ID=(["']?)(.*)\1\s*$/m.exec(text);
+  const buildId = m ? m[2] : "";
+  const facts = await collectFacts();
+  if (facts.os.build) assert.equal(facts.os.build, buildId, `os.build "${facts.os.build}" is not this os-release's BUILD_ID "${buildId}"`);
 });
 
 test("parsePacmanUpgrades", async (t) => {
@@ -161,8 +239,10 @@ test("parseHyprlandMonitors", async (t) => {
     assert.deepEqual(parseHyprlandMonitors(list).map((m) => m.name), ["External display (HDMI-A-1)"]);
   });
 
-  await t.test("the card shows the first monitor as main", () => {
+  await t.test("the first monitor leads the card, but isn't labelled main", () => {
     const d = summarizeMonitors(parseHyprlandMonitors(laptopAndExternal));
+    assert.ok(d.monitors.every((m) => m.main === false), "Hyprland has no main display");
+    assert.equal(d.monitors[0].name, "Built-in display");
     assert.equal(d.count, 2);
     assert.equal(d.resolution, "2880 × 1800");
     assert.equal(d.refreshRate, "120 Hz");
