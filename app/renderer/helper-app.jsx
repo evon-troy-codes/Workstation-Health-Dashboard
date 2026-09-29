@@ -287,6 +287,13 @@ function OverviewScreen({ onJump }) {
 // ============================================================================
 // Screen 2 — System
 // ============================================================================
+// "up to 4.7 GHz" when the scan found the maximum boost clock. Otherwise no
+// speed at all: the base clock alone is easily misread, and "0 GHz" is not a
+// reading.
+function cpuSpeedLabel(cpu) {
+  return cpu.ghzKind === "max" ? `up to ${cpu.ghz} GHz` : null;
+}
+
 function SystemScreen() {
   const { facts, deferredFailed } = useApp();
   const driveType = facts.disk.ssd == null ? (deferredFailed ? "Unknown" : "Checking…") : facts.disk.ssd ? "SSD" : "HDD";
@@ -297,7 +304,7 @@ function SystemScreen() {
   const updateInstalled = facts.os.lastUpdateKind === "installed";
   return (
     <div className="card-grid card-grid-2">
-      <Card icon="cog" title="Processor" sub={`${cpu.cores} cores · ${cpu.ghz} GHz · ${cpu.arch}`}>
+      <Card icon="cog" title="Processor" sub={[`${cpu.cores} cores`, cpuSpeedLabel(cpu), cpu.arch].filter(Boolean).join(" · ")}>
         <KV k="Model" v={facts.cpu.model} />
         <KV k="Machine" v={facts.machineType} />
         <KV k="Family / series" v={`${facts.cpu.family} · ${facts.cpu.series}`} />
