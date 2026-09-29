@@ -161,7 +161,7 @@ async function collectFacts() {
       threads: cpu.cores || 0,
       perfCores: cpu.performanceCores || cpu.physicalCores || cpu.cores || 0,
       effCores: cpu.efficiencyCores || 0,
-      ghz: round1(cpu.speedMax || cpu.speed || 0),
+      ...cpuSpeed(cpu),
       family: cpu.manufacturer || "Unknown",
       arch: os.arch(),
       series: cpu.brand || "Unknown",
@@ -858,6 +858,18 @@ function detectUpdates() {
   });
 }
 
+// systeminformation's si.cpu() → the Processor card's speed. `speedMax` is the
+// highest boost clock and `speed` the base clock; many machines report only
+// the base. `ghzKind` says which one `ghz` is: the card shows "up to" the
+// maximum, and no speed when only the base is known or neither is (ghz 0,
+// ghzKind null). Reports and the AI scan still carry ghz as before.
+function cpuSpeed(cpu) {
+  const c = cpu || {};
+  if (c.speedMax > 0) return { ghz: round1(c.speedMax), ghzKind: "max" };
+  if (c.speed > 0) return { ghz: round1(c.speed), ghzKind: "base" };
+  return { ghz: 0, ghzKind: null };
+}
+
 // The distribution's name and version from os-release. /etc/os-release wins
 // and /usr/lib/os-release is only the fallback, as the os-release spec says.
 // systeminformation reads both and lets the second overwrite the first, so a
@@ -1339,6 +1351,7 @@ module.exports = {
   parsePacmanLastSync,
   parseOsRelease,
   linuxOsRelease,
+  cpuSpeed,
   // The Linux plumbing. Exported so the choices that are easy to revert by
   // accident — the loader variables a spawned tool must not inherit, which
   // stamp file outranks which — are pinned by a test rather than by a comment.

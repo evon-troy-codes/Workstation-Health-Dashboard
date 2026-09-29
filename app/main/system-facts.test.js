@@ -50,7 +50,24 @@ const {
   parsePacmanLastSync,
   parseOsRelease,
   linuxOsRelease,
+  cpuSpeed,
 } = require("./system-facts");
+
+test("cpuSpeed", async (t) => {
+  await t.test("the maximum boost clock, when known", () => {
+    assert.deepEqual(cpuSpeed({ speed: 2.1, speedMax: 4.7 }), { ghz: 4.7, ghzKind: "max" });
+  });
+
+  await t.test("otherwise the base clock, labelled as such", () => {
+    assert.deepEqual(cpuSpeed({ speed: 2.13, speedMax: 0 }), { ghz: 2.1, ghzKind: "base" });
+    assert.deepEqual(cpuSpeed({ speed: 3.0 }), { ghz: 3, ghzKind: "base" });
+  });
+
+  await t.test("neither known: no kind, so the card shows no speed", () => {
+    assert.deepEqual(cpuSpeed({}), { ghz: 0, ghzKind: null });
+    assert.deepEqual(cpuSpeed(undefined), { ghz: 0, ghzKind: null });
+  });
+});
 
 test("parseOsRelease and linuxOsRelease", async (t) => {
   // Omarchy keeps its own os-release in /etc and Arch's in /usr/lib.
@@ -1155,7 +1172,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
   // Nested groups, with the leaf keys each screen indexes into.
   const groups = {
-    cpu: ["model", "cores", "threads", "perfCores", "effCores", "ghz", "family", "arch", "series"],
+    cpu: ["model", "cores", "threads", "perfCores", "effCores", "ghz", "ghzKind", "family", "arch", "series"],
     ram: ["totalGB", "freeGB", "type", "pressure"],
     disk: ["totalGB", "freeGB", "usedPercent", "ssd"],
     os: ["name", "version", "build", "lastUpdateCheck", "lastUpdateKind", "pendingUpdates"],
