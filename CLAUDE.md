@@ -123,7 +123,7 @@ keeps working.
   through `workstationScanner.reportUrl` in `package.json`
   (`WHD_REPORT_URL` overrides).
 - **AI "Explain my results"** (prototype): the Worker's `POST /explain` asks
-  Claude (`AI_MODEL`, default `claude-opus-5`, with `fallbacks: "default"`)
+  Claude (`AI_MODEL`, default `claude-opus-5-5`, with `fallbacks: "default"`)
   for a summary and up to five findings in a fixed JSON schema. What leaves
   the machine is `buildAiScan` in `app/main/report.js`, an allow-list with
   nothing identifying; the Worker filters again (`sanitizeScan`). Opt-in per
