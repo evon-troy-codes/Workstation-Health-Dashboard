@@ -1,7 +1,7 @@
 # CLAUDE.md
 
 Guidance for Claude Code sessions in this repo. The project is worked on from
-more than one machine (Windows 11 and Debian Linux), and sessions don't share
+more than one machine (Windows 11, Debian Linux, and Omarchy Linux), and sessions don't share
 history, so anything a future session needs to know goes here, in commit
 messages, or in the private notes repo below.
 
@@ -49,15 +49,21 @@ keeps working.
 
 ## Machine setup
 
-- **Node 24** (what CI uses). On the Linux machine it comes from nvm and isn't
-  on PATH in a non-interactive shell: prefix commands with
-  `. ~/.nvm/nvm.sh && ...`.
+- **Node 24** (what CI uses). Where it comes from depends on the machine:
+  - Debian: nvm, not on PATH in a non-interactive shell. Prefix commands
+    with `. ~/.nvm/nvm.sh && ...`.
+  - Omarchy (Arch, host `devops`): mise, already on PATH (Node 26 there,
+    which passes the tests too). There is no `~/.nvm`; skip the prefix.
+- **Fresh clone**: run `npm ci` at the root *and* in `server/report-mailer`.
+  `npm test` runs the Worker's tests too, and they fail to load without its
+  `@anthropic-ai/sdk`. The first `npm start` downloads Electron's binary
+  (about 125 MB, a minute or so).
 - **`ELECTRON_RUN_AS_NODE`**: VS Code sets it to `1`, which makes Electron run
   as plain Node (`app` is undefined). Run every Electron command as
   `env -u ELECTRON_RUN_AS_NODE ...` (bash, including Git Bash on Windows), or
   `Remove-Item Env:ELECTRON_RUN_AS_NODE` first in PowerShell.
-- **GitHub**: pushing and CI use the `gh` CLI. Linux: installed at
-  `~/.local/bin/gh`. Windows: `winget install GitHub.cli`. Then
+- **GitHub**: pushing and CI use the `gh` CLI. Debian: installed at
+  `~/.local/bin/gh`; Omarchy: from mise. Windows: `winget install GitHub.cli`. Then
   `gh auth login` once per machine; it also sets git's credential helper.
 - **Git identity**: `Evon Troy Alexander <evon.codes@gmail.com>`.
 
