@@ -41,11 +41,122 @@ const {
   summarizeMonitors,
   monitorsFromGraphics,
   parseMutterState,
+  parseHyprlandMonitors,
   withoutXwaylandModes,
   detectAudio,
   audioNames,
   parseWpctlInspect,
+  parsePacmanUpgrades,
+  parsePacmanLastSync,
+  parseOsRelease,
+  linuxOsRelease,
 } = require("./system-facts");
+
+test("parseOsRelease and linuxOsRelease", async (t) => {
+  // Omarchy keeps its own os-release in /etc and Arch's in /usr/lib.
+  const omarchy = 'NAME="Omarchy"\nPRETTY_NAME="Omarchy"\nID=omarchy\nID_LIKE=arch\nBUILD_ID="4.0.4"\nVERSION_ID="4.0.4"\n';
+  const arch = 'NAME="Arch Linux"\nPRETTY_NAME="Arch Linux"\nID=arch\nBUILD_ID=rolling\n';
+
+  await t.test("reads NAME and VERSION_ID, unquoted", () => {
+    assert.deepEqual(parseOsRelease(omarchy), { name: "Omarchy", version: "4.0.4" });
+    assert.deepEqual(parseOsRelease("NAME='Fedora Linux'\nVERSION_ID=42\n"), { name: "Fedora Linux", version: "42" });
+  });
+
+  await t.test("takes NAME over PRETTY_NAME, which may hold the version already", () => {
+    const debian = 'PRETTY_NAME="Debian GNU/Linux 13 (trixie)"\nNAME="Debian GNU/Linux"\nVERSION_ID="13"\n';
+    assert.deepEqual(parseOsRelease(debian), { name: "Debian GNU/Linux", version: "13" });
+  });
+
+  await t.test("a rolling release has no version", () => {
+    assert.deepEqual(parseOsRelease(arch), { name: "Arch Linux", version: null });
+  });
+
+  await t.test("/etc/os-release wins over /usr/lib/os-release", () => {
+    const files = { "/etc/os-release": omarchy, "/usr/lib/os-release": arch };
+    const read = (f) => { if (f in files) return files[f]; throw new Error("ENOENT"); };
+    assert.deepEqual(linuxOsRelease(read), { name: "Omarchy", version: "4.0.4" });
+  });
+
+  await t.test("falls back to /usr/lib/os-release, then null", () => {
+    const only = (text) => (f) => { if (f === "/usr/lib/os-release") return text; throw new Error("ENOENT"); };
+    assert.deepEqual(linuxOsRelease(only(arch)), { name: "Arch Linux", version: null });
+    assert.equal(linuxOsRelease(() => { throw new Error("ENOENT"); }), null);
+  });
+});
+
+test("parsePacmanUpgrades", async (t) => {
+  await t.test("counts one per package line", () => {
+    const out = "linux 6.16.8.arch1-1 -> 6.16.9.arch1-1\nmesa 1:25.2.3-1 -> 1:25.2.4-1\nfirefox 143.0-1 -> 143.0.1-1\n";
+    assert.equal(parsePacmanUpgrades(out), 3);
+  });
+
+  await t.test("leaves out packages held back by IgnorePkg", () => {
+    assert.equal(parsePacmanUpgrades("linux 6.16.8-1 -> 6.16.9-1 [ignored]\nmesa 25.2.3-1 -> 25.2.4-1\n"), 1);
+  });
+
+  await t.test("nothing to upgrade, or an error on stderr, is 0", () => {
+    assert.equal(parsePacmanUpgrades(""), 0);
+    assert.equal(parsePacmanUpgrades(null), 0);
+  });
+});
+
+test("parsePacmanLastSync", async (t) => {
+  await t.test("takes the last package-list refresh, with its offset", () => {
+    const log = [
+      "[2026-09-20T09:00:00+0000] [PACMAN] synchronizing package lists",
+      "[2026-09-20T09:00:05+0000] [ALPM] upgraded mesa (25.2.3-1 -> 25.2.4-1)",
+      "[2026-09-28T17:30:00-0700] [PACMAN] synchronizing package lists",
+      "[2026-09-29T01:00:00+0000] [PACMAN] Running 'pacman -Qu'",
+    ].join("\n");
+    assert.equal(parsePacmanLastSync(log).toISOString(), "2026-09-29T00:30:00.000Z");
+  });
+
+  await t.test("null when the log has no refresh, or can't be read", () => {
+    assert.equal(parsePacmanLastSync("[2026-09-29T01:00:00+0000] [ALPM] installed glibc (2.44-1)"), null);
+    assert.equal(parsePacmanLastSync(""), null);
+  });
+});
+
+test("parseHyprlandMonitors", async (t) => {
+  const laptopAndExternal = JSON.stringify([
+    { id: 0, name: "eDP-1", description: "Samsung Display Corp. 0x4193", make: "Samsung Display Corp.", model: "0x4193",
+      serial: "", width: 2880, height: 1800, refreshRate: 120.0, x: 0, y: 0, scale: 2, disabled: false },
+    { id: 1, name: "DP-2", description: "Dell Inc. DELL U2723QE ABC1234", make: "Dell Inc.", model: "DELL U2723QE",
+      serial: "ABC1234", width: 3840, height: 2160, refreshRate: 59.997, x: 1440, y: 0, scale: 1.5, disabled: false },
+  ]);
+
+  await t.test("reads each monitor's real mode, before scaling", () => {
+    assert.deepEqual(parseHyprlandMonitors(laptopAndExternal), [
+      { name: "Built-in display", connection: "eDP-1", builtin: true, main: false, width: 2880, height: 1800, refreshHz: 120, sizeInches: null },
+      { name: "Dell Inc. DELL U2723QE", connection: "DP-2", builtin: false, main: false, width: 3840, height: 2160, refreshHz: 59.997, sizeInches: null },
+    ]);
+  });
+
+  await t.test("never keeps the serial number", () => {
+    assert.ok(!JSON.stringify(parseHyprlandMonitors(laptopAndExternal)).includes("ABC1234"));
+  });
+
+  await t.test("leaves out disabled monitors, and names an unknown one by connector", () => {
+    const list = JSON.stringify([
+      { name: "HDMI-A-1", make: "", model: "", width: 1920, height: 1080, refreshRate: 60, disabled: false },
+      { name: "DP-1", make: "LG", model: "27GL850", width: 2560, height: 1440, refreshRate: 144, disabled: true },
+    ]);
+    assert.deepEqual(parseHyprlandMonitors(list).map((m) => m.name), ["External display (HDMI-A-1)"]);
+  });
+
+  await t.test("the card shows the first monitor as main", () => {
+    const d = summarizeMonitors(parseHyprlandMonitors(laptopAndExternal));
+    assert.equal(d.count, 2);
+    assert.equal(d.resolution, "2880 × 1800");
+    assert.equal(d.refreshRate, "120 Hz");
+    assert.equal(d.externalConnection, "DP-2");
+  });
+
+  await t.test("null for output that isn't a JSON list", () => {
+    assert.equal(parseHyprlandMonitors("hyprctl: no such instance"), null);
+    assert.equal(parseHyprlandMonitors("{}"), null);
+  });
+});
 
 test("classifyHeadset", async (t) => {
   await t.test("detects bluetooth from AirPods name", () => {
