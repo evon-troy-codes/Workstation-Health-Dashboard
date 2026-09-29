@@ -50,7 +50,7 @@ function ExplainDialog({ onExplain, onClose }) {
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && state !== "asking") onClose(); }}>
       <div className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="explain-title">
         <div className="dialog-head">
-          <div className="hcard-icon"><Icon name="comment" size={16} /></div>
+          <div className="hcard-icon"><Icon name="sparkles" size={16} /></div>
           <div id="explain-title" className="dialog-title">Explain my results</div>
           <span className="ai-tag">AI</span>
         </div>
@@ -110,7 +110,7 @@ function ExplainDialog({ onExplain, onClose }) {
           </button>
           {(state === "intro" || state === "failed") && (
             <button type="button" className="dialog-primary" onClick={explain}>
-              <Icon name="comment" size={12} /> {state === "failed" ? "Try again" : "Explain"}
+              <Icon name="sparkles" size={12} /> {state === "failed" ? "Try again" : "Explain"}
             </button>
           )}
         </div>

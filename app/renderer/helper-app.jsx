@@ -190,7 +190,7 @@ function HelperApp() {
           <div className="foot-actions">
             {reportEnabled && (
               <button ref={explainButton} className="foot-btn" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
-                <Icon name="comment" size={12} /> Explain my results
+                <Icon name="sparkles" size={12} /> Explain my results
               </button>
             )}
             <button ref={reportButton} className="foot-btn" onClick={openReport} disabled={dialogOpen}>
