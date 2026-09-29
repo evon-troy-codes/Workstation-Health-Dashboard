@@ -62,6 +62,19 @@ function runCmd(cmd, args, { timeout = 10000, okExitCodes = [] } = {}) {
   });
 }
 
+// Like runCmd, for a tool whose exit code alone can't tell success from
+// failure: resolves { code, stdout, stderr } whatever it exits with, or null
+// when it can't be started or runs past the timeout.
+function runCmdResult(cmd, args, { timeout = 10000 } = {}) {
+  return new Promise((resolve) => {
+    const opts = { timeout, windowsHide: true, env: toolEnv(), maxBuffer: 4 * 1024 * 1024 };
+    execFile(cmd, args, opts, (err, stdout, stderr) => {
+      if (err && typeof err.code !== "number") return resolve(null); // not started, killed or timed out
+      resolve({ code: err ? err.code : 0, stdout: stdout || "", stderr: stderr || "" });
+    });
+  });
+}
+
 // The environment these tools run in. Two problems to head off:
 //
 // Packaged Linux builds (AppImage) export LD_LIBRARY_PATH and friends pointing
@@ -183,7 +196,10 @@ async function collectFacts() {
     os: {
       name: (release && release.name) || osInfo.distro || os.type(),
       version: (release && release.version) || osInfo.release || os.release(),
-      build: osInfo.build || "",
+      // From the same os-release as the name when there is one: systeminformation's
+      // build is the base distribution's on a derivative ("rolling" on Omarchy).
+      // Left out when it only repeats the version.
+      build: release ? (release.build && release.build !== release.version ? release.build : "") : (osInfo.build || ""),
       lastUpdateCheck: "Checking…", // filled in by the lazy get-updates call
       // "checked" or "installed": which event lastUpdateCheck dates. null
       // until the update check resolves, or when nothing could be read.
@@ -797,7 +813,10 @@ function summarizeMonitors(list) {
     monitors: ordered.map((m) => ({
       name: m.name,
       builtin: Boolean(m.builtin),
-      main: m === main,
+      // Only a display the OS called the main one. The first stands in for
+      // the single-display fields below, but isn't labelled main: Hyprland,
+      // for one, has no main display.
+      main: m === main && Boolean(m.main),
       resolution: resolution(m),
       refreshRate: refresh(m),
       connection: m.connection || null,
@@ -890,17 +909,22 @@ function linuxOsRelease(readFile = fs.readFileSync) {
   return null;
 }
 
-// os-release's KEY=value lines → { name, version }. NAME rather than
+// os-release's KEY=value lines → { name, version, build }. NAME rather than
 // PRETTY_NAME, which often has the version in it already ("Debian GNU/Linux
-// 13 (trixie)"), so the card's "name version" would say it twice.
+// 13 (trixie)"), so the card's "name version" would say it twice. Values
+// follow shell quoting: a double-quoted value may escape \ " $ and `.
+// Windows line endings are tolerated.
 function parseOsRelease(text) {
   const values = {};
-  for (const line of (text || "").split("\n")) {
+  for (const line of (text || "").split(/\r?\n/)) {
     const m = /^\s*([A-Z0-9_]+)=(.*)$/.exec(line);
     if (!m) continue;
-    values[m[1]] = m[2].trim().replace(/^(["'])(.*)\1$/, "$2");
+    let v = m[2].trim();
+    if (/^"(?:[^"\\]|\\.)*"$/.test(v)) v = v.slice(1, -1).replace(/\\([\\"$`])/g, "$1");
+    else if (/^'[^']*'$/.test(v)) v = v.slice(1, -1);
+    values[m[1]] = v;
   }
-  return { name: values.NAME || null, version: values.VERSION_ID || null };
+  return { name: values.NAME || null, version: values.VERSION_ID || null, build: values.BUILD_ID || null };
 }
 
 // Pending updates on the three families this app targets: Debian/Ubuntu
@@ -942,12 +966,11 @@ async function linuxUpdates() {
   if (pacman) {
     // `pacman -Qu` lists what the last `pacman -Sy` found newer than what is
     // installed. Without synced databases there is nothing to compare, so the
-    // count is unknown rather than 0. It exits 1 when nothing is upgradable,
-    // as any query that matches nothing does.
+    // count is unknown rather than 0.
     const dbs = pacmanSyncDbs();
-    const out = dbs.length ? await runCmd(pacman, ["-Qu"], { okExitCodes: [1] }) : null;
+    const result = dbs.length ? await runCmdResult(pacman, ["-Qu"]) : null;
     return withKind({
-      pendingUpdates: out == null ? null : parsePacmanUpgrades(out),
+      pendingUpdates: pacmanPending(result),
       lastUpdateCheck: lastPacmanSync(dbs),
     });
   }
@@ -1005,6 +1028,18 @@ function parsePacmanLastSync(log) {
   for (let m; (m = re.exec(log || ""));) last = `${m[1]}${m[2]}:${m[3]}`;
   const date = last ? new Date(last) : null;
   return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+// `pacman -Qu`'s result ({ code, stdout, stderr }, or null if it couldn't run)
+// → the pending count, or null when it can't be known. pacman exits 1 both
+// when nothing is upgradable and on a real failure (an unreadable config or
+// database), so exit 1 counts as "none pending" only when pacman printed no
+// "error:" line. Otherwise a broken pacman would read as up to date.
+function pacmanPending(result) {
+  if (!result) return null;
+  if (result.code === 0) return parsePacmanUpgrades(result.stdout);
+  if (result.code === 1 && !/^error:/m.test(result.stderr || "") && !(result.stdout || "").trim()) return 0;
+  return null;
 }
 
 // `pacman -Qu` lists "<package> <installed> -> <available>" per update. A
@@ -1099,29 +1134,44 @@ function parseWindowsUpdates(stdout) {
 // a list of common bandwidth-heavy apps, plus a count of installed browser
 // extensions (another common source of background resource use).
 async function detectBackgroundApps() {
-  const KNOWN = {
-    zoom: "Zoom", teams: "Microsoft Teams", "ms-teams": "Microsoft Teams",
-    skype: "Skype", webex: "Webex", discord: "Discord", slack: "Slack",
-    dropbox: "Dropbox", onedrive: "OneDrive", steam: "Steam",
-    spotify: "Spotify", chrome: "Chrome", msedge: "Microsoft Edge",
-    firefox: "Firefox", code: "VS Code",
-  };
-
   let runningApps = [];
   try {
     const procs = await si.processes();
-    const names = (procs.list || []).map((p) => (p.name || "").toLowerCase());
-    const found = new Set();
-    for (const n of names) {
-      for (const key of Object.keys(KNOWN)) {
-        if (n.includes(key)) found.add(KNOWN[key]);
-      }
-    }
-    runningApps = [...found];
+    runningApps = matchBackgroundApps((procs.list || []).map((p) => p.name));
   } catch (_) {
     /* leave empty */
   }
   return { browserExtensions: countBrowserExtensions(), runningApps };
+}
+
+// Each app's process names on Windows, macOS and Linux, lower case, without
+// ".exe". Whole names only: matching a fragment named Chrome for any
+// Electron app's chrome_crashpad_handler (VS Code runs one), and VS Code for
+// Xcode. A helper process (Chrome's renderers, Steam's web helper) is only
+// running while its main process is, so the main name is enough.
+const BACKGROUND_APPS = {
+  Zoom: ["zoom", "zoom.us"],
+  "Microsoft Teams": ["teams", "ms-teams", "msteams", "microsoft teams", "microsoft teams (work or school)", "teams-for-linux"],
+  Skype: ["skype", "skypeforlinux"],
+  Webex: ["webex", "ciscowebexstart", "webexhost"],
+  Discord: ["discord", "discordptb", "discordcanary"],
+  Slack: ["slack"],
+  Dropbox: ["dropbox"],
+  OneDrive: ["onedrive"],
+  Steam: ["steam"],
+  Spotify: ["spotify"],
+  Chrome: ["chrome", "google chrome", "google-chrome"],
+  "Microsoft Edge": ["msedge", "microsoft edge"],
+  Firefox: ["firefox", "firefox-bin", "firefox-esr"],
+  "VS Code": ["code", "code - insiders", "visual studio code"],
+};
+
+// Process names → the known apps among them, in the list's order.
+function matchBackgroundApps(names) {
+  const running = new Set((names || [])
+    .filter((n) => typeof n === "string")
+    .map((n) => n.trim().toLowerCase().replace(/\.exe$/, "")));
+  return Object.keys(BACKGROUND_APPS).filter((app) => BACKGROUND_APPS[app].some((n) => running.has(n)));
 }
 
 // Count installed browser extensions across Chromium-based browsers' default
@@ -1352,6 +1402,8 @@ module.exports = {
   parseOsRelease,
   linuxOsRelease,
   cpuSpeed,
+  pacmanPending,
+  matchBackgroundApps,
   // The Linux plumbing. Exported so the choices that are easy to revert by
   // accident — the loader variables a spawned tool must not inherit, which
   // stamp file outranks which — are pinned by a test rather than by a comment.
