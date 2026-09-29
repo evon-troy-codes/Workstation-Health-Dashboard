@@ -141,6 +141,9 @@ async function collectFacts() {
   // --- memory type ---
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
 
+  // --- OS name: on Linux, the distribution's own os-release ---
+  const release = process.platform === "linux" ? linuxOsRelease() : null;
+
   const { output: outputName, input: inputName, classifyBy } = audioNames(audio.defaultAudio, audio.drivers);
   // No output device is "None", not a guessed "Built-in".
   const headsetClass = classifyBy ? classifyHeadset(classifyBy) : "None";
@@ -178,8 +181,8 @@ async function collectFacts() {
     },
     display: null, // resolved lazily (si.graphics is slow on Windows)
     os: {
-      name: osInfo.distro || os.type(),
-      version: osInfo.release || os.release(),
+      name: (release && release.name) || osInfo.distro || os.type(),
+      version: (release && release.version) || osInfo.release || os.release(),
       build: osInfo.build || "",
       lastUpdateCheck: "Checking…", // filled in by the lazy get-updates call
       // "checked" or "installed": which event lastUpdateCheck dates. null
@@ -620,12 +623,61 @@ async function detectDeferred() {
 // On GNOME with Wayland the X11 view systeminformation reads (through
 // XWayland) is scaled: a 5120 × 1440 120 Hz monitor read 10240 × 2880 at
 // 23.69 Hz, and a 1920 × 1200 panel 3072 × 1920. GNOME's own display service,
-// Mutter, has the real modes, so it is asked first there. Everywhere else, and
-// whenever Mutter can't answer, systeminformation's list is used.
+// Mutter, has the real modes, so it is asked first there. Hyprland (Omarchy's
+// desktop) is asked next: systeminformation found no displays at all under it,
+// and the card read "None found". Everywhere else, and whenever neither can
+// answer, systeminformation's list is used.
 async function detectDisplays() {
   const fromMutter = await mutterMonitors().catch(() => null);
   if (fromMutter && fromMutter.length) return fromMutter;
+  const fromHyprland = await hyprlandMonitors().catch(() => null);
+  if (fromHyprland && fromHyprland.length) return fromHyprland;
   return withoutXwaylandModes(monitorsFromGraphics(await si.graphics().catch(() => ({}))));
+}
+
+// `hyprctl monitors -j` in a Hyprland session. Resolves null anywhere else
+// (not Linux, not Hyprland, no hyprctl).
+async function hyprlandMonitors(env = process.env) {
+  if (process.platform !== "linux" || !env.HYPRLAND_INSTANCE_SIGNATURE) return null;
+  const hyprctl = findTool("/usr/bin/hyprctl", "/bin/hyprctl", "/usr/local/bin/hyprctl");
+  if (!hyprctl) return null;
+  const out = await runCmd(hyprctl, ["monitors", "-j"], { timeout: 3000 });
+  return out ? parseHyprlandMonitors(out) : null;
+}
+
+// hyprctl's monitor list (JSON) → monitors. Each entry has the connector
+// (`name`, "eDP-1"), `make` and `model`, and the mode it runs in: `width` and
+// `height` in real pixels, before scaling, and `refreshRate` in Hz. Hyprland
+// has no primary display, so none is marked main and the first listed leads.
+// `description` and `serial` carry the monitor's serial number, which is never
+// kept. A disabled monitor shows nothing and is left out.
+function parseHyprlandMonitors(stdout) {
+  let list;
+  try {
+    list = JSON.parse(String(stdout || "").trim());
+  } catch (_) {
+    return null;
+  }
+  if (!Array.isArray(list)) return null;
+  const text = (v) => (typeof v === "string" ? v.trim() : "");
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) && v > 0 ? v : null);
+  return list
+    .filter((m) => m && typeof m === "object" && !m.disabled)
+    .map((m) => {
+      const connector = text(m.name) || null;
+      const builtin = /^(eDP|LVDS|DSI)/i.test(connector || "");
+      const model = [text(m.make), text(m.model)].filter(Boolean).join(" ");
+      return {
+        name: builtin ? "Built-in display" : model || (connector ? `External display (${connector})` : "Display"),
+        connection: connector,
+        builtin,
+        main: false,
+        width: num(m.width),
+        height: num(m.height),
+        refreshHz: num(m.refreshRate),
+        sizeInches: null,
+      };
+    });
 }
 
 // In a Linux Wayland session, systeminformation's modes come from XWayland,
@@ -806,9 +858,43 @@ function detectUpdates() {
   });
 }
 
-// Pending updates on the two families this app targets: Debian/Ubuntu (apt)
-// and Fedora/RHEL (dnf). Both are asked to work from their existing metadata
-// rather than refresh it, so this costs no network round-trip and no lock.
+// The distribution's name and version from os-release. /etc/os-release wins
+// and /usr/lib/os-release is only the fallback, as the os-release spec says.
+// systeminformation reads both and lets the second overwrite the first, so a
+// distribution built on another one, which leaves its base's file in
+// /usr/lib, showed up under its base's name: Omarchy as "Arch Linux 4.0.4",
+// Arch's name with Omarchy's version. null when neither file can be read.
+function linuxOsRelease(readFile = fs.readFileSync) {
+  for (const file of ["/etc/os-release", "/usr/lib/os-release"]) {
+    let text;
+    try {
+      text = readFile(file, "utf8");
+    } catch (_) {
+      continue;
+    }
+    const release = parseOsRelease(text);
+    if (release.name) return release;
+  }
+  return null;
+}
+
+// os-release's KEY=value lines → { name, version }. NAME rather than
+// PRETTY_NAME, which often has the version in it already ("Debian GNU/Linux
+// 13 (trixie)"), so the card's "name version" would say it twice.
+function parseOsRelease(text) {
+  const values = {};
+  for (const line of (text || "").split("\n")) {
+    const m = /^\s*([A-Z0-9_]+)=(.*)$/.exec(line);
+    if (!m) continue;
+    values[m[1]] = m[2].trim().replace(/^(["'])(.*)\1$/, "$2");
+  }
+  return { name: values.NAME || null, version: values.VERSION_ID || null };
+}
+
+// Pending updates on the three families this app targets: Debian/Ubuntu
+// (apt), Fedora/RHEL (dnf) and Arch and its derivatives such as Omarchy
+// (pacman). Each is asked to work from its existing metadata rather than
+// refresh it, so this costs no network round-trip, no root and no lock.
 async function linuxUpdates() {
   const apt = findTool("/usr/bin/apt-get", "/bin/apt-get");
   if (apt) {
@@ -840,7 +926,81 @@ async function linuxUpdates() {
       ]),
     });
   }
+  const pacman = findTool("/usr/bin/pacman", "/bin/pacman");
+  if (pacman) {
+    // `pacman -Qu` lists what the last `pacman -Sy` found newer than what is
+    // installed. Without synced databases there is nothing to compare, so the
+    // count is unknown rather than 0. It exits 1 when nothing is upgradable,
+    // as any query that matches nothing does.
+    const dbs = pacmanSyncDbs();
+    const out = dbs.length ? await runCmd(pacman, ["-Qu"], { okExitCodes: [1] }) : null;
+    return withKind({
+      pendingUpdates: out == null ? null : parsePacmanUpgrades(out),
+      lastUpdateCheck: lastPacmanSync(dbs),
+    });
+  }
   return UNKNOWN_UPDATES;
+}
+
+const PACMAN_SYNC_DIR = "/var/lib/pacman/sync";
+const PACMAN_LOG = "/var/log/pacman.log";
+
+// The synced repository databases (core.db, extra.db, …).
+function pacmanSyncDbs() {
+  try {
+    return fs.readdirSync(PACMAN_SYNC_DIR).filter((f) => f.endsWith(".db")).map((f) => path.join(PACMAN_SYNC_DIR, f));
+  } catch (_) {
+    return [];
+  }
+}
+
+// When pacman last refreshed its package lists, worded as the cards do.
+// pacman's log records each refresh; the databases' mtimes are only the
+// fallback, since pacman gives a downloaded database the mirror's time for
+// it rather than the time it was fetched.
+function lastPacmanSync(dbs) {
+  const synced = parsePacmanLastSync(readTail(PACMAN_LOG, 512 * 1024));
+  const age = synced ? humanAge(synced.toISOString()) : null;
+  if (age != null) return age === "just now" ? age : age + " ago";
+  return ageOf([dbs]);
+}
+
+// The last `bytes` of a file as text, or "" if it can't be read. pacman's log
+// is never rotated and grows for the life of the install.
+function readTail(file, bytes) {
+  let fd;
+  try {
+    fd = fs.openSync(file, "r");
+    const size = fs.fstatSync(fd).size;
+    const length = Math.min(size, bytes);
+    const buf = Buffer.alloc(length);
+    fs.readSync(fd, buf, 0, length, size - length);
+    return buf.toString("utf8");
+  } catch (_) {
+    return "";
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+// The time of the last "synchronizing package lists" line in pacman's log
+// ("[2026-09-29T00:26:42+0000] [PACMAN] synchronizing package lists"), or
+// null. The offset is written without a colon, which Date doesn't parse
+// reliably, so one is put in.
+function parsePacmanLastSync(log) {
+  const re = /^\[(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)([+-]\d\d):?(\d\d)\] \[PACMAN\] synchronizing package lists/gm;
+  let last = null;
+  for (let m; (m = re.exec(log || ""));) last = `${m[1]}${m[2]}:${m[3]}`;
+  const date = last ? new Date(last) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+// `pacman -Qu` lists "<package> <installed> -> <available>" per update. A
+// package held back by IgnorePkg ends in "[ignored]" and won't be installed.
+function parsePacmanUpgrades(stdout) {
+  return (stdout || "").split("\n")
+    .filter((l) => /^\S+\s+\S+\s+->\s+\S+/.test(l) && !/\[ignored\]\s*$/.test(l))
+    .length;
 }
 
 // Every apt and dnf source above dates a metadata refresh, which is a check
@@ -1175,6 +1335,10 @@ module.exports = {
   pactlDescription,
   parseAptUpgrades,
   parseDnfCheckUpdate,
+  parsePacmanUpgrades,
+  parsePacmanLastSync,
+  parseOsRelease,
+  linuxOsRelease,
   // The Linux plumbing. Exported so the choices that are easy to revert by
   // accident — the loader variables a spawned tool must not inherit, which
   // stamp file outranks which — are pinned by a test rather than by a comment.
@@ -1191,6 +1355,7 @@ module.exports = {
   summarizeMonitors,
   monitorsFromGraphics,
   parseMutterState,
+  parseHyprlandMonitors,
   withoutXwaylandModes,
   parseResolvectlDns,
   detectAudio,
