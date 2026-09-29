@@ -163,7 +163,6 @@ function HelperApp() {
     setExplainOpen(false);
     if (explainButton.current) explainButton.current.focus();
   }, []);
-  const explainPreview = useCallback(() => window.whd.explainPreview(facts), [facts]);
   const explain = useCallback(() => window.whd.explain(facts), [facts]);
   const onSent = useCallback((email) => {
     closeReport();
@@ -191,7 +190,7 @@ function HelperApp() {
           <div className="foot-actions">
             {reportEnabled && (
               <button ref={explainButton} className="foot-btn" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
-                <Icon name="comment" size={12} /> Explain my results
+                <Icon name="sparkles" size={12} /> Explain my results
               </button>
             )}
             <button ref={reportButton} className="foot-btn" onClick={openReport} disabled={dialogOpen}>
@@ -209,7 +208,7 @@ function HelperApp() {
         <ReportDialog enabled={reportEnabled} onClose={closeReport} onSend={sendReport} onSent={onSent} />
       )}
       {explainOpen && (
-        <ExplainDialog getPreview={explainPreview} onExplain={explain} onClose={closeExplain} />
+        <ExplainDialog onExplain={explain} onClose={closeExplain} />
       )}
     </div>
   );

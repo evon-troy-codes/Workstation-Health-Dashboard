@@ -7,6 +7,9 @@ const ICONS = {
   cloud: <path d="M17 18a4 4 0 0 0 .6-7.95A6 6 0 0 0 7.4 8.5 4 4 0 0 0 7 16.5"/>,
   house: <path d="M3 12 12 3l9 9M5 10v10h14V10"/>,
   comment: <path d="M21 12a8 8 0 1 1-3.05-6.29L21 4l-1.06 3.7A8 8 0 0 1 21 12Z"/>,
+  // The common "AI" mark: a large four-pointed star and a small one, filled
+  // (outlines blur into a blob at button size).
+  sparkles: <g fill="currentColor" strokeWidth="1"><path d="M10 4Q11 12 19 13.5Q11 15 10 23Q9 15 1 13.5Q9 12 10 4Z"/><path d="M19 1Q19.5 4.5 23 5Q19.5 5.5 19 9Q18.5 5.5 15 5Q18.5 4.5 19 1Z"/></g>,
   envelope: <path d="M3 7l9 6 9-6M3 7v10h18V7M3 7l9 6 9-6"/>,
   bell: <path d="M6 19h12l-1.6-2A8 8 0 0 0 18 11a6 6 0 0 0-12 0c0 2.3-.5 4.4-1.4 6L6 19zm6 2a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2z"/>,
   phone: <path d="M5 4h3l2 5-2 1a11 11 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>,

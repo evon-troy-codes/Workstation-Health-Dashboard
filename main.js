@@ -149,13 +149,8 @@ if (!gotLock) {
       return sendReport(REPORT_ENDPOINT, { email: to, report: buildReport(lastFacts, lastDeferred, fromRenderer) });
     });
 
-    // "Explain my results": the AI assessment. The preview returns exactly
-    // what would be sent, so the dialog can show it before anything leaves;
-    // explaining sends it to the report mailer's /explain.
-    handle("whd:explain-preview", (fromRenderer) => {
-      if (!lastFacts) return null;
-      return buildAiScan(buildReport(lastFacts, lastDeferred, fromRenderer));
-    });
+    // "Explain my results": the AI assessment. Sends buildAiScan's copy of
+    // the scan (identifying details removed) to the report mailer's /explain.
     handle("whd:explain", async (fromRenderer) => {
       if (!lastFacts) return { ok: false, reason: "no-scan" };
       const scan = buildAiScan(buildReport(lastFacts, lastDeferred, fromRenderer));

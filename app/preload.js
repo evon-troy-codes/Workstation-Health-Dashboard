@@ -15,9 +15,8 @@ contextBridge.exposeInMainWorld("whd", {
   sendReport: (facts, email) => ipcRenderer.invoke("whd:send-report", facts, email),
   // Whether this build has a report endpoint to email reports through.
   reportEnabled: () => ipcRenderer.invoke("whd:report-enabled"),
-  // "Explain my results": what would be sent to the AI (identifying details
-  // removed), and the AI's assessment. Main builds both from its own scan and
-  // takes only facts.bandwidth from here.
-  explainPreview: (facts) => ipcRenderer.invoke("whd:explain-preview", facts),
+  // "Explain my results": the AI's assessment of the scan. Main builds what is
+  // sent from its own scan (identifying details removed) and takes only
+  // facts.bandwidth from here.
   explain: (facts) => ipcRenderer.invoke("whd:explain", facts),
 });

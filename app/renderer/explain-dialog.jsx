@@ -1,9 +1,10 @@
 // explain-dialog.jsx — "Explain my results": an AI assessment of the scan.
 //
-// Nothing is sent until the user clicks Explain. Before that the dialog shows
-// exactly what would be sent (main's buildAiScan: readings only, nothing that
-// identifies the machine or the person). The answer is labelled as an AI
-// assessment that may be wrong; the fact cards stay the source of truth, so
+// Nothing is sent until the user clicks Explain, and what is sent is main's
+// buildAiScan: readings only, nothing that identifies the machine or the
+// person. The dialog says so in plain words rather than showing the JSON,
+// which means nothing to the people this is for. The answer is labelled as an
+// AI assessment that may be wrong; the fact cards stay the source of truth, so
 // the app itself still reports facts rather than grading them.
 
 import { React } from "./react-globals.js";
@@ -19,21 +20,19 @@ const SEVERITY = {
   ok: { label: "Looks fine", className: "ai-sev-ok" },
 };
 
-// `getPreview()` resolves what would be sent; `onExplain()` resolves main's
-// result ({ ok, summary, findings, model } or { ok: false, reason, … }).
-function ExplainDialog({ getPreview, onExplain, onClose }) {
-  const [preview, setPreview] = useState(null);
+// `onExplain()` resolves main's result ({ ok, summary, findings, model } or
+// { ok: false, reason, … }).
+function ExplainDialog({ onExplain, onClose }) {
   const [state, setState] = useState("intro"); // intro | asking | done | failed
   const [result, setResult] = useState(null);
 
   useEffect(() => {
-    getPreview().then(setPreview, () => setPreview(null));
     const onKey = (e) => {
       if (e.key === "Escape") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [getPreview, onClose]);
+  }, [onClose]);
 
   const explain = async () => {
     setState("asking");
@@ -51,7 +50,7 @@ function ExplainDialog({ getPreview, onExplain, onClose }) {
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && state !== "asking") onClose(); }}>
       <div className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="explain-title">
         <div className="dialog-head">
-          <div className="hcard-icon"><Icon name="comment" size={16} /></div>
+          <div className="hcard-icon"><Icon name="sparkles" size={16} /></div>
           <div id="explain-title" className="dialog-title">Explain my results</div>
           <span className="ai-tag">AI</span>
         </div>
@@ -64,10 +63,6 @@ function ExplainDialog({ getPreview, onExplain, onClose }) {
               computer&apos;s name, your username, network addresses and device
               names) are removed before anything is sent.
             </p>
-            <details className="ai-preview">
-              <summary>What gets sent</summary>
-              <pre>{preview ? JSON.stringify(preview, null, 2) : "Loading…"}</pre>
-            </details>
             <p className="dialog-note">
               The AI can be wrong. The cards on the dashboard show the actual readings.
             </p>
@@ -115,7 +110,7 @@ function ExplainDialog({ getPreview, onExplain, onClose }) {
           </button>
           {(state === "intro" || state === "failed") && (
             <button type="button" className="dialog-primary" onClick={explain}>
-              <Icon name="comment" size={12} /> {state === "failed" ? "Try again" : "Explain"}
+              <Icon name="sparkles" size={12} /> {state === "failed" ? "Try again" : "Explain"}
             </button>
           )}
         </div>

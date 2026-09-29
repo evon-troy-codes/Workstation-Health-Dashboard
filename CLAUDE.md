@@ -127,7 +127,10 @@ keeps working.
   for a summary and up to five findings in a fixed JSON schema. What leaves
   the machine is `buildAiScan` in `app/main/report.js`, an allow-list with
   nothing identifying; the Worker filters again (`sanitizeScan`). Opt-in per
-  click, the payload shown first, the answer labelled as AI. Keep all three.
+  click, and the answer labelled as AI: keep both. The dialog says in plain
+  words that identifying details are removed; it no longer shows the JSON
+  payload (removed 2026-09-29: users aren't technical and it meant nothing
+  to them).
   The Anthropic key is a Worker secret, never in the app.
 - **No persistent PowerShell on Windows.** systeminformation's
   `si.powerShellStart()` (one shared session instead of a PowerShell per
