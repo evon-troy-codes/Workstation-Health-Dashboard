@@ -21,9 +21,26 @@ ALLOWED_DOMAINS = ""
 # The key is a secret: npx wrangler secret put ANTHROPIC_API_KEY
 AI_MODEL = "claude-opus-5-5"
 AI_EFFORT = "medium"
+# Caps on AI explanations across all callers, so an abused /explain can't
+# spend more than a known amount (src/budget.js). Both count in UTC. At about
+# 3-4 cents a call on Opus 5.5, 100 a month stays under $5. The daily cap stops
+# one burst of abuse using up the month on its first day. "0" turns /explain
+# off. Keep the spend limit in the Anthropic console as the hard ceiling.
+AI_MONTHLY_LIMIT = "100"
+AI_DAILY_LIMIT = "10"
 
 # Five reports a minute per client IP, and per recipient address.
 [[ratelimits]]
 name = "RATE_LIMITER"
 namespace_id = "1001"
 simple = { limit = 5, period = 60 }
+
+# The AI budget counter: one Durable Object that every /explain call goes
+# through. SQLite-backed, which the Workers free plan supports.
+[[durable_objects.bindings]]
+name = "AI_BUDGET"
+class_name = "AiBudget"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["AiBudget"]

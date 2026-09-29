@@ -4,6 +4,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "./index.js";
 import { sanitizeScan, shapeAnswer, DEFAULT_MODEL } from "./explain.js";
+import { budgetBinding } from "./budget.test.js";
 
 // A scan as the app sends it: already stripped of identifying fields. Any it
 // did carry (as in `leaky` below) must still never reach the model.
@@ -148,6 +149,34 @@ test("POST /explain", async (t) => {
     assert.deepEqual(statuses, [200, 200, 429]);
     assert.ok(e.RATE_LIMITER.keys.has("ai:198.51.100.7"));
     assert.ok(![...e.RATE_LIMITER.keys.keys()].some((k) => k.startsWith("ip:")));
+  });
+
+  await t.test("stops calling Claude once the AI budget is spent", async () => {
+    const api = anthropic();
+    const e = env({ AI_BUDGET: budgetBinding(), AI_DAILY_LIMIT: "2" });
+    const results = [];
+    for (let i = 0; i < 3; i++) results.push(await answerOf(await handleRequest(post({ scan }), e, api)));
+    assert.deepEqual(results.map((r) => r.status), [200, 200, 429]);
+    assert.deepEqual(results[2].body, { ok: false, error: "ai-daily-limit" });
+    assert.equal(api.calls.length, 2);
+    const monthly = env({ AI_BUDGET: budgetBinding(), AI_MONTHLY_LIMIT: "1" });
+    await handleRequest(post({ scan }), monthly, api);
+    assert.deepEqual(await answerOf(await handleRequest(post({ scan }), monthly, api)),
+      { status: 429, body: { ok: false, error: "ai-monthly-limit" } });
+  });
+
+  await t.test("refuses rather than calls Claude when the budget can't be checked", async () => {
+    const api = anthropic();
+    const AI_BUDGET = { idFromName: (n) => n, get: () => ({ fetch: async () => { throw new Error("overloaded"); } }) };
+    assert.deepEqual(await answerOf(await handleRequest(post({ scan }), env({ AI_BUDGET }), api)),
+      { status: 503, body: { ok: false, error: "ai-busy" } });
+    assert.equal(api.calls.length, 0);
+  });
+
+  await t.test("checks the per-IP limit before spending from the budget", async () => {
+    const e = env({ RATE_LIMITER: limiter(1), AI_BUDGET: budgetBinding(), AI_DAILY_LIMIT: "5" });
+    for (let i = 0; i < 3; i++) await handleRequest(post({ scan }), e, anthropic());
+    assert.equal(e.AI_BUDGET.store.get("usage").monthCount, 1);
   });
 
   await t.test("reports a refusal, a cut-off answer and a malformed answer as errors", async () => {

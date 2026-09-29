@@ -46,6 +46,8 @@ export function explainFailure(res) {
     case "not-configured": return "The AI service isn't set up yet.";
     case "rate-limited":
     case "ai-busy": return "The AI service is busy. Try again in a minute.";
+    case "ai-daily-limit": return "AI explanations have reached today's limit. Try again tomorrow.";
+    case "ai-monthly-limit": return "AI explanations have reached this month's limit.";
     case "ai-refused": return "The AI declined to assess this scan.";
     case "ai-unreachable": return "The AI service couldn't reach the AI model. Try again in a moment.";
     default: return "Couldn't get an explanation. Try again in a moment.";

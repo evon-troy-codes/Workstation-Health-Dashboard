@@ -64,6 +64,7 @@ async function underLimit(env, key) {
 }
 
 import { explainScan } from "./explain.js";
+import { spendAiBudget } from "./budget.js";
 
 async function handleRequest(request, env, fetchImpl = fetch) {
   if (request.method !== "POST") return json(405, { ok: false, error: "method-not-allowed" });
@@ -87,6 +88,16 @@ async function handleRequest(request, env, fetchImpl = fetch) {
     if (!scan || typeof scan !== "object" || Array.isArray(scan)) return json(400, { ok: false, error: "invalid-scan" });
     const ip = request.headers.get("CF-Connecting-IP") || "unknown";
     if (!(await underLimit(env, `ai:${ip}`))) return json(429, { ok: false, error: "rate-limited" });
+    // Then the whole Worker's monthly and daily caps (budget.js), which bound
+    // the spend however many addresses call. If the counter can't answer,
+    // refuse.
+    let spent;
+    try {
+      spent = await spendAiBudget(env);
+    } catch (_) {
+      return json(503, { ok: false, error: "ai-busy" });
+    }
+    if (spent) return json(429, { ok: false, error: `ai-${spent === "day" ? "daily" : "monthly"}-limit` });
     // The SDK gets the Worker's own fetch only in tests: handed the global
     // fetch, it would call it detached, which the Workers runtime rejects.
     const out = await explainScan(scan, env, fetchImpl === fetch ? undefined : fetchImpl);
@@ -275,5 +286,9 @@ function base64(str) {
 export default {
   fetch: (request, env) => handleRequest(request, env),
 };
+
+// The Durable Object class behind the AI_BUDGET binding, exported from the
+// main module as Workers requires.
+export { AiBudget } from "./budget.js";
 
 export { handleRequest, renderEmail, normalizeEmail, recipientAllowed, base64, MAX_BODY_BYTES };
