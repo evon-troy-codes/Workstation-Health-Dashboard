@@ -19,7 +19,7 @@ FROM_ADDRESS = "Workstation Scanner <onboarding@resend.dev>"
 ALLOWED_DOMAINS = ""
 # POST /explain (the AI assessment): the Claude model and how hard it thinks.
 # The key is a secret: npx wrangler secret put ANTHROPIC_API_KEY
-AI_MODEL = "claude-opus-5"
+AI_MODEL = "claude-opus-5-5"
 AI_EFFORT = "medium"
 
 # Five reports a minute per client IP, and per recipient address.

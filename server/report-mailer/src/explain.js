@@ -12,7 +12,7 @@
 
 import Anthropic from "@anthropic-ai/sdk";
 
-const DEFAULT_MODEL = "claude-opus-5";
+const DEFAULT_MODEL = "claude-opus-5-5";
 const DEFAULT_EFFORT = "medium";
 const MAX_FINDINGS = 5;
 const MAX_TEXT = 120; // longest string taken from the scan

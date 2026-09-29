@@ -258,12 +258,12 @@ test("explainEndpoint", () => {
 });
 
 test("requestExplanation", async (t) => {
-  const answer = { ok: true, summary: "Mostly fine.", findings: [{ severity: "high", title: "Disk", detail: "95%", fix: "Clean up" }], model: "claude-opus-5" };
+  const answer = { ok: true, summary: "Mostly fine.", findings: [{ severity: "high", title: "Disk", detail: "95%", fix: "Clean up" }], model: "claude-opus-5-5" };
 
   await t.test("posts { scan } and returns the assessment", async () => {
     const fetch = fakeFetch(() => new Response(JSON.stringify(answer), { status: 200 }));
     const res = await requestExplanation("https://mailer.example/explain", { cpu: {} }, fetch);
-    assert.deepEqual(res, { ok: true, summary: "Mostly fine.", findings: answer.findings, model: "claude-opus-5" });
+    assert.deepEqual(res, { ok: true, summary: "Mostly fine.", findings: answer.findings, model: "claude-opus-5-5" });
     assert.deepEqual(JSON.parse(fetch.calls[0].init.body), { scan: { cpu: {} } });
     assert.equal(fetch.calls[0].init.redirect, "error");
   });

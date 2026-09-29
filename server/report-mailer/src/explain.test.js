@@ -97,7 +97,7 @@ test("POST /explain", async (t) => {
     const { url, body, headers } = api.calls[0];
     assert.match(url, /^https:\/\/api\.anthropic\.com\/v1\/messages/);
     assert.equal(headers["x-api-key"], "sk-ant-test");
-    assert.equal(body.model, "claude-opus-5");
+    assert.equal(body.model, "claude-opus-5-5");
     assert.equal(body.fallbacks, "default");
     assert.match(headers["anthropic-beta"], /server-side-fallback-2026-07-01/);
     assert.equal(body.output_config.effort, "medium");
