@@ -142,7 +142,7 @@ async function handleRequest(request, env, fetchImpl = fetch) {
       text,
       attachments: [{
         filename: `workstation-report-${fileSafe(report.hostname)}-${sentAt.toISOString().slice(0, 10)}.json`,
-        content: base64(JSON.stringify(report, null, 2)),
+        content: base64(JSON.stringify(reportAttachment(report), null, 2)),
       }],
     }),
   });
@@ -275,6 +275,60 @@ ${sections.map(([title, rows]) => `<h2 style="margin:20px 0 6px;font-size:15px;c
   return { subject, html, text };
 }
 
+// The attached JSON: the report's known fields only, each typed and capped
+// like the email's text, in the report's own shape. Attaching the caller's
+// JSON as it came let anyone make this Worker mail up to 256 KB of anything,
+// which the fixed email layout exists to prevent. A field the app adds later
+// stays out until it is added here. The network card's MAC address is left
+// out on purpose: IT rarely needs it from a report, and it is a lasting
+// identifier for the machine. So is the Wi-Fi network's name (ssid), which
+// the email never showed.
+function reportAttachment(report) {
+  const r = obj(report);
+  const text = (v) => {
+    if (typeof v !== "string") return null;
+    const t = v.replace(/\s+/g, " ").trim();
+    return t ? t.slice(0, MAX_TEXT) : null;
+  };
+  const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
+  const bool = (v) => (typeof v === "boolean" ? v : null);
+  const each = (a, f) => (Array.isArray(a) ? a.slice(0, MAX_LIST).map((x) => f(obj(x))) : []);
+  const texts = (a) => (Array.isArray(a) ? a.slice(0, MAX_LIST).map(text).filter(Boolean) : []);
+  const cpu = obj(r.cpu), ram = obj(r.ram), disk = obj(r.disk), os = obj(r.os), net = obj(r.network);
+  const bw = obj(r.bandwidth), vpn = obj(r.vpn), power = obj(r.power), audio = obj(r.audio);
+  const apps = obj(r.backgroundApps), display = obj(r.display), av = obj(r.antivirus);
+  return {
+    hostname: text(r.hostname), user: text(r.user), machineType: text(r.machineType),
+    uptime: text(r.uptime), appVersion: text(r.appVersion),
+    os: { name: text(os.name), version: text(os.version), build: text(os.build),
+      pendingUpdates: num(os.pendingUpdates), lastUpdateCheck: text(os.lastUpdateCheck), lastUpdateKind: text(os.lastUpdateKind) },
+    cpu: { model: text(cpu.model), cores: num(cpu.cores), threads: num(cpu.threads), perfCores: num(cpu.perfCores),
+      effCores: num(cpu.effCores), ghz: num(cpu.ghz), ghzKind: text(cpu.ghzKind), arch: text(cpu.arch),
+      family: text(cpu.family), series: text(cpu.series) },
+    ram: { totalGB: num(ram.totalGB), freeGB: num(ram.freeGB), type: text(ram.type), pressure: text(ram.pressure) },
+    disk: { totalGB: num(disk.totalGB), freeGB: num(disk.freeGB), usedPercent: num(disk.usedPercent), ssd: bool(disk.ssd) },
+    display: r.display == null ? null : {
+      count: num(display.count),
+      monitors: each(display.monitors, (m) => ({ name: text(m.name), builtin: bool(m.builtin), main: bool(m.main),
+        resolution: text(m.resolution), refreshRate: text(m.refreshRate), connection: text(m.connection), size: text(m.size) })),
+      resolution: text(display.resolution), refreshRate: text(display.refreshRate), external: bool(display.external),
+      externalCount: num(display.externalCount), externalSize: text(display.externalSize),
+      externalConnection: text(display.externalConnection),
+    },
+    network: { type: text(net.type), interface: text(net.interface), linkSpeed: text(net.linkSpeed), mtu: num(net.mtu),
+      ipv4: text(net.ipv4), ipv6Disabled: bool(net.ipv6Disabled), gateway: text(net.gateway), dns: texts(net.dns),
+      isWired: bool(net.isWired), isVirtual: bool(net.isVirtual) },
+    vpn: { detected: bool(vpn.detected), name: text(vpn.name) },
+    bandwidth: { downMbps: num(bw.downMbps), upMbps: num(bw.upMbps), ping: num(bw.ping), jitter: num(bw.jitter),
+      measuredAt: num(bw.measuredAt), partial: bool(bw.partial), failed: bool(bw.failed) },
+    antivirus: { products: each(av.products, (p) => ({ name: text(p.name), running: bool(p.running), definitionsAge: text(p.definitionsAge) })) },
+    power: { hasBattery: bool(power.hasBattery), batteryLevel: num(power.batteryLevel), onBattery: bool(power.onBattery), plugged: bool(power.plugged) },
+    audio: { output: text(audio.output), input: text(audio.input), headsetClass: text(audio.headsetClass),
+      isWired: bool(audio.isWired), headsetConnected: bool(audio.headsetConnected) },
+    backgroundApps: { runningApps: texts(apps.runningApps), browserExtensions: num(apps.browserExtensions) },
+  };
+}
+
 // UTF-8 → base64, in chunks: String.fromCharCode(...bytes) on a whole report
 // would overflow the argument limit.
 function base64(str) {
@@ -294,4 +348,4 @@ export default {
 // main module as Workers requires.
 export { AiBudget } from "./budget.js";
 
-export { handleRequest, renderEmail, normalizeEmail, recipientAllowed, base64, MAX_BODY_BYTES };
+export { handleRequest, renderEmail, reportAttachment, normalizeEmail, recipientAllowed, base64, MAX_BODY_BYTES };

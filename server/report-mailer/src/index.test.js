@@ -3,7 +3,7 @@
 // the machine.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleRequest, renderEmail, normalizeEmail, recipientAllowed, base64, MAX_BODY_BYTES } from "./index.js";
+import { handleRequest, renderEmail, reportAttachment, normalizeEmail, recipientAllowed, base64, MAX_BODY_BYTES } from "./index.js";
 
 const report = {
   hostname: "WORKSTATION-01",
@@ -74,9 +74,53 @@ test("handleRequest", async (t) => {
     assert.equal(body.from, "Workstation Scanner <reports@example.com>");
     assert.equal(body.subject, "Workstation report: WORKSTATION-01");
     assert.match(body.attachments[0].filename, /^workstation-report-WORKSTATION-01-\d{4}-\d{2}-\d{2}\.json$/);
-    // The attachment is the full report, intact.
+    // The attachment is the report's known fields, rebuilt.
     const attached = JSON.parse(Buffer.from(body.attachments[0].content, "base64").toString("utf8"));
-    assert.deepEqual(attached, report);
+    assert.deepEqual(attached, reportAttachment(report));
+    assert.equal(attached.hostname, "WORKSTATION-01");
+    assert.equal(attached.cpu.model, "Intel Core Ultra 5 236V");
+    assert.deepEqual(attached.backgroundApps.runningApps, ["VS Code", "Chrome"]);
+  });
+
+  await t.test("attaches only known fields, typed and capped: nothing a caller adds rides along", async () => {
+    const send = resend();
+    const junk = {
+      ...report,
+      message: "Your account is locked. Visit https://phish.example to unlock it.",
+      padding: "x".repeat(100_000),
+      cpu: { ...report.cpu, model: "y".repeat(5000), cores: "8", extra: { deep: "hidden" } },
+      network: { ...report.network, mac: "aa:bb:cc:dd:ee:ff", ssid: "HomeWiFi" },
+      backgroundApps: { runningApps: Array(500).fill("App"), browserExtensions: 6 },
+    };
+    await handleRequest(post({ email: "sam@example.com", report: junk }), env(), send);
+    const text = Buffer.from(send.calls[0].body.attachments[0].content, "base64").toString("utf8");
+    const attached = JSON.parse(text);
+    for (const hidden of ["phish.example", "xxxxxxxxxx", "hidden", "aa:bb:cc", "HomeWiFi"]) {
+      assert.ok(!text.includes(hidden), `the attachment carries ${hidden}`);
+    }
+    assert.equal(attached.cpu.model.length, 200);
+    assert.equal(attached.cpu.cores, null);
+    assert.equal(attached.backgroundApps.runningApps.length, 20);
+    assert.ok(text.length < 20_000, `attachment is ${text.length} bytes`);
+  });
+
+  await t.test("reportAttachment keeps every field the app sends", () => {
+    const full = {
+      ...report, machineType: "Dell Inc. Dell Pro 14", uptime: "3 days, 2 hours", appVersion: "1.3.0",
+      os: { ...report.os, build: "4.0.4" },
+      cpu: { ...report.cpu, perfCores: 8, effCores: 0, ghz: 4.7, ghzKind: "max", arch: "x64" },
+      display: { count: 1, monitors: [{ name: "Built-in display", builtin: true, main: false, resolution: "1920 × 1200", refreshRate: "60 Hz", connection: "eDP-1", size: '14"' }] },
+      network: { ...report.network, mtu: 1500, ipv6Disabled: false, isWired: false, isVirtual: false },
+      bandwidth: { ...report.bandwidth, measuredAt: 1790000000000, partial: false },
+      power: { ...report.power, onBattery: false },
+    };
+    const a = reportAttachment(full);
+    assert.equal(a.os.build, "4.0.4");
+    assert.deepEqual(a.cpu, { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8, perfCores: 8, effCores: 0, ghz: 4.7, ghzKind: "max", arch: "x64", family: null, series: null });
+    assert.deepEqual(a.display.monitors[0], full.display.monitors[0]);
+    assert.equal(a.network.mtu, 1500);
+    assert.equal(a.bandwidth.measuredAt, 1790000000000);
+    assert.deepEqual(a.antivirus.products, report.antivirus.products);
   });
 
   await t.test("refuses anything but POST", async () => {

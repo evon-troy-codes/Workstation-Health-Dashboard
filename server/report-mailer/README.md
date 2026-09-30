@@ -3,7 +3,7 @@
 A Cloudflare Worker that emails a Workstation Scanner report to the address the
 user types into the app's **Send report** dialog. The app POSTs
 `{ email, report }` here; the Worker lays the report out as an email, attaches
-the full report as JSON, and sends it through [Resend](https://resend.com).
+the report's known fields as JSON, and sends it through [Resend](https://resend.com).
 
 The Resend API key lives only in the Worker, as a secret. It is never built into
 the app: the repo is public and the installers can be unpacked.
@@ -33,8 +33,11 @@ Anyone can call this endpoint, and it sends mail to an address the caller
 picks. It is built so that isn't worth abusing:
 
 - The email contains only report fields, escaped, cut to 200 characters each
-  and 20 items per list, in a fixed layout. A caller can't send a message of
-  their own.
+  and 20 items per list, in a fixed layout. The attached JSON is rebuilt from
+  the same known fields, typed and capped the same way, so nothing a caller
+  adds to the report rides along. A caller can't send a message of their own.
+  The network card's MAC address and the Wi-Fi network's name are left out of
+  both.
 - About five reports a minute per client IP, and per recipient address.
   Cloudflare's rate limiting counts per server and syncs in the background, so
   a burst can get a few more through before it starts answering 429. Resend's
