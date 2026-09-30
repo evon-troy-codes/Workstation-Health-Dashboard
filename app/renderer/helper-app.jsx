@@ -342,24 +342,27 @@ function SystemScreen() {
         <KV k={updateInstalled ? "Last update installed" : "Last check"} v={facts.os.lastUpdateCheck} />
       </Card>
 
-      <Card icon="circle-check" title="Antivirus" sub={`${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
-        {facts.antivirus.products.length === 0 && (
-          <KV k="Status" v="No antivirus detected" />
-        )}
-        {facts.antivirus.products.map((p, i) => (
-          <KV key={i} k={p.name} v={
-            // Whether it is actually running leads: a product with fresh
-            // definitions and a stopped daemon is not protecting anything,
-            // and this card is where someone would look to find that out.
-            // Unknown means the product was found installed (by its files)
-            // with no way to see its process, so say what is known.
-            [p.running == null ? "Installed" : p.running ? "Active" : "Inactive",
-             p.version ? `v${p.version}` : null,
-             p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
-              .filter(Boolean).join(" · ")
-          } />
-        ))}
-      </Card>
+      {/* null on Linux when no known product is installed: nothing to report. */}
+      {facts.antivirus && (
+        <Card icon="circle-check" title="Antivirus" sub={`${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
+          {facts.antivirus.products.length === 0 && (
+            <KV k="Status" v="No antivirus detected" />
+          )}
+          {facts.antivirus.products.map((p, i) => (
+            <KV key={i} k={p.name} v={
+              // Whether it is actually running leads: a product with fresh
+              // definitions and a stopped daemon is not protecting anything,
+              // and this card is where someone would look to find that out.
+              // Unknown means the product was found installed (by its files)
+              // with no way to see its process, so say what is known.
+              [p.running == null ? "Installed" : p.running ? "Active" : "Inactive",
+               p.version ? `v${p.version}` : null,
+               p.definitionsAge ? `Virus Definitions ${p.definitionsAge}` : null]
+                .filter(Boolean).join(" · ")
+            } />
+          ))}
+        </Card>
+      )}
 
       <Card icon="microphone" title="Audio" sub={facts.audio.headsetClass}>
         <KV k="Output" v={facts.audio.output} />

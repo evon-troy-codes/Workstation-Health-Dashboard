@@ -254,10 +254,15 @@ test("buildAiScan", async (t) => {
     assert.equal(unknown.cpu.ghzKind, null);
   });
 
+  await t.test("keeps 'none found' apart from 'nothing to report'", () => {
+    assert.deepEqual(buildAiScan({ antivirus: { products: [] } }).antivirus, { products: [] });
+    assert.equal(buildAiScan({ antivirus: null }).antivirus, null);
+  });
+
   await t.test("copes with a report missing whole sections", () => {
     const s = buildAiScan({ hostname: "x" });
     assert.deepEqual(s.display.monitors, []);
-    assert.deepEqual(s.antivirus.products, []);
+    assert.equal(s.antivirus, null, "no antivirus reading is 'not checked', not 'none found'");
     assert.deepEqual(s.backgroundApps.runningApps, []);
     assert.doesNotThrow(() => buildAiScan(null));
   });

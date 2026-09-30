@@ -132,7 +132,8 @@ async function collectFacts() {
     probe(si.networkGatewayDefault(), "", "networkGatewayDefault"),
     probe(si.battery(), {}, "battery"),
     probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
-    probe(detectAntivirus(), { products: [] }, "antivirus"),
+    // On Linux, null (nothing to report) stays null; see linuxAntivirus.
+    probe(detectAntivirus(), process.platform === "linux" ? null : { products: [] }, "antivirus"),
     probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
     probe(detectDnsServers(), [], "dns"),
   ]);
@@ -434,7 +435,8 @@ function cleanAudioName(name) {
 
 // Antivirus detection. systeminformation has no AV API, so this queries the
 // platform directly: Windows Security Center (where McAfee/Norton/etc register)
-// on Windows, and known app bundles on macOS. Returns the FACTS.antivirus shape:
+// on Windows, known app bundles on macOS, and known products on Linux. Returns
+// the FACTS.antivirus shape, or null on Linux when there's nothing to report:
 //   { products: [{ name, version, running, updated, definitionsAge }] }
 // running/updated are null when the platform gives no way to know.
 function detectAntivirus() {
@@ -496,9 +498,13 @@ const LINUX_AV = [
   { name: "Microsoft Defender", marker: "/opt/microsoft/mdatp/sbin/wdavdaemon", daemons: ["wdavdaemon"] },
 ];
 
+// null when none of them is installed: antivirus is rare on a personal Linux
+// machine, so "none found" there is nothing to report, and the card, the
+// emailed report and the AI leave antivirus out rather than flag its absence.
+// A work machine running one of these still reports it.
 async function linuxAntivirus() {
   const installed = LINUX_AV.filter((p) => exists(p.marker));
-  if (!installed.length) return { products: [] };
+  if (!installed.length) return null;
   const running = runningProcessNames(
     new Set(installed.flatMap((p) => p.daemons.map((d) => d.slice(0, 15)))),
   );
