@@ -158,8 +158,10 @@ jobs:
           # update-alternatives entry, not just try to.
           test ! -e /usr/bin/workstation-scanner && test ! -L /usr/bin/workstation-scanner
 
-      # The NSIS installer as a user runs it, silently: a per-user install to
-      # %LOCALAPPDATA%\Programs, no admin prompt. The installed app must render
+      # The NSIS installer as a user runs it, silently, with no admin prompt.
+      # Where it installed, and how to remove it quietly, come from the entry
+      # it registers under Uninstall in the registry (the one Settings → Apps
+      # reads), which this also proves is there. The installed app must render
       # and scan (the self-test), and the uninstaller must remove it.
       - name: Install and launch the installer (Windows)
         if: runner.os == 'Windows' && github.event_name != 'pull_request'
@@ -168,18 +170,29 @@ jobs:
           $installer = Get-ChildItem dist\*.exe | Select-Object -First 1
           Write-Host "installing $($installer.Name)"
           Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
-          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Workstation Scanner'
-          $exe = Join-Path $dir 'Workstation Scanner.exe'
-          if (-not (Test-Path $exe)) { Write-Error "not installed at $exe"; exit 1 }
+          $keys = 'HKCU:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*',
+                  'HKLM:\Software\Microsoft\Windows\CurrentVersion\Uninstall\*'
+          $entry = Get-ItemProperty $keys -ErrorAction SilentlyContinue |
+            Where-Object { $_.DisplayName -like 'Workstation Scanner*' } | Select-Object -First 1
+          if (-not $entry) {
+            Get-ChildItem "$env:LOCALAPPDATA\Programs", $env:ProgramFiles -Recurse -Filter 'Workstation Scanner.exe' -ErrorAction SilentlyContinue |
+              ForEach-Object { Write-Host "found $($_.FullName)" }
+            Write-Error 'no Uninstall entry for Workstation Scanner in the registry'; exit 1
+          }
+          Write-Host "installed $($entry.DisplayName) $($entry.DisplayVersion) at $($entry.InstallLocation)"
+          $exe = Join-Path $entry.InstallLocation 'Workstation Scanner.exe'
+          if (-not (Test-Path $exe)) { Write-Error "no app at $exe"; exit 1 }
           $env:WHD_SELFTEST_FILE = Join-Path $env:RUNNER_TEMP 'selftest.json'
-          $app = Start-Process -FilePath $exe -PassThru
+          Start-Process -FilePath $exe | Out-Null
           node tools/check-selftest.js $env:WHD_SELFTEST_FILE 90 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
           $ok = $LASTEXITCODE
           Get-Process -Name 'Workstation Scanner' -ErrorAction SilentlyContinue | Stop-Process -Force
           if ($ok -ne 0) { exit $ok }
           # The uninstaller copies itself to a temp folder and returns at once,
-          # so wait for the app's folder to go.
-          Start-Process -FilePath (Join-Path $dir 'Uninstall Workstation Scanner.exe') -ArgumentList '/S' -Wait
+          # so wait for the app to go.
+          $quiet = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { "$($entry.UninstallString) /S" }
+          Write-Host "uninstalling: $quiet"
+          cmd /c $quiet
           for ($i = 0; $i -lt 60 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
           if (Test-Path $exe) { Write-Error "the uninstaller left $exe behind"; exit 1 }
 
