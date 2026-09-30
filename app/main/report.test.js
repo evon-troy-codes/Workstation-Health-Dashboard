@@ -107,6 +107,13 @@ test("errorDetail", async (t) => {
 });
 
 test("buildReport", async (t) => {
+  await t.test("keeps the MAC address and the Wi-Fi name on the machine", () => {
+    const facts = { hostname: "host", network: { interface: "wlan0", ipv4: "192.168.1.9", mac: "aa:bb:cc:dd:ee:ff", ssid: "Home" } };
+    const report = buildReport(facts, null, {});
+    assert.deepEqual(report.network, { interface: "wlan0", ipv4: "192.168.1.9" });
+    assert.equal(facts.network.mac, "aa:bb:cc:dd:ee:ff", "the scan itself is left as it was");
+  });
+
   const scanned = {
     hostname: "host",
     os: { name: "Windows", pendingUpdates: null, lastUpdateCheck: "Checking…", lastUpdateKind: null },

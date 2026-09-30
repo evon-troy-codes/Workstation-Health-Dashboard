@@ -104,8 +104,8 @@ function ReportDialog({ enabled, onClose, onSend, onSent }) {
             {error && <div className="dialog-error" role="alert">{error}</div>}
             <p id="report-dialog-note" className="dialog-note">
               The report includes this computer&apos;s name, your username, and its
-              IP and MAC addresses. It is sent to the report service, which
-              emails it to this address.
+              IP address. It is sent to the report service, which emails it to
+              this address.
             </p>
           </>
         )}

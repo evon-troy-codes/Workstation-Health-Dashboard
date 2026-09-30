@@ -59,6 +59,13 @@ function errorDetail(err) {
 // renderer passes is ignored.
 function buildReport(facts, deferred, fromRenderer) {
   const report = { ...facts };
+  // The network card's MAC address and the Wi-Fi network's name stay on this
+  // machine: lasting identifiers IT rarely needs from a report. The report
+  // mailer leaves them out of the email too.
+  if (facts.network) {
+    const { mac, ssid, ...network } = facts.network;
+    report.network = network;
+  }
   if (deferred) {
     report.os = {
       ...facts.os,

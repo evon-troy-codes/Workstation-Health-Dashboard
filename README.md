@@ -99,10 +99,11 @@ removed again when you uninstall).
 ## Emailing reports
 
 **Send report** asks for an email address and emails the report there: a
-readable summary, with the full report attached as JSON. The app sends it to a
+readable summary, with the report attached as JSON. The app sends it to a
 small report service, [`server/report-mailer`](server/report-mailer/), which
 sends the email. The report includes the computer's name, the username, and its
-IP and MAC addresses, and the dialog says so.
+IP address, and the dialog says so. The network card's MAC address and the
+Wi-Fi network's name stay on the machine.
 
 A build only emails reports once the service is deployed and its URL is in
 `package.json` (`workstationScanner.reportUrl`); until then the dialog says

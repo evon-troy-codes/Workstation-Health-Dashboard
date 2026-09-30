@@ -124,8 +124,11 @@ keeps working.
   `{ email, report }` to `server/report-mailer`, a Cloudflare Worker that
   emails it through Resend. The Resend key stays in the Worker, never in the
   public app. The Worker's defences against spam (fixed layout, escaped and
-  capped fields, per-IP and per-recipient rate limits, optional
-  `ALLOWED_DOMAINS`) are deliberate; keep them. The app finds the Worker
+  capped fields, the attached JSON rebuilt from known fields by
+  `reportAttachment`, per-IP and per-recipient rate limits, optional
+  `ALLOWED_DOMAINS`) are deliberate; keep them. A new report field reaches
+  the attachment only once added there. The MAC address and Wi-Fi name are
+  left out of emails on purpose (2026-09-30). The app finds the Worker
   through `workstationScanner.reportUrl` in `package.json`
   (`WHD_REPORT_URL` overrides).
 - **AI "Explain my results"** (prototype): the Worker's `POST /explain` asks
