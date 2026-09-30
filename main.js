@@ -9,6 +9,7 @@
 const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
+const fs = require("fs");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
 const {
   sendReport, buildReport, reportEndpoint, normalizeEmail,
@@ -51,6 +52,40 @@ function handle(channel, fn) {
 let lastFacts = null;
 let lastDeferred = null;
 let scanCount = 0;
+
+// CI's check of an installed build (.github/workflows/ci.yml). The Electron
+// fuses stop a test harness from reaching into the packaged app, so when
+// WHD_SELFTEST_FILE names a file, the app writes to it once the page has
+// asked for the slow scans, which it does only after it has rendered. It says
+// which readings came back, as true/false only: no values, so nothing about
+// the machine is written. Unset, as it is for every user, nothing happens.
+const SELFTEST_FILE = process.env.WHD_SELFTEST_FILE || "";
+
+function writeSelfTest(facts, deferred) {
+  const f = facts || {};
+  const os = f.os || {}, cpu = f.cpu || {}, ram = f.ram || {}, disk = f.disk || {}, net = f.network || {};
+  const d = deferred || {};
+  const known = (v) => typeof v === "string" && v !== "" && v !== "Unknown";
+  const result = {
+    version: app.getVersion(),
+    packaged: app.isPackaged,
+    checks: {
+      rendered: true,
+      osName: known(os.name),
+      cpuModel: known(cpu.model),
+      ramTotal: ram.totalGB > 0,
+      diskTotal: disk.totalGB > 0,
+      networkInterface: known(net.interface),
+      lastUpdateCheck: known(d.lastUpdateCheck),
+      display: Boolean(d.display && d.display.count > 0),
+    },
+  };
+  try {
+    fs.writeFileSync(SELFTEST_FILE, JSON.stringify(result, null, 2));
+  } catch (err) {
+    console.error(`self-test: could not write ${SELFTEST_FILE}: ${err.message}`);
+  }
+}
 
 // Where "Send report" posts the report and the address to email it to:
 // WHD_REPORT_URL, else package.json's workstationScanner.reportUrl. Unset in a
@@ -131,6 +166,7 @@ if (!gotLock) {
       const scan = scanCount;
       const deferred = await detectDeferred();
       if (scan === scanCount) lastDeferred = deferred;
+      if (SELFTEST_FILE && scan === scanCount) writeSelfTest(lastFacts, deferred);
       return deferred;
     });
 
