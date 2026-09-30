@@ -115,9 +115,8 @@ to deploy it. `WHD_REPORT_URL` overrides the built-in URL.
 
 **Explain my results** asks an AI (Claude, by Anthropic) to read the scan and
 explain what matters most, with a fix to try for each point. Nothing is sent
-until you click Explain, and the dialog shows exactly what will be: the
-readings only, with the computer's name, the username, network addresses and
-device names removed. The answer is labelled as an AI assessment; the
+until you click Explain, and what is sent is the readings only, with the
+computer's name, the username, network addresses and device names removed. The answer is labelled as an AI assessment; the
 dashboard cards remain the actual readings.
 
 It runs on the same report service as emailed reports

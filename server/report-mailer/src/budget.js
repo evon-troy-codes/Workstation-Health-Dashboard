@@ -37,13 +37,32 @@ function take(usage, day, limits) {
   return { allowed: true, usage: { day, dayCount: dayCount + 1, month, monthCount: monthCount + 1 } };
 }
 
+// Gives one call back, for a call that never reached Claude. Only to the
+// day and month it was taken from, and never below zero.
+function refund(usage, day) {
+  const u = usage || {};
+  const month = day.slice(0, 7);
+  return {
+    day: u.day, dayCount: u.day === day ? Math.max(0, (u.dayCount || 0) - 1) : u.dayCount,
+    month: u.month, monthCount: u.month === month ? Math.max(0, (u.monthCount || 0) - 1) : u.monthCount,
+  };
+}
+
 class AiBudget {
   constructor(ctx) {
     this.storage = ctx.storage;
   }
 
-  // POST { limits: { month, day } } → { allowed, spent?, usage }.
+  // POST /take { limits: { month, day } } → { allowed, spent?, usage }.
+  // POST /refund → { usage }.
   async fetch(request) {
+    if (new URL(request.url).pathname === "/refund") {
+      const usage = await this.storage.get("usage");
+      if (!usage) return Response.json({ usage: null });
+      const back = refund(usage, utcDay(Date.now()));
+      await this.storage.put("usage", back);
+      return Response.json({ usage: back });
+    }
     const { limits } = await request.json();
     const { allowed, spent, usage } = take(await this.storage.get("usage"), utcDay(Date.now()), limits);
     if (allowed) await this.storage.put("usage", usage);
@@ -80,4 +99,17 @@ async function spendAiBudget(env) {
   return spent === "day" ? "day" : "month";
 }
 
-export { AiBudget, take, utcDay, limitSetting, limitsFrom, spendAiBudget, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT };
+// Gives back the call spendAiBudget took, when it never reached Claude, so
+// an outage or a misconfiguration doesn't use up the day. Best effort: a
+// counter that can't answer keeps the call counted.
+async function refundAiBudget(env) {
+  if (!env.AI_BUDGET) return;
+  try {
+    const stub = env.AI_BUDGET.get(env.AI_BUDGET.idFromName("global"));
+    await stub.fetch("https://ai-budget/refund", { method: "POST" });
+  } catch (_) {
+    /* stays counted */
+  }
+}
+
+export { AiBudget, take, refund, refundAiBudget, utcDay, limitSetting, limitsFrom, spendAiBudget, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT };

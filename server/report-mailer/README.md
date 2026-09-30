@@ -61,9 +61,16 @@ three ways:
   month under about $5 at 3-4 cents a call on Opus 5.5; change them in
   `wrangler.toml`. The daily limit stops one burst of abuse using up the
   month on its first day. If the counter can't be reached, the call is
-  refused (503 `ai-busy`).
-- A spend limit on the Anthropic workspace, set in the Anthropic console. That
-  is the hard ceiling; the caps above keep the Worker well inside it.
+  refused (503 `ai-busy`). A call that never reached Claude (no key, no
+  connection, or an API error such as a rate limit or an empty balance) is
+  given back to the budget, so an outage doesn't use up the day; a call that
+  timed out stays counted, since it may have run.
+- The Anthropic credit itself: prepaid, with auto-reload off, it is the hard
+  ceiling. When it runs out, `/explain` answers 503 `ai-unavailable`, and the
+  app says explanations are unavailable rather than asking to try again.
+
+Each call is one attempt of at most 50 seconds, with no retry, so it always
+ends inside the app's own 60-second wait.
 
 ## Deploy
 

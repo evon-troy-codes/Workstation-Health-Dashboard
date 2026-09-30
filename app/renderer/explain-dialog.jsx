@@ -26,13 +26,15 @@ function ExplainDialog({ onExplain, onClose }) {
   const [state, setState] = useState("intro"); // intro | asking | done | failed
   const [result, setResult] = useState(null);
 
+  // Escape closes the dialog, except while the AI is answering: like the
+  // disabled Close button, it would throw away an answer already paid for.
   useEffect(() => {
     const onKey = (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && state !== "asking") onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, state]);
 
   const explain = async () => {
     setState("asking");

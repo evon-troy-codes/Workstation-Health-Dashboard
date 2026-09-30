@@ -3,7 +3,7 @@
 // clock.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { AiBudget, take, limitSetting, limitsFrom, spendAiBudget, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT } from "./budget.js";
+import { AiBudget, take, refund, refundAiBudget, limitSetting, limitsFrom, spendAiBudget, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT } from "./budget.js";
 
 // A Durable Object namespace holding one AiBudget over in-memory storage, as
 // env.AI_BUDGET sees it.
@@ -99,6 +99,32 @@ test("spendAiBudget", async (t) => {
   await t.test("throws when the counter answers with an error", async () => {
     const AI_BUDGET = { idFromName: (n) => n, get: () => ({ fetch: async () => new Response("", { status: 500 }) }) };
     await assert.rejects(spendAiBudget({ AI_BUDGET }));
+  });
+});
+
+test("refund", async (t) => {
+  await t.test("gives one call back to today and this month", () => {
+    const usage = { day: "2026-09-29", dayCount: 3, month: "2026-09", monthCount: 40 };
+    assert.deepEqual(refund(usage, "2026-09-29"), { day: "2026-09-29", dayCount: 2, month: "2026-09", monthCount: 39 });
+  });
+
+  await t.test("leaves an earlier day's count alone, and never goes below zero", () => {
+    const usage = { day: "2026-09-28", dayCount: 5, month: "2026-09", monthCount: 0 };
+    assert.deepEqual(refund(usage, "2026-09-29"), { day: "2026-09-28", dayCount: 5, month: "2026-09", monthCount: 0 });
+  });
+
+  await t.test("refundAiBudget undoes a spend through the counter", async () => {
+    const env = { AI_BUDGET: budgetBinding(), AI_DAILY_LIMIT: "1" };
+    assert.equal(await spendAiBudget(env), null);
+    assert.equal(await spendAiBudget(env), "day");
+    await refundAiBudget(env);
+    assert.equal(await spendAiBudget(env), null);
+    await refundAiBudget({}); // no binding: nothing to do
+  });
+
+  await t.test("a counter that can't answer keeps the call counted, without throwing", async () => {
+    const AI_BUDGET = { idFromName: (n) => n, get: () => ({ fetch: async () => { throw new Error("down"); } }) };
+    await refundAiBudget({ AI_BUDGET });
   });
 });
 

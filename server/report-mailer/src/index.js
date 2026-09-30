@@ -64,7 +64,7 @@ async function underLimit(env, key) {
 }
 
 import { explainScan } from "./explain.js";
-import { spendAiBudget } from "./budget.js";
+import { spendAiBudget, refundAiBudget } from "./budget.js";
 
 async function handleRequest(request, env, fetchImpl = fetch) {
   if (request.method !== "POST") return json(405, { ok: false, error: "method-not-allowed" });
@@ -101,6 +101,9 @@ async function handleRequest(request, env, fetchImpl = fetch) {
     // The SDK gets the Worker's own fetch only in tests: handed the global
     // fetch, it would call it detached, which the Workers runtime rejects.
     const out = await explainScan(scan, env, fetchImpl === fetch ? undefined : fetchImpl);
+    // A call that never reached Claude costs nothing, so it shouldn't use up
+    // the budget: an outage would otherwise spend the day on retries.
+    if (out.billed === false) await refundAiBudget(env);
     return json(out.status, out.body);
   }
 

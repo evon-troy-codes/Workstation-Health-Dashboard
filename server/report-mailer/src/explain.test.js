@@ -43,15 +43,17 @@ const answer = {
 };
 
 // The Anthropic Messages API, stubbed: records each request and answers with
-// `reply(body)` (a message object), or a status + error body.
-function anthropic({ reply = () => message(JSON.stringify(answer)), status = 200 } = {}) {
+// `reply(body)` (a message object), or a status + error body, or (with
+// `unreachable`) fails to connect.
+function anthropic({ reply = () => message(JSON.stringify(answer)), status = 200, errorType = "api_error", errorMessage = "stub", unreachable = false } = {}) {
   const calls = [];
   const fn = async (url, init) => {
     const body = JSON.parse(init.body);
     const headers = Object.fromEntries(new Headers(init.headers));
     calls.push({ url: String(url), body, headers });
+    if (unreachable) throw new TypeError("fetch failed");
     if (status !== 200) {
-      return new Response(JSON.stringify({ type: "error", error: { type: "api_error", message: "stub" } }),
+      return new Response(JSON.stringify({ type: "error", error: { type: errorType, message: errorMessage } }),
         { status, headers: { "content-type": "application/json" } });
     }
     return new Response(JSON.stringify(reply(body)), { status: 200, headers: { "content-type": "application/json" } });
@@ -179,6 +181,47 @@ test("POST /explain", async (t) => {
     assert.equal(e.AI_BUDGET.store.get("usage").monthCount, 1);
   });
 
+  await t.test("says the AI is unavailable, not 'try again', when the credit has run out", async () => {
+    for (const api of [
+      anthropic({ status: 402, errorType: "billing_error", errorMessage: "billing" }),
+      anthropic({ status: 400, errorType: "invalid_request_error", errorMessage: "Your credit balance is too low to access the Anthropic API." }),
+    ]) {
+      assert.deepEqual(await answerOf(await handleRequest(post({ scan }), env(), api)),
+        { status: 503, body: { ok: false, error: "ai-unavailable" } });
+    }
+  });
+
+  await t.test("gives the budget back when Claude was never reached", async () => {
+    const cases = [
+      [env({ ANTHROPIC_API_KEY: "" }), anthropic(), "not-configured"],
+      [env(), anthropic({ unreachable: true }), "ai-unreachable"],
+      [env(), anthropic({ status: 402, errorType: "billing_error" }), "ai-unavailable"],
+      [env(), anthropic({ status: 429, errorType: "rate_limit_error" }), "ai-busy"],
+      [env(), anthropic({ status: 500 }), "ai-failed"],
+    ];
+    for (const [e, api, error] of cases) {
+      const AI_BUDGET = budgetBinding();
+      const res = await answerOf(await handleRequest(post({ scan }), { ...e, AI_BUDGET, AI_DAILY_LIMIT: "1" }, api));
+      assert.equal(res.body.error, error);
+      assert.equal(AI_BUDGET.store.get("usage").dayCount, 0, `${error} should not use up the budget`);
+      assert.equal(AI_BUDGET.store.get("usage").monthCount, 0);
+    }
+  });
+
+  await t.test("keeps the budget spent when Claude answered, even with an unusable answer", async () => {
+    for (const reply of [() => message(JSON.stringify(answer)), () => message("", "refusal"), () => message("not json")]) {
+      const AI_BUDGET = budgetBinding();
+      await handleRequest(post({ scan }), env({ AI_BUDGET }), anthropic({ reply }));
+      assert.equal(AI_BUDGET.store.get("usage").dayCount, 1);
+    }
+  });
+
+  await t.test("makes one attempt, with no retry that could outlast the app's wait", async () => {
+    const api = anthropic({ status: 529, errorType: "overloaded_error" });
+    await handleRequest(post({ scan }), env(), api);
+    assert.equal(api.calls.length, 1);
+  });
+
   await t.test("reports a refusal, a cut-off answer and a malformed answer as errors", async () => {
     const cases = [
       [() => message("", "refusal"), "ai-refused"],
@@ -212,6 +255,13 @@ test("sanitizeScan and shapeAnswer", async (t) => {
     assert.equal(s.cpu.cores, null);
     assert.equal(s.backgroundApps.running.length, 20);
     assert.deepEqual(sanitizeScan(null).displays, []);
+  });
+
+  await t.test("sends the CPU speed with its kind, and no speed rather than 0", () => {
+    assert.deepEqual(sanitizeScan({ cpu: { ghz: 4.7, ghzKind: "max" } }).cpu,
+      { model: null, cores: null, threads: null, ghz: 4.7, ghzKind: "max" });
+    assert.deepEqual(sanitizeScan({ cpu: { ghz: 0, ghzKind: "turbo" } }).cpu,
+      { model: null, cores: null, threads: null, ghz: null, ghzKind: null });
   });
 
   await t.test("keeps at most five well-formed findings", () => {

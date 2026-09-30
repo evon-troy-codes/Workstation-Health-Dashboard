@@ -203,7 +203,7 @@ test("classifyReportError reads undici's connect timeout as a timeout", () => {
 const fullReport = {
   hostname: "EVONS-LAPTOP", user: "evon", uptime: "3 days, 2 hours", appVersion: "1.2.0",
   machineType: "Dell Inc. Dell Pro 14 Plus PB14250",
-  cpu: { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8, perfCores: 8, effCores: 0, ghz: 4.7 },
+  cpu: { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8, perfCores: 8, effCores: 0, ghz: 4.7, ghzKind: "max" },
   ram: { totalGB: 16, freeGB: 1.2, type: "LPDDR5", pressure: "High" },
   disk: { totalGB: 262, freeGB: 12, usedPercent: 95, ssd: true },
   display: { count: 1, monitors: [{ name: "Evon's monitor", builtin: false, main: true, resolution: "5120 × 1440",
@@ -238,6 +238,13 @@ test("buildAiScan", async (t) => {
     assert.deepEqual(s.vpn, { detected: true });
     assert.deepEqual(s.audio, { headsetClass: "Bluetooth" });
     assert.deepEqual(s.antivirus.products, [{ name: "ClamAV", running: true, definitionsAge: "2 hours" }]);
+  });
+
+  await t.test("sends the CPU speed with its kind, and no speed when neither clock is known", () => {
+    assert.deepEqual(buildAiScan(fullReport).cpu, { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8, ghz: 4.7, ghzKind: "max" });
+    const unknown = buildAiScan({ ...fullReport, cpu: { ...fullReport.cpu, ghz: 0, ghzKind: null } });
+    assert.equal(unknown.cpu.ghz, null);
+    assert.equal(unknown.cpu.ghzKind, null);
   });
 
   await t.test("copes with a report missing whole sections", () => {
