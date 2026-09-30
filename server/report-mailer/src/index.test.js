@@ -104,6 +104,15 @@ test("handleRequest", async (t) => {
     assert.ok(text.length < 20_000, `attachment is ${text.length} bytes`);
   });
 
+  await t.test("leaves antivirus out when the app had nothing to report", () => {
+    const { text, html } = renderEmail({ ...report, antivirus: null });
+    assert.ok(!/Antivirus|Security/.test(text), "no antivirus section in the text");
+    assert.ok(!/Antivirus|Security/.test(html), "no antivirus section in the HTML");
+    assert.equal(reportAttachment({ ...report, antivirus: null }).antivirus, null);
+    // "None found" on Windows or macOS is still a reading, and still shown.
+    assert.match(renderEmail({ ...report, antivirus: { products: [] } }).text, /Antivirus: None detected/);
+  });
+
   await t.test("reportAttachment keeps every field the app sends", () => {
     const full = {
       ...report, machineType: "Dell Inc. Dell Pro 14", uptime: "3 days, 2 hours", appVersion: "1.3.0",

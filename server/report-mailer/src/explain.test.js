@@ -257,6 +257,12 @@ test("sanitizeScan and shapeAnswer", async (t) => {
     assert.deepEqual(sanitizeScan(null).displays, []);
   });
 
+  await t.test("passes 'nothing to report' antivirus on as null, and 'none found' as an empty list", () => {
+    assert.equal(sanitizeScan({ antivirus: null }).antivirus, null);
+    assert.equal(sanitizeScan({}).antivirus, null);
+    assert.deepEqual(sanitizeScan({ antivirus: { products: [] } }).antivirus, []);
+  });
+
   await t.test("sends the CPU speed with its kind, and no speed rather than 0", () => {
     assert.deepEqual(sanitizeScan({ cpu: { ghz: 4.7, ghzKind: "max" } }).cpu,
       { model: null, cores: null, threads: null, ghz: 4.7, ghzKind: "max" });

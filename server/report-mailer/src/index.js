@@ -230,13 +230,14 @@ function reportSections(r) {
       ["Upload", num(bw.upMbps, "Mbps")],
       ["Ping / jitter", `${num(bw.ping, "ms")} / ${num(bw.jitter, "ms")}`],
     ]],
-    ["Security", av.length
+    // No section when the app had nothing to report (Linux with none installed).
+    ...(r.antivirus == null ? [] : [["Security", av.length
       ? av.slice(0, MAX_LIST).map((p) => {
         const q = obj(p);
         const state = q.running == null ? "Installed" : q.running ? "Active" : "Inactive";
         return [val(q.name), q.definitionsAge ? `${state} · definitions ${val(q.definitionsAge)}` : state];
       })
-      : [["Antivirus", "None detected"]]],
+      : [["Antivirus", "None detected"]]]]),
     ["Audio, power and apps", [
       ["Audio output", `${val(audio.output)} (${val(audio.headsetClass)})`],
       ["Audio input", val(audio.input)],
@@ -321,7 +322,7 @@ function reportAttachment(report) {
     vpn: { detected: bool(vpn.detected), name: text(vpn.name) },
     bandwidth: { downMbps: num(bw.downMbps), upMbps: num(bw.upMbps), ping: num(bw.ping), jitter: num(bw.jitter),
       measuredAt: num(bw.measuredAt), partial: bool(bw.partial), failed: bool(bw.failed) },
-    antivirus: { products: each(av.products, (p) => ({ name: text(p.name), running: bool(p.running), definitionsAge: text(p.definitionsAge) })) },
+    antivirus: r.antivirus == null ? null : { products: each(av.products, (p) => ({ name: text(p.name), running: bool(p.running), definitionsAge: text(p.definitionsAge) })) },
     power: { hasBattery: bool(power.hasBattery), batteryLevel: num(power.batteryLevel), onBattery: bool(power.onBattery), plugged: bool(power.plugged) },
     audio: { output: text(audio.output), input: text(audio.input), headsetClass: text(audio.headsetClass),
       isWired: bool(audio.isWired), headsetConnected: bool(audio.headsetConnected) },

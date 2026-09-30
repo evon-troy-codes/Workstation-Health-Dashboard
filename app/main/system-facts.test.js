@@ -1281,7 +1281,9 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
   // Types the renderer calls methods on.
   assert.ok(Array.isArray(facts.network.dns), "network.dns must be an array");
-  assert.ok(Array.isArray(facts.antivirus.products), "antivirus.products must be an array");
+  // null only on Linux, when no known product is installed: the card is hidden.
+  assert.ok(facts.antivirus === null ? process.platform === "linux" : Array.isArray(facts.antivirus.products),
+    "antivirus must be { products: [] }, or null on Linux");
 
   // Filled in by detectDeferred after first paint; null means "still checking".
   assert.equal(facts.backgroundApps, null);
