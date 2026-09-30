@@ -152,6 +152,14 @@ keeps working.
   call) hung on every attempt on windows-latest (4 of 4, past 120 s), while
   the default mode's first scan took ~4 s. Don't adopt it. The benchmark is
   `tools/bench-scan.js` on branch `experiment/ps-session`.
+- **CI installs and starts every installer but the AppImage and the Intel
+  .dmg** on packaging runs (push to `main`, or Run workflow): the `.deb`,
+  the Windows NSIS installer (silent, then uninstalled) and the Apple
+  silicon `.dmg`. The fuses stop a harness reaching into a packaged app, so
+  the app checks itself: with `WHD_SELFTEST_FILE` set, `main.js` writes
+  true/false per reading (never values) once it has rendered and scanned,
+  and `tools/check-selftest.js` asserts it. SmartScreen and Gatekeeper
+  aren't exercised (they act only on browser downloads).
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 

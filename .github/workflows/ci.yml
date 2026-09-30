@@ -2,10 +2,14 @@
 # launch of the real app (tools/smoke.js). Pushes to main and manual runs also
 # package an installer per OS and keep it as an artifact of the run.
 #
-# A green run means the app starts from source on that OS. On Linux, packaging
-# runs also install the .deb and launch it the way a user would; the Windows
-# and macOS installers and the AppImage are produced but not exercised, so try
-# them by hand from the run's artifacts.
+# A green run means the app starts from source on that OS. Packaging runs also
+# install each installer and start the installed app the way a user would:
+# the .deb on Ubuntu, the NSIS installer on Windows and the Apple silicon .dmg
+# on macOS. The installed app proves it rendered and scanned through
+# WHD_SELFTEST_FILE (main.js; true/false per reading, no values), checked by
+# tools/check-selftest.js. Not exercised: the AppImage, the Intel .dmg, and
+# SmartScreen and Gatekeeper, which only act on files a browser downloaded, so
+# try those by hand from the run's artifacts.
 #
 # The macOS build is ad-hoc signed, not signed with an Apple Developer ID, so
 # the first open needs Privacy & Security → Open Anyway.
@@ -135,7 +139,7 @@ jobs:
           test -f /etc/apparmor.d/workstation-scanner
           echo "chrome-sandbox mode: $(stat -c '%a' '/opt/Workstation Scanner/chrome-sandbox')"
           set +e
-          xvfb-run --auto-servernum timeout 20 workstation-scanner > app.log 2>&1
+          WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json" xvfb-run --auto-servernum timeout 30 workstation-scanner > app.log 2>&1
           code=$?
           set -e
           cat app.log
@@ -147,11 +151,62 @@ jobs:
             echo "::error::the installed app logged a FATAL error"
             exit 1
           fi
+          node tools/check-selftest.js "$RUNNER_TEMP/selftest.json" 0 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
           sudo apt-get remove -y workstation-scanner
           test ! -e /etc/apparmor.d/workstation-scanner
           # No broken launcher left behind: postrm must remove the
           # update-alternatives entry, not just try to.
           test ! -e /usr/bin/workstation-scanner && test ! -L /usr/bin/workstation-scanner
+
+      # The NSIS installer as a user runs it, silently: a per-user install to
+      # %LOCALAPPDATA%\Programs, no admin prompt. The installed app must render
+      # and scan (the self-test), and the uninstaller must remove it.
+      - name: Install and launch the installer (Windows)
+        if: runner.os == 'Windows' && github.event_name != 'pull_request'
+        shell: pwsh
+        run: |
+          $installer = Get-ChildItem dist\*.exe | Select-Object -First 1
+          Write-Host "installing $($installer.Name)"
+          Start-Process -FilePath $installer.FullName -ArgumentList '/S' -Wait
+          $dir = Join-Path $env:LOCALAPPDATA 'Programs\Workstation Scanner'
+          $exe = Join-Path $dir 'Workstation Scanner.exe'
+          if (-not (Test-Path $exe)) { Write-Error "not installed at $exe"; exit 1 }
+          $env:WHD_SELFTEST_FILE = Join-Path $env:RUNNER_TEMP 'selftest.json'
+          $app = Start-Process -FilePath $exe -PassThru
+          node tools/check-selftest.js $env:WHD_SELFTEST_FILE 90 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
+          $ok = $LASTEXITCODE
+          Get-Process -Name 'Workstation Scanner' -ErrorAction SilentlyContinue | Stop-Process -Force
+          if ($ok -ne 0) { exit $ok }
+          # The uninstaller copies itself to a temp folder and returns at once,
+          # so wait for the app's folder to go.
+          Start-Process -FilePath (Join-Path $dir 'Uninstall Workstation Scanner.exe') -ArgumentList '/S' -Wait
+          for ($i = 0; $i -lt 60 -and (Test-Path $exe); $i++) { Start-Sleep -Seconds 1 }
+          if (Test-Path $exe) { Write-Error "the uninstaller left $exe behind"; exit 1 }
+
+      # The Apple silicon .dmg (the runner's own architecture): mounted, the app
+      # copied to /Applications as a user drags it, its ad-hoc signature still
+      # valid after the fuses were flipped (a broken one is what macOS calls
+      # "damaged"), then started and self-tested. Not quarantined, so
+      # Gatekeeper's first-open prompt isn't exercised.
+      - name: Install and launch the .dmg (macOS)
+        if: runner.os == 'macOS' && github.event_name != 'pull_request'
+        run: |
+          dmg=$(ls dist/*-arm64.dmg)
+          echo "installing $dmg"
+          hdiutil attach -nobrowse -readonly -mountpoint /Volumes/wss "$dmg"
+          cp -R "/Volumes/wss/Workstation Scanner.app" /Applications/
+          hdiutil detach /Volumes/wss
+          app="/Applications/Workstation Scanner.app"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json" "$app/Contents/MacOS/Workstation Scanner" > app.log 2>&1 &
+          pid=$!
+          set +e
+          node tools/check-selftest.js "$RUNNER_TEMP/selftest.json" 90 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface
+          ok=$?
+          set -e
+          kill "$pid" 2>/dev/null || true
+          cat app.log
+          exit $ok
 
       - name: Keep the installer
         if: github.event_name != 'pull_request'
