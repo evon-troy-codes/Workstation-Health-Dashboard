@@ -132,6 +132,18 @@ function KV({ k, v }) {
   );
 }
 
+// When a dialog closes, focus goes back to the button that opened it, for
+// keyboard users. After the render, not in the close handler: the button is
+// disabled while its dialog is open, and a disabled button can't take focus,
+// so focusing it there left focus on the page body.
+function useFocusOnClose(open, button) {
+  const wasOpen = useRef(open);
+  useEffect(() => {
+    if (wasOpen.current && !open && button.current) button.current.focus();
+    wasOpen.current = open;
+  }, [open, button]);
+}
+
 function HelperApp() {
   const [screen, setScreen] = useState("overview"); // overview | system | network
   const { facts, rescan, rescanning } = useApp();
@@ -145,11 +157,8 @@ function HelperApp() {
     setDialogOpen(true);
     window.whd.reportEnabled().then(setReportEnabled, () => setReportEnabled(false));
   };
-  const closeReport = useCallback(() => {
-    setDialogOpen(false);
-    // Back to the button that opened it, for keyboard users.
-    if (reportButton.current) reportButton.current.focus();
-  }, []);
+  const closeReport = useCallback(() => setDialogOpen(false), []);
+  useFocusOnClose(dialogOpen, reportButton);
   const sendReport = useCallback((email) => window.whd.sendReport(facts, email), [facts]);
 
   // "Explain my results": shown only in builds with a report endpoint, since
@@ -159,10 +168,8 @@ function HelperApp() {
   useEffect(() => {
     window.whd.reportEnabled().then(setReportEnabled, () => setReportEnabled(false));
   }, []);
-  const closeExplain = useCallback(() => {
-    setExplainOpen(false);
-    if (explainButton.current) explainButton.current.focus();
-  }, []);
+  const closeExplain = useCallback(() => setExplainOpen(false), []);
+  useFocusOnClose(explainOpen, explainButton);
   const explain = useCallback(() => window.whd.explain(facts), [facts]);
   const onSent = useCallback((email) => {
     closeReport();
