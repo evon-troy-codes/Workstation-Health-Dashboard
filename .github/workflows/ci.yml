@@ -128,9 +128,12 @@ jobs:
 
       # The .deb as a user on Ubuntu 24.04 gets it: restriction on, installed
       # with apt, launched from /usr/bin. Its install script's AppArmor profile
-      # is the only thing that lets the sandbox start, so an app still running
-      # after 20 s means the profile works. Removing the package must take the
-      # profile away again.
+      # is the only thing that lets the sandbox start, so an app that renders,
+      # scans and is still running afterwards means the profile works. Only
+      # the main process is stopped at the end: stopping the whole process
+      # group (as `timeout` did) killed Chromium's helpers first, and the main
+      # process then logged a FATAL "GPU process isn't usable" on its way out.
+      # Removing the package must take the profile away again.
       - name: Install and launch the .deb (Linux)
         if: runner.os == 'Linux' && github.event_name != 'pull_request'
         run: |
@@ -138,20 +141,32 @@ jobs:
           sudo apt-get install -y ./dist/*.deb
           test -f /etc/apparmor.d/workstation-scanner
           echo "chrome-sandbox mode: $(stat -c '%a' '/opt/Workstation Scanner/chrome-sandbox')"
+          export WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json"
+          xvfb-run --auto-servernum workstation-scanner > app.log 2>&1 &
           set +e
-          WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json" xvfb-run --auto-servernum timeout 30 workstation-scanner > app.log 2>&1
-          code=$?
+          node tools/check-selftest.js "$WHD_SELFTEST_FILE" 60 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
+          ok=$?
+          sleep 5
           set -e
-          cat app.log
-          if [ "$code" -ne 124 ]; then
-            echo "::error::the installed app exited with code $code instead of running"
+          # The app's main process: the installed binary without a --type=
+          # (Chromium's helpers all have one).
+          main=""
+          for p in /proc/[0-9]*; do
+            [ "$(readlink "$p/exe" 2>/dev/null)" = "/opt/Workstation Scanner/workstation-scanner" ] || continue
+            tr '\0' ' ' < "$p/cmdline" 2>/dev/null | grep -q -- '--type=' || main=${p#/proc/}
+          done
+          cp app.log running.log
+          if [ -n "$main" ]; then kill -TERM "$main"; wait || true; fi
+          cat running.log
+          if [ "$ok" -ne 0 ]; then exit "$ok"; fi
+          if [ -z "$main" ]; then
+            echo "::error::the installed app wasn't running 5 s after its self-test"
             exit 1
           fi
-          if grep -q "FATAL" app.log; then
+          if grep -q "FATAL" running.log; then
             echo "::error::the installed app logged a FATAL error"
             exit 1
           fi
-          node tools/check-selftest.js "$RUNNER_TEMP/selftest.json" 0 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
           sudo apt-get remove -y workstation-scanner
           test ! -e /etc/apparmor.d/workstation-scanner
           # No broken launcher left behind: postrm must remove the
@@ -179,8 +194,12 @@ jobs:
               ForEach-Object { Write-Host "found $($_.FullName)" }
             Write-Error 'no Uninstall entry for Workstation Scanner in the registry'; exit 1
           }
-          Write-Host "installed $($entry.DisplayName) $($entry.DisplayVersion) at $($entry.InstallLocation)"
-          $exe = Join-Path $entry.InstallLocation 'Workstation Scanner.exe'
+          # electron-builder leaves InstallLocation empty; the uninstaller sits
+          # in the app's folder, so its path gives the folder.
+          if ($entry.UninstallString -notmatch '^"([^"]+)"') { Write-Error "unexpected UninstallString: $($entry.UninstallString)"; exit 1 }
+          $dir = Split-Path $Matches[1]
+          Write-Host "installed $($entry.DisplayName) $($entry.DisplayVersion) in $dir"
+          $exe = Join-Path $dir 'Workstation Scanner.exe'
           if (-not (Test-Path $exe)) { Write-Error "no app at $exe"; exit 1 }
           $env:WHD_SELFTEST_FILE = Join-Path $env:RUNNER_TEMP 'selftest.json'
           Start-Process -FilePath $exe | Out-Null
