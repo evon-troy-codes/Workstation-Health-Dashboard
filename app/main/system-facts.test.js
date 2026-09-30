@@ -215,15 +215,15 @@ test("parsePacmanLastSync", async (t) => {
 test("parseHyprlandMonitors", async (t) => {
   const laptopAndExternal = JSON.stringify([
     { id: 0, name: "eDP-1", description: "Samsung Display Corp. 0x4193", make: "Samsung Display Corp.", model: "0x4193",
-      serial: "", width: 2880, height: 1800, refreshRate: 120.0, x: 0, y: 0, scale: 2, disabled: false },
+      serial: "", width: 2880, height: 1800, refreshRate: 120.0, x: 0, y: 0, scale: 2, disabled: false, physicalWidth: 300, physicalHeight: 190 },
     { id: 1, name: "DP-2", description: "Dell Inc. DELL U2723QE ABC1234", make: "Dell Inc.", model: "DELL U2723QE",
-      serial: "ABC1234", width: 3840, height: 2160, refreshRate: 59.997, x: 1440, y: 0, scale: 1.5, disabled: false },
+      serial: "ABC1234", width: 3840, height: 2160, refreshRate: 59.997, x: 1440, y: 0, scale: 1.5, disabled: false, physicalWidth: 600, physicalHeight: 340 },
   ]);
 
   await t.test("reads each monitor's real mode, before scaling", () => {
     assert.deepEqual(parseHyprlandMonitors(laptopAndExternal), [
-      { name: "Built-in display", connection: "eDP-1", builtin: true, main: false, width: 2880, height: 1800, refreshHz: 120, sizeInches: null },
-      { name: "Dell Inc. DELL U2723QE", connection: "DP-2", builtin: false, main: false, width: 3840, height: 2160, refreshHz: 59.997, sizeInches: null },
+      { name: "Built-in display", connection: "eDP-1", builtin: true, main: false, width: 2880, height: 1800, refreshHz: 120, sizeInches: 14 },
+      { name: "Dell Inc. DELL U2723QE", connection: "DP-2", builtin: false, main: false, width: 3840, height: 2160, refreshHz: 59.997, sizeInches: 27 },
     ]);
   });
 
@@ -247,6 +247,14 @@ test("parseHyprlandMonitors", async (t) => {
     assert.equal(d.resolution, "2880 × 1800");
     assert.equal(d.refreshRate, "120 Hz");
     assert.equal(d.externalConnection, "DP-2");
+  });
+
+  await t.test("a display with no size, or only an aspect ratio, has no size", () => {
+    const list = JSON.stringify([
+      { name: "HDMI-A-1", make: "Epson", model: "Projector", width: 1920, height: 1080, refreshRate: 60, physicalWidth: 0, physicalHeight: 0 },
+      { name: "HDMI-A-2", make: "TV", model: "X", width: 1920, height: 1080, refreshRate: 60, physicalWidth: 16, physicalHeight: 9 },
+    ]);
+    assert.deepEqual(parseHyprlandMonitors(list).map((m) => m.sizeInches), [null, null]);
   });
 
   await t.test("null for output that isn't a JSON list", () => {

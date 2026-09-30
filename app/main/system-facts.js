@@ -665,6 +665,9 @@ async function hyprlandMonitors(env = process.env) {
 // (`name`, "eDP-1"), `make` and `model`, and the mode it runs in: `width` and
 // `height` in real pixels, before scaling, and `refreshRate` in Hz. Hyprland
 // has no primary display, so none is marked main and the first listed leads.
+// `physicalWidth` and `physicalHeight` are the panel's size in millimetres,
+// from its EDID. A few displays (projectors, some TVs) report none or only an
+// aspect ratio, so a diagonal under 5 inches reads as unknown.
 // `description` and `serial` carry the monitor's serial number, which is never
 // kept. A disabled monitor shows nothing and is left out.
 function parseHyprlandMonitors(stdout) {
@@ -691,9 +694,17 @@ function parseHyprlandMonitors(stdout) {
         width: num(m.width),
         height: num(m.height),
         refreshHz: num(m.refreshRate),
-        sizeInches: null,
+        sizeInches: diagonalInches(num(m.physicalWidth), num(m.physicalHeight)),
       };
     });
+}
+
+// A panel's width and height in millimetres → its diagonal in whole inches,
+// or null when unknown or implausibly small.
+function diagonalInches(widthMm, heightMm) {
+  if (!widthMm || !heightMm) return null;
+  const inches = Math.round(Math.hypot(widthMm, heightMm) / 25.4);
+  return inches >= 5 ? inches : null;
 }
 
 // In a Linux Wayland session, systeminformation's modes come from XWayland,
