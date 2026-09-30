@@ -1,14 +1,14 @@
 # Architecture notes
 
-`app/` is the Electron renderer + main-process code for Workstation Health
-Dashboard. This doc covers how the pieces fit together and how to extend them.
+`app/` is the Electron renderer + main-process code for Workstation Scanner. This doc covers how the pieces fit together and how to extend them.
 
 ```
 app/
 ├── main/
 │   ├── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
-│   └── report.js           ← MAIN process: POSTs the report to be emailed
-├── preload.js               ← contextBridge → window.whd.getFacts()
+│   └── report.js           ← MAIN process: POSTs the report to be emailed,
+│                              and the AI scan to be explained
+├── preload.js               ← contextBridge → window.whd (getFacts, explain…)
 └── renderer/
     ├── index.html            ← window entry (loads the vendored React + bundle)
     ├── helper-app.jsx        ← bundle entry: the 3-screen UI + app state
@@ -18,6 +18,7 @@ app/
     ├── icons.jsx
     ├── speedtest.js          ← real Cloudflare-based speed test
     ├── report-dialog.jsx     ← "Email this report" dialog
+    ├── explain-dialog.jsx    ← "Explain my results" (AI) dialog
     ├── report-messages.js    ← failure text and the address check
     ├── toast.jsx
     ├── assets/               ← design tokens + brand font
@@ -51,8 +52,8 @@ merge their results in when they land.
 
 **Real from the OS today** (in `system-facts.js`): CPU model/cores/arch, total
 & free RAM + type, disk size/free/SSD, OS name/version/build, network
-interface + link speed + MAC + IPv4 + gateway, display resolution + external
-monitor, battery/power, audio devices, uptime, hostname, antivirus, VPN
+interface + link speed + MAC (shown on the card, never sent) + IPv4 + gateway,
+each display's resolution, refresh rate and size, battery/power, audio devices, uptime, hostname, antivirus, VPN
 detection, background apps, browser-extension count, OS pending updates.
 
 **Filled in at runtime, not from the OS**: `bandwidth` — measured live by the
@@ -91,9 +92,11 @@ the renderer), and POSTs `{ email, report }` as JSON to the report endpoint
 (`main/report.js`). The endpoint is `WHD_REPORT_URL` if set, else
 `workstationScanner.reportUrl` in `package.json`, which is how an installed
 app finds it. It must be `https://`, since the report carries hostname,
-username, MAC and IP. The endpoint is normally the
+username and IP address. `buildReport` leaves out the network card's MAC
+address and the Wi-Fi network's name. The endpoint is normally the
 [`server/report-mailer`](../server/report-mailer/) Worker, which emails the
-report through Resend; any service taking the same JSON works.
+report through Resend, attaching it as JSON rebuilt from its known fields
+(`reportAttachment`); any service taking the same JSON works.
 
 With no endpoint the handler returns
 `{ ok: true, skipped: true, reason: "no-endpoint" }`, so the app works fully
@@ -114,10 +117,67 @@ A new `reason` code needs both ends: `main/report.js` produces it and
 `renderer/report-messages.js` words it, and each has a `.test.js` beside it
 that should cover the new code.
 
+## Explain my results (AI)
+
+The footer's **Explain my results** button, shown only when the build has a
+report endpoint, opens `renderer/explain-dialog.jsx`. Nothing is sent until
+the user clicks Explain in the dialog.
+
+```
+window.whd.explain(facts)                 [preload.js]
+  └─ ipcRenderer.invoke("whd:explain")    [main.js]
+       └─ buildAiScan(buildReport(…))     [main/report.js]  ← allow-list
+            └─ requestExplanation()       POST { scan } to <endpoint>/explain
+                 └─ server/report-mailer  sanitizeScan → Claude → shapeAnswer
+```
+
+As with reports, main builds the scan from its own last scan and takes only
+the speed-test numbers from the renderer. `buildAiScan` is an allow-list with
+nothing identifying: no hostname, user, addresses, Wi-Fi, device or monitor
+names. A field added to the report stays out until it is added there, and the
+Worker filters again (`sanitizeScan`). The request is `https://` only, refuses
+redirects, and gives up after 60 s; the Worker makes one attempt of at most
+50 s, so it always answers first.
+
+It resolves `{ ok: true, summary, findings, model }`, where each finding is
+`{ severity: "high" | "medium" | "low" | "ok", title, detail, fix }` (at most
+five), or `{ ok: false, reason, status?, error? }`. `reason` is as for reports
+(`"no-endpoint"`, `"no-scan"`, `"timeout"`, `"unreachable"`, `"http"`…); with
+`"http"`, `error` is the Worker's code: `rate-limited` (per IP),
+`ai-daily-limit` / `ai-monthly-limit` (the shared budget, 10 a day and 100 a
+month), `ai-unavailable` (out of Anthropic credit), `ai-busy`, `ai-timeout`,
+`ai-refused`, `ai-unreachable`, `ai-failed`, `ai-incomplete`,
+`ai-bad-answer` or `not-configured`. `renderer/report-messages.js`
+(`explainFailure`) words each one. A call that never reached Claude is given
+back to the budget. The answer is labelled as an AI assessment; the cards stay
+the source of truth.
+
 ## Report format changes
 
 Anyone reading the reports should key on `appVersion`, which every report
 carries.
+
+**1.3.0**
+
+- `network.mac` and `network.ssid` are no longer in reports. The card still
+  shows the MAC; it just stays on the machine.
+- New `cpu.ghzKind`: `"max"` when `cpu.ghz` is the maximum boost clock,
+  `"base"` when only the base clock was known, `null` when neither was (and
+  `cpu.ghz` is 0). The card shows "up to" the maximum, or no speed.
+- On Linux, `os.name`, `os.version` and `os.build` come from `/etc/os-release`
+  (`NAME`, `VERSION_ID`, `BUILD_ID`), falling back to `/usr/lib/os-release`.
+  A derivative now reports itself ("Omarchy 4.0.4", not "Arch Linux").
+  `os.build` is empty when it only repeats the version.
+- `os.pendingUpdates` and `os.lastUpdateCheck` now work on Arch and its
+  derivatives (pacman), and `pendingUpdates` is `null`, not 0, when pacman
+  reports an error.
+- `display.monitors[].main` is true only for a display the OS calls main.
+  Hyprland has none, so none is marked; the single-display fields describe
+  the first. Monitors under Hyprland come from `hyprctl`, with sizes.
+- `backgroundApps.runningApps` matches whole process names, so an Electron
+  app's `chrome_crashpad_handler` no longer reads as Chrome.
+- The emailed JSON attachment is rebuilt from known fields by the Worker;
+  anything else in the report is dropped.
 
 **1.2.0**
 
@@ -155,6 +215,9 @@ Done:
   the only remote allowance is `connect-src https://speed.cloudflare.com`.
 - **Renderer lockdown** in `main.js`: `sandbox: true`, navigation blocked, and
   window-open requests denied (https links go to the system browser).
+- **Electron fuses** (`tools/after-pack.js`): the packaged binary can't run
+  as plain Node or take NODE_OPTIONS or `--inspect`, and loads only its own
+  `app.asar`. Asar integrity checking is not on yet (see the hook's comment).
 
 Still open:
 
