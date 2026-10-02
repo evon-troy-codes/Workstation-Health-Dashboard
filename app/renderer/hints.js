@@ -14,5 +14,4 @@ export const HINTS = {
   dns: "The servers that turn website names into addresses. Usually your router or internet provider.",
   uptime: "How long since this computer last restarted. Restarting now and then finishes updates and clears memory.",
   memoryPressure: "How hard the computer is working to fit open apps into memory. High pressure can make it feel slow.",
-  pendingUpdates: "Operating system updates that are available but not installed yet.",
 };

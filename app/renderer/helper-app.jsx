@@ -416,7 +416,7 @@ function SystemScreen() {
       </Card>
 
       <Card icon="circle-info" title="OS updates" sub={`${updateInstalled ? "Last update installed" : "Last checked"} ${facts.os.lastUpdateCheck}`}>
-        <KV k="Pending updates" hint={HINTS.pendingUpdates} v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
+        <KV k="Pending updates" v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
         <KV k={updateInstalled ? "Last update installed" : "Last check"} v={facts.os.lastUpdateCheck} />
       </Card>
 
