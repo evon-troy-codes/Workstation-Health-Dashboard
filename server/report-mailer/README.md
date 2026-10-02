@@ -1,49 +1,26 @@
 # report-mailer
 
-A Cloudflare Worker that emails a Workstation Scanner report to the address the
-user types into the app's **Send report** dialog. The app POSTs
-`{ email, report }` here; the Worker lays the report out as an email, attaches
-the report's known fields as JSON, and sends it through [Resend](https://resend.com).
+The Cloudflare Worker behind Workstation Scanner's **Explain my results**. The
+app POSTs a scan with everything identifying already removed; the Worker asks
+Claude for a short assessment and returns it. The Anthropic API key lives only
+here, as a Worker secret: the app is public and its installers can be
+unpacked.
 
-The Resend API key lives only in the Worker, as a secret. It is never built into
-the app: the repo is public and the installers can be unpacked.
+It used to email reports too, which is where its name and URL come from (they
+stay, so installed apps keep finding it). That was removed on 2026-10-02: the
+app is going public, and a service that emails any address anyone types is a
+spam relay in waiting, with mail that looks like phishing to people who never
+heard of the app. The app now shares reports from the person's own email, a
+saved file or the clipboard. `POST /` answers **410** `{ "error":
+"email-removed" }`.
 
-## What it accepts
-
-`POST /` with `Content-Type: application/json`:
-
-```json
-{ "email": "name@example.com", "report": { "hostname": "…", "cpu": { … }, … } }
-```
-
-| Status | Body | Meaning |
-| --- | --- | --- |
-| 200 | `{ "ok": true }` | Sent |
-| 400 | `{ "error": "invalid-email" }`, `"invalid-report"` or `"bad-request"` | The request was malformed |
-| 403 | `{ "error": "recipient-not-allowed" }` | The address's domain isn't in `ALLOWED_DOMAINS` |
-| 405 | `{ "error": "method-not-allowed" }` | Not a POST |
-| 413 | `{ "error": "too-large" }` | Body over 256 KB |
-| 429 | `{ "error": "rate-limited" }` | Too many reports from this client or to this address |
-| 500 | `{ "error": "not-configured" }` | `RESEND_API_KEY` or `FROM_ADDRESS` missing |
-| 502 | `{ "error": "send-failed", "status": … }` | Resend refused the email |
-
-## Abuse protection
-
-Anyone can call this endpoint, and it sends mail to an address the caller
-picks. It is built so that isn't worth abusing:
-
-- The email contains only report fields, escaped, cut to 200 characters each
-  and 20 items per list, in a fixed layout. The attached JSON is rebuilt from
-  the same known fields, typed and capped the same way, so nothing a caller
-  adds to the report rides along. A caller can't send a message of their own.
-  The network card's MAC address and the Wi-Fi network's name are left out of
-  both.
-- About five reports a minute per client IP, and per recipient address.
-  Cloudflare's rate limiting counts per server and syncs in the background, so
-  a burst can get a few more through before it starts answering 429. Resend's
-  own daily sending limit is the hard ceiling.
-- `ALLOWED_DOMAINS` can limit recipients to your organization's domains. Set it
-  if the app is only for your own people.
+| Request | Answer |
+| --- | --- |
+| `POST /explain` with `{ "scan": { … } }` | see below |
+| `POST /` | 410 `email-removed` |
+| Any other path | 404 `not-found` |
+| Not a POST | 405 `method-not-allowed` |
+| Body over 256 KB | 413 `too-large` |
 
 ## AI explanations (`POST /explain`)
 
@@ -77,32 +54,26 @@ ends inside the app's own 60-second wait.
 
 ## Deploy
 
-You need a Cloudflare account and a Resend account (both have free tiers), and
-a domain you can add DNS records to, for Resend to send from.
+You need a Cloudflare account (the free plan is enough) and an Anthropic API
+key with prepaid credit.
 
-1. **Resend:** add and verify your sending domain (Resend shows the DNS records
-   to add), then create an API key with "Sending access".
-2. **Configure** `wrangler.toml`: set `FROM_ADDRESS` to an address on the
-   verified domain, and `ALLOWED_DOMAINS` if you want to limit recipients.
-3. **Deploy** from this folder:
+1. **Deploy** from this folder:
 
    ```bash
    npm install
    npx wrangler login
-   npx wrangler secret put RESEND_API_KEY      # paste the Resend key
-   npx wrangler secret put ANTHROPIC_API_KEY   # for /explain; paste the key
+   npx wrangler secret put ANTHROPIC_API_KEY   # paste the key; it isn't shown
    npx wrangler deploy
    ```
 
    Wrangler prints the Worker's URL, like
    `https://workstation-scanner-report-mailer.<you>.workers.dev`.
 
-   Deploying from the Cloudflare dashboard instead (pasting `src/index.js`
-   into its editor) works, but leaves out the rate limits and the AI budget
-   counter, which only `wrangler deploy` sets up from `wrangler.toml`. Deploy with wrangler before
-   anyone else uses it. A wrangler deploy replaces the dashboard's variables
-   with `wrangler.toml`'s, and keeps secrets such as `RESEND_API_KEY`.
-4. **Point the app at it:** put that URL in the repo's `package.json`,
+   Deploy with wrangler, not by pasting `src/index.js` into the Cloudflare
+   dashboard: only `wrangler deploy` sets up the rate limit and the AI budget
+   counter from `wrangler.toml`. A wrangler deploy replaces the dashboard's
+   variables with `wrangler.toml`'s, and keeps secrets.
+2. **Point the app at it:** put that URL in the repo's `package.json`,
 
    ```json
    "workstationScanner": { "reportUrl": "https://workstation-scanner-report-mailer.<you>.workers.dev/" }
@@ -111,11 +82,12 @@ a domain you can add DNS records to, for Resend to send from.
    and build the installers (a push to `main`, or `npm run dist`). An installed
    app reads the URL from there. `WHD_REPORT_URL` overrides it, which is handy
    for testing against `npx wrangler dev`.
-5. **Try it:** open the app, click **Send report**, and send one to yourself.
+3. **Try it:** open the app and click **Explain my results**. It uses one of
+   the day's explanations.
 
 ## Tests
 
-`src/index.test.js` runs with the rest of the repo's tests (`npm test` at the
-repo root), with `src/explain.test.js` and `src/budget.test.js`. Resend, the
+`src/index.test.js` (routing), `src/explain.test.js` and `src/budget.test.js`
+run with the rest of the repo's tests (`npm test` at the repo root). The
 Anthropic API, the rate limiter and the budget counter are stubbed, so the
 tests send nothing and spend nothing.

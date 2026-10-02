@@ -241,10 +241,11 @@ test("POST /explain", async (t) => {
     assert.equal((await answerOf(await handleRequest(post({ scan }), env(), anthropic({ status: 400 })))).body.error, "ai-failed");
   });
 
-  await t.test("leaves the email route as it was", async () => {
-    // POST / with a scan and no email is still the mailer's invalid-email.
-    const res = await answerOf(await handleRequest(post({ scan }, "/"), env(), anthropic()));
-    assert.deepEqual(res, { status: 400, body: { ok: false, error: "invalid-email" } });
+  await t.test("the old email route answers 410 and calls no one", async () => {
+    const api = anthropic();
+    const res = await answerOf(await handleRequest(post({ scan }, "/"), env(), api));
+    assert.deepEqual(res, { status: 410, body: { ok: false, error: "email-removed" } });
+    assert.equal(api.calls.length, 0);
   });
 });
 

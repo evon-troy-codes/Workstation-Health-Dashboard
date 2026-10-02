@@ -1,24 +1,18 @@
-# Cloudflare Worker that emails Workstation Scanner reports. See README.md for
-# the deploy steps. The Resend API key is a secret, not a var:
-#   npx wrangler secret put RESEND_API_KEY
+# Cloudflare Worker behind Workstation Scanner's "Explain my results". See
+# README.md for the deploy steps. The Anthropic key is a secret, not a var:
+#   npx wrangler secret put ANTHROPIC_API_KEY
+# The name and URL date from when it also emailed reports, and stay so
+# installed apps keep finding it.
 name = "workstation-scanner-report-mailer"
 main = "src/index.js"
 compatibility_date = "2026-09-01"
 # The app talks to the one workers.dev address. Per-version preview URLs
-# would be more public addresses running the mailer, and nothing needs them.
+# would be more public addresses running the Worker, and nothing needs them.
 workers_dev = true
 preview_urls = false
 
 [vars]
-# Must be on a domain verified in Resend. For now this is Resend's test
-# sender, which needs no domain but delivers only to the Resend account's own
-# address. With a domain: verify it in Resend and change this line.
-FROM_ADDRESS = "Workstation Scanner <onboarding@resend.dev>"
-# Comma-separated recipient domains, e.g. "example.com,example.org". Empty
-# lets any address receive reports, relying on the rate limits alone.
-ALLOWED_DOMAINS = ""
 # POST /explain (the AI assessment): the Claude model and how hard it thinks.
-# The key is a secret: npx wrangler secret put ANTHROPIC_API_KEY
 AI_MODEL = "claude-opus-5-5"
 AI_EFFORT = "medium"
 # Caps on AI explanations across all callers, so an abused /explain can't
@@ -29,7 +23,7 @@ AI_EFFORT = "medium"
 AI_MONTHLY_LIMIT = "100"
 AI_DAILY_LIMIT = "10"
 
-# Five reports a minute per client IP, and per recipient address.
+# About five explanations a minute per client IP.
 [[ratelimits]]
 name = "RATE_LIMITER"
 namespace_id = "1001"
