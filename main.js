@@ -6,17 +6,18 @@
 //  facts via systeminformation and exposes them to the
 //  renderer over the `window.whd` bridge (see app/preload.js).
 // ═══════════════════════════════════════════════════════
-const { app, BrowserWindow, ipcMain, session, shell } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, clipboard, dialog } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const fs = require("fs");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
 const {
-  sendReport, buildReport, reportEndpoint, normalizeEmail,
+  buildReport, reportEndpoint,
   buildAiScan, explainEndpoint, requestExplanation,
 } = require("./app/main/report");
 const { selfTestResult, RENDERED_CHECK } = require("./app/main/selftest");
 const { attachZoom } = require("./app/main/zoom");
+const { reportText, reportHtml, reportFileName, mailtoLink } = require("./app/main/share");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -78,9 +79,9 @@ async function writeSelfTest(facts, deferred) {
   }
 }
 
-// Where "Send report" posts the report and the address to email it to:
-// WHD_REPORT_URL, else package.json's workstationScanner.reportUrl. Unset in a
-// build without a mailer, and the dialog then says emailing isn't set up.
+// The report service (server/report-mailer), which now only answers "Explain
+// my results": WHD_REPORT_URL, else package.json's workstationScanner.reportUrl.
+// Unset in a build without one, and the Explain button is hidden.
 const REPORT_ENDPOINT = reportEndpoint(process.env, require("./package.json"));
 
 function createWindow() {
@@ -165,19 +166,54 @@ if (!gotLock) {
       return deferred;
     });
 
-    // Whether this build can email reports, so the dialog can say so before
-    // anyone types an address.
-    handle("whd:report-enabled", () => Boolean(REPORT_ENDPOINT));
+    // Whether this build has the report service, which Explain needs.
+    handle("whd:explain-enabled", () => Boolean(REPORT_ENDPOINT));
 
-    // Email the report: POST it and the address to the report endpoint.
-    // No-ops when REPORT_ENDPOINT is unset; https only, no redirects (see
-    // app/main/report.js). The address is checked here too, not only in the
-    // dialog, since main is what sends it.
-    handle("whd:send-report", async (fromRenderer, email) => {
-      if (!lastFacts) return { ok: false, reason: "no-scan" };
-      const to = normalizeEmail(email);
-      if (!to) return { ok: false, reason: "invalid-email" };
-      return sendReport(REPORT_ENDPOINT, { email: to, report: buildReport(lastFacts, lastDeferred, fromRenderer) });
+    // "Share report": the report built from main's own scan (only the speed
+    // test from the renderer, as with every report), shared the way the
+    // person chooses. Nothing is sent by the app itself: share.js.
+    const shareable = (fromRenderer) => (lastFacts ? buildReport(lastFacts, lastDeferred, fromRenderer) : null);
+
+    // As plain text, on the clipboard.
+    handle("whd:share-copy", (fromRenderer) => {
+      const report = shareable(fromRenderer);
+      if (!report) return { ok: false, reason: "no-scan" };
+      clipboard.writeText(reportText(report));
+      return { ok: true };
+    });
+
+    // As a page, saved where the person picks (Documents to start with).
+    handle("whd:share-save", async (fromRenderer) => {
+      const report = shareable(fromRenderer);
+      if (!report) return { ok: false, reason: "no-scan" };
+      const at = new Date();
+      const [win] = BrowserWindow.getAllWindows();
+      const { canceled, filePath } = await dialog.showSaveDialog(win, {
+        title: "Save report",
+        defaultPath: path.join(app.getPath("documents"), reportFileName(report, at)),
+        filters: [{ name: "Web page", extensions: ["html"] }],
+      });
+      if (canceled || !filePath) return { ok: false, reason: "cancelled" };
+      try {
+        fs.writeFileSync(filePath, reportHtml(report, at));
+        return { ok: true, fileName: path.basename(filePath) };
+      } catch (err) {
+        return { ok: false, reason: "write-failed", error: err.message };
+      }
+    });
+
+    // As an email in the person's own email app, with no recipient filled in:
+    // they choose who it goes to, and send it from their own account.
+    handle("whd:share-email", async (fromRenderer) => {
+      const report = shareable(fromRenderer);
+      if (!report) return { ok: false, reason: "no-scan" };
+      const { url, shortened } = mailtoLink(report);
+      try {
+        await shell.openExternal(url);
+        return { ok: true, shortened };
+      } catch (err) {
+        return { ok: false, reason: "no-mail-app", error: err.message };
+      }
     });
 
     // "Explain my results": the AI assessment. Sends buildAiScan's copy of

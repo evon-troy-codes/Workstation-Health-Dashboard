@@ -6,9 +6,10 @@
 app/
 ├── main/
 │   ├── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
-│   └── report.js           ← MAIN process: POSTs the report to be emailed,
-│                              and the AI scan to be explained
-├── preload.js               ← contextBridge → window.whd (getFacts, explain…)
+│   ├── report.js           ← MAIN process: builds the report and the AI scan;
+│   │                          POSTs the scan to be explained
+│   └── share.js            ← MAIN process: the report as text, a page, an email link
+├── preload.js               ← contextBridge → window.whd (getFacts, share…, explain…)
 └── renderer/
     ├── index.html            ← window entry (loads the vendored React + bundle)
     ├── helper-app.jsx        ← bundle entry: the 3-screen UI + app state
@@ -17,11 +18,11 @@ app/
     ├── react-globals.js      ← re-exports the React/ReactDOM UMD globals
     ├── icons.jsx
     ├── speedtest.js          ← real Cloudflare-based speed test
-    ├── report-dialog.jsx     ← "Email this report" dialog
+    ├── share-dialog.jsx      ← "Share this report" dialog
     ├── explain-dialog.jsx    ← "Explain my results" (AI) dialog
     ├── hints.js              ← the "?" explanations, one sentence each
     ├── dialog-focus.js       ← keeps Tab inside an open dialog
-    ├── report-messages.js    ← failure text and the address check
+    ├── report-messages.js    ← text for a share or explanation that failed
     ├── toast.jsx
     ├── assets/               ← design tokens + brand font
     └── dist/                 ← build output, git-ignored (see ../../build.js)
@@ -91,44 +92,33 @@ whenever a component is added.
    `helper-app.jsx`. The app is purely informational — it reports facts,
    it doesn't grade them.
 
-## Emailing reports
+## Sharing a report
 
-The footer's **Send report** button opens `renderer/report-dialog.jsx`, which
-asks for an email address. It first asks main whether this build can send at
-all (`window.whd.reportEnabled()`); without a report endpoint it says emailing
-isn't set up instead of asking for an address.
+The footer's **Share report** button opens `renderer/share-dialog.jsx`, with
+three choices. Each calls main (`window.whd.shareEmail`, `shareSave`,
+`shareCopy`, passing `facts` for the speed-test numbers only). Main builds the
+report from its own last scan (`buildReport`, which leaves out the MAC address
+and Wi-Fi name) and formats it in `main/share.js`:
 
-Sending calls `window.whd.sendReport(facts, email)`. Main checks the address
-again (`normalizeEmail`), builds the report from its own last scan
-(`buildReport`, taking only the speed-test numbers in `facts.bandwidth` from
-the renderer), and POSTs `{ email, report }` as JSON to the report endpoint
-(`main/report.js`). The endpoint is `WHD_REPORT_URL` if set, else
-`workstationScanner.reportUrl` in `package.json`, which is how an installed
-app finds it. It must be `https://`, since the report carries hostname,
-username and IP address. `buildReport` leaves out the network card's MAC
-address and the Wi-Fi network's name. The endpoint is normally the
-[`server/report-mailer`](../server/report-mailer/) Worker, which emails the
-report through Resend, attaching it as JSON rebuilt from its known fields
-(`reportAttachment`); any service taking the same JSON works.
+- **Email:** `mailtoLink` → `shell.openExternal("mailto:?subject=…&body=…")`.
+  No recipient, so the person picks one in their own email app. If the full
+  text would make the link longer than `MAX_MAILTO` (1,900 characters), the
+  body is `shortText`, a summary that says to save and attach the full report.
+  Result: `{ ok: true, shortened }`, or `{ ok: false, reason: "no-mail-app" }`.
+- **Save:** a save dialog (Documents, `reportFileName`), then `reportHtml`: a
+  self-contained page with every value escaped, no scripts and nothing loaded
+  from outside. Result: `{ ok: true, fileName }`, or `reason` `"cancelled"` or
+  `"write-failed"`.
+- **Copy:** `reportText` on the clipboard. Result: `{ ok: true }`.
 
-With no endpoint the handler returns
-`{ ok: true, skipped: true, reason: "no-endpoint" }`, so the app works fully
-offline. A delivered report returns `{ ok: true, status }`.
+Any of them answers `{ ok: false, reason: "no-scan" }` before the first scan.
+`renderer/report-messages.js` (`shareFailure`) words each reason.
 
-A failed send returns `{ ok: false, reason, status?, error? }`, where `reason`
-is `"invalid-email"`, `"insecure-url"`, `"timeout"`, `"unreachable"`,
-`"redirected"`, `"http"` (with the endpoint's `status`: the Worker uses 403 for
-a domain it doesn't send to and 429 when rate-limited) or `"no-scan"`
-(nothing scanned yet). The dialog shows the cause and stays open, so the
-address can be fixed. `error` carries the raw text for debugging; for a
-network failure that is the underlying cause, such as `connect ECONNREFUSED`,
-rather than fetch's generic "fetch failed". Redirects are refused rather than
-followed, so an https endpoint cannot bounce the report to a plain http://
-URL; configure the final address.
-
-A new `reason` code needs both ends: `main/report.js` produces it and
-`renderer/report-messages.js` words it, and each has a `.test.js` beside it
-that should cover the new code.
+The app no longer emails reports itself (changed 2026-10-02, for a public
+release): a service that mails any address anyone types is a spam relay in
+waiting, and its mail looks like phishing to people who never heard of the
+app. Sharing from the person's own email, a file or the clipboard needs no
+server at all.
 
 ## Explain my results (AI)
 
@@ -236,7 +226,9 @@ carries.
 - Antivirus products may report `running: null` (installed, with no way to see
   whether it runs, e.g. on macOS), rather than a guessed `true`.
 - Reports are emailed: the endpoint receives `{ email, report }`, where it
-  used to receive the report alone (see "Emailing reports" above).
+  used to receive the report alone. (Since 1.3.1's successor, reports are
+  shared from the person's own email, a file or the clipboard instead; see
+  "Sharing a report" above.)
 
 ## Production hardening
 

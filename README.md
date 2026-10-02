@@ -107,24 +107,22 @@ removed again when you uninstall).
 
 ---
 
-## Emailing reports
+## Sharing a report
 
-**Send report** asks for an email address and emails the report there: a
-readable summary, with the report attached as JSON. The app sends it to a
-small report service, [`server/report-mailer`](server/report-mailer/), which
-sends the email. The report includes the computer's name, the username, and its
-IP address, and the dialog says so. The network card's MAC address and the
-Wi-Fi network's name stay on the machine.
+**Share report** offers three ways to pass the report on. The app itself
+sends nothing:
 
-For now the report service sends from a test address that can deliver only to
-the project owner's own inbox; reports to any other address fail with "can't
-deliver to that address yet". That changes once it sends from a verified
-domain.
+- **Email it** opens your own email app with the report filled in and no
+  recipient, so you choose who gets it and send it from your own account.
+- **Save as a file** saves a readable page (`workstation-report-<computer>-<date>.html`)
+  to attach to an email, a support ticket or a chat.
+- **Copy to clipboard** copies the report as plain text.
 
-A build only emails reports once the service is deployed and its URL is in
-`package.json` (`workstationScanner.reportUrl`); until then the dialog says
-emailing isn't set up. See [`server/report-mailer/README.md`](server/report-mailer/README.md)
-to deploy it. `WHD_REPORT_URL` overrides the built-in URL.
+The report includes the computer's name, the username and its IP address, and
+the dialog says so. The network card's MAC address and the Wi-Fi network's
+name stay on the machine. An unusually long report is too long for an email
+link (some mail apps cut links off around 2,000 characters); the email then
+carries a summary, and says to save the full report and attach it.
 
 ---
 
@@ -136,7 +134,7 @@ until you click Explain, and what is sent is the readings only, with the
 computer's name, the username, network addresses and device names removed. The answer is labelled as an AI assessment; the
 dashboard cards remain the actual readings.
 
-It runs on the same report service as emailed reports
+It runs on a small report service
 ([`server/report-mailer`](server/report-mailer/), `POST /explain`), which holds
 the Anthropic API key as a Worker secret (`ANTHROPIC_API_KEY`). The model and
 its effort are Worker settings (`AI_MODEL`, `AI_EFFORT` in `wrangler.toml`).
@@ -207,17 +205,18 @@ Workstation-Scanner/
 ├── tools/                   # icon, screenshot and smoke-test tools; after-pack.js
 │                            #   (Electron fuses, macOS ad-hoc signing) and
 │                            #   check-selftest.js (CI's installed-app check)
-├── server/report-mailer/    # Cloudflare Worker that emails reports (deployed separately)
+├── server/report-mailer/    # Cloudflare Worker behind Explain my results (deployed separately)
 └── app/
     ├── main/system-facts.js # Collects real workstation facts → FACTS object
-    ├── main/report.js        # Sends the report to be emailed (https only)
+    ├── main/report.js        # Builds the report and the AI scan; asks for explanations (https only)
+    ├── main/share.js         # Share report: the text, the saved page, the email link
     ├── preload.js            # contextBridge → window.whd
     ├── INTEGRATION.md        # Architecture notes + how to extend it
     └── renderer/              # React UI (loaded by main.js)
         ├── index.html
         ├── helper-app.jsx    # 3-screen dashboard (entry point)
         ├── speedtest.js      # Cloudflare speed test
-        ├── report-dialog.jsx # "Email this report" dialog
+        ├── share-dialog.jsx  # "Share this report" dialog
         ├── explain-dialog.jsx # "Explain my results" (AI) dialog
         ├── hints.js          # the "?" explanations for technical terms
         ├── report-messages.js # Text for a failed report, address check
