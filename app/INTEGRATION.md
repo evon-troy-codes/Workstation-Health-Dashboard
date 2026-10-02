@@ -19,6 +19,8 @@ app/
     ├── speedtest.js          ← real Cloudflare-based speed test
     ├── report-dialog.jsx     ← "Email this report" dialog
     ├── explain-dialog.jsx    ← "Explain my results" (AI) dialog
+    ├── hints.js              ← the "?" explanations, one sentence each
+    ├── dialog-focus.js       ← keeps Tab inside an open dialog
     ├── report-messages.js    ← failure text and the address check
     ├── toast.jsx
     ├── assets/               ← design tokens + brand font
@@ -59,6 +61,16 @@ browser-extension count, OS pending updates.
 
 **Filled in at runtime, not from the OS**: `bandwidth` — measured live by the
 Network tab's speed test and merged into `FACTS` after the app collects it.
+
+## Readability
+
+The Overview leads with four "at a glance" tiles (internet, storage, OS
+updates, power), each a button to its details. Labels whose meaning isn't
+obvious (jitter, MTU, gateway…) carry a "?" that opens a one-sentence
+explanation under the row; the text lives in `renderer/hints.js`, and
+explains the term without judging the reading. Ctrl/Cmd with + / - / 0 zooms
+the window, remembered in `zoom.json` in the app's userData
+(`main/zoom.js`).
 
 ## Colour
 

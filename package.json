@@ -62,6 +62,7 @@
       "app/main/system-facts.js",
       "app/main/report.js",
       "app/main/selftest.js",
+      "app/main/zoom.js",
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",

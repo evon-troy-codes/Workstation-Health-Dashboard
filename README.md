@@ -219,6 +219,7 @@ Workstation-Scanner/
         ├── speedtest.js      # Cloudflare speed test
         ├── report-dialog.jsx # "Email this report" dialog
         ├── explain-dialog.jsx # "Explain my results" (AI) dialog
+        ├── hints.js          # the "?" explanations for technical terms
         ├── report-messages.js # Text for a failed report, address check
         ├── react-globals.js  # React/ReactDOM from the vendored UMD builds
         ├── icons.jsx, toast.jsx

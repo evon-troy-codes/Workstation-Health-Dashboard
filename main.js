@@ -16,6 +16,7 @@ const {
   buildAiScan, explainEndpoint, requestExplanation,
 } = require("./app/main/report");
 const { selfTestResult, RENDERED_CHECK } = require("./app/main/selftest");
+const { attachZoom } = require("./app/main/zoom");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -114,6 +115,9 @@ function createWindow() {
   const id = win.webContents.id;
   appContents.add(id);
   win.on("closed", () => appContents.delete(id));
+
+  // Ctrl/Cmd with + / - / 0 zooms, remembered between launches.
+  attachZoom(win, app.getPath("userData"));
 
   win.setMenuBarVisibility(false);
   // Not loadFile: it leaves "%" in the path unescaped, so a folder named like
