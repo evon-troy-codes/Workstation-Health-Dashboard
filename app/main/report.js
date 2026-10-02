@@ -98,7 +98,7 @@ async function sendReport(endpoint, payload, fetchImpl = fetch) {
   if (!endpoint) {
     return { ok: true, skipped: true, reason: "no-endpoint" };
   }
-  // The report carries hostname, username, MAC and IP — refuse to put that
+  // The report carries hostname, username and IP — refuse to put that
   // on the wire in the clear, however the endpoint was configured.
   if (!/^https:\/\//i.test(endpoint)) {
     return { ok: false, reason: "insecure-url", error: "the report URL must be an https:// URL" };

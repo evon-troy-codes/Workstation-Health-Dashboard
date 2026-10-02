@@ -54,7 +54,8 @@ merge their results in when they land.
 & free RAM + type, disk size/free/SSD, OS name/version/build, network
 interface + link speed + MAC (shown on the card, never sent) + IPv4 + gateway,
 each display's resolution, refresh rate and size, battery/power, audio devices, uptime, hostname, antivirus, VPN
-detection, background apps, browser-extension count, OS pending updates.
+detection (`null` on Linux when none is installed), background apps,
+browser-extension count, OS pending updates.
 
 **Filled in at runtime, not from the OS**: `bandwidth` — measured live by the
 Network tab's speed test and merged into `FACTS` after the app collects it.
@@ -159,6 +160,10 @@ carries.
 
 **1.3.0**
 
+- `antivirus` can be `null` on Linux: none of the known products is installed,
+  so there is nothing to report (the card is hidden, and the email has no
+  Security section). Check for null before reading `antivirus.products`. On
+  Windows and macOS it is always `{ products: [...] }`.
 - `network.mac` and `network.ssid` are no longer in reports. The card still
   shows the MAC; it just stays on the machine.
 - New `cpu.ghzKind`: `"max"` when `cpu.ghz` is the maximum boost clock,
@@ -218,6 +223,11 @@ Done:
 - **Electron fuses** (`tools/after-pack.js`): the packaged binary can't run
   as plain Node or take NODE_OPTIONS or `--inspect`, and loads only its own
   `app.asar`. Asar integrity checking is not on yet (see the hook's comment).
+- **Installed-build check in CI**: packaging runs install and start each
+  installer (`.github/workflows/ci.yml`). With `WHD_SELFTEST_FILE` set, the
+  app writes a small result file (true/false per reading, never values) once
+  it has scanned; `tools/check-selftest.js` asserts it. Unset, as it is for
+  users, the app writes nothing.
 
 Still open:
 
