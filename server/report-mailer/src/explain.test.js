@@ -261,6 +261,7 @@ test("sanitizeScan and shapeAnswer", async (t) => {
     assert.equal(sanitizeScan({ antivirus: null }).antivirus, null);
     assert.equal(sanitizeScan({}).antivirus, null);
     assert.deepEqual(sanitizeScan({ antivirus: { products: [] } }).antivirus, []);
+    assert.equal(sanitizeScan({ antivirus: { products: [], checked: false } }).antivirus, null);
   });
 
   await t.test("sends the CPU speed with its kind, and no speed rather than 0", () => {

@@ -231,7 +231,7 @@ function reportSections(r) {
       ["Ping / jitter", `${num(bw.ping, "ms")} / ${num(bw.jitter, "ms")}`],
     ]],
     // No section when the app had nothing to report (Linux with none installed).
-    ...(r.antivirus == null ? [] : [["Security", av.length
+    ...(r.antivirus == null ? [] : [["Security", obj(r.antivirus).checked === false ? [["Antivirus", "Unknown (the check failed)"]] : av.length
       ? av.slice(0, MAX_LIST).map((p) => {
         const q = obj(p);
         const state = q.running == null ? "Installed" : q.running ? "Active" : "Inactive";
@@ -304,7 +304,7 @@ function reportAttachment(report) {
     os: { name: text(os.name), version: text(os.version), build: text(os.build),
       pendingUpdates: num(os.pendingUpdates), lastUpdateCheck: text(os.lastUpdateCheck), lastUpdateKind: text(os.lastUpdateKind) },
     cpu: { model: text(cpu.model), cores: num(cpu.cores), threads: num(cpu.threads), perfCores: num(cpu.perfCores),
-      effCores: num(cpu.effCores), ghz: num(cpu.ghz), ghzKind: text(cpu.ghzKind), arch: text(cpu.arch),
+      effCores: num(cpu.effCores), ghz: num(cpu.ghz), ghzKind: ["max", "base"].includes(cpu.ghzKind) ? cpu.ghzKind : null, arch: text(cpu.arch),
       family: text(cpu.family), series: text(cpu.series) },
     ram: { totalGB: num(ram.totalGB), freeGB: num(ram.freeGB), type: text(ram.type), pressure: text(ram.pressure) },
     disk: { totalGB: num(disk.totalGB), freeGB: num(disk.freeGB), usedPercent: num(disk.usedPercent), ssd: bool(disk.ssd) },
@@ -322,7 +322,7 @@ function reportAttachment(report) {
     vpn: { detected: bool(vpn.detected), name: text(vpn.name) },
     bandwidth: { downMbps: num(bw.downMbps), upMbps: num(bw.upMbps), ping: num(bw.ping), jitter: num(bw.jitter),
       measuredAt: num(bw.measuredAt), partial: bool(bw.partial), failed: bool(bw.failed) },
-    antivirus: r.antivirus == null ? null : { products: each(av.products, (p) => ({ name: text(p.name), running: bool(p.running), definitionsAge: text(p.definitionsAge) })) },
+    antivirus: r.antivirus == null ? null : { checked: bool(av.checked), products: each(av.products, (p) => ({ name: text(p.name), running: bool(p.running), definitionsAge: text(p.definitionsAge) })) },
     power: { hasBattery: bool(power.hasBattery), batteryLevel: num(power.batteryLevel), onBattery: bool(power.onBattery), plugged: bool(power.plugged) },
     audio: { output: text(audio.output), input: text(audio.input), headsetClass: text(audio.headsetClass),
       isWired: bool(audio.isWired), headsetConnected: bool(audio.headsetConnected) },

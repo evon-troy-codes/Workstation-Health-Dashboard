@@ -13,7 +13,7 @@ const si = require("systeminformation");
 const { execFile } = require("child_process");
 
 // App version for display. Resolved from the project's package.json.
-let APP_VERSION = "1.3.0";
+let APP_VERSION = "1.3.1";
 try {
   APP_VERSION = require("../../package.json").version || APP_VERSION;
 } catch (_) {
@@ -133,7 +133,7 @@ async function collectFacts() {
     probe(si.battery(), {}, "battery"),
     probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
     // On Linux, null (nothing to report) stays null; see linuxAntivirus.
-    probe(detectAntivirus(), process.platform === "linux" ? null : { products: [] }, "antivirus"),
+    probe(detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "antivirus"),
     probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
     probe(detectDnsServers(), [], "dns"),
   ]);
@@ -156,7 +156,7 @@ async function collectFacts() {
   const memType = (memLayout && memLayout[0] && memLayout[0].type) || "";
 
   // --- OS name: on Linux, the distribution's own os-release ---
-  const release = process.platform === "linux" ? linuxOsRelease() : null;
+  const osFields = osNameVersion(process.platform === "linux" ? linuxOsRelease() : null, osInfo);
 
   const { output: outputName, input: inputName, classifyBy } = audioNames(audio.defaultAudio, audio.drivers);
   // No output device is "None", not a guessed "Built-in".
@@ -195,12 +195,7 @@ async function collectFacts() {
     },
     display: null, // resolved lazily (si.graphics is slow on Windows)
     os: {
-      name: (release && release.name) || osInfo.distro || os.type(),
-      version: (release && release.version) || osInfo.release || os.release(),
-      // From the same os-release as the name when there is one: systeminformation's
-      // build is the base distribution's on a derivative ("rolling" on Omarchy).
-      // Left out when it only repeats the version.
-      build: release ? (release.build && release.build !== release.version ? release.build : "") : (osInfo.build || ""),
+      ...osFields,
       lastUpdateCheck: "Checking…", // filled in by the lazy get-updates call
       // "checked" or "installed": which event lastUpdateCheck dates. null
       // until the update check resolves, or when nothing could be read.
@@ -433,6 +428,23 @@ function cleanAudioName(name) {
   return name.replace(/\(\s*\d+-\s*/g, "(").trim() || null;
 }
 
+// The query reports whether it ran ("ok"), so an empty product list can
+// be told apart from a query that failed: Security Center missing (Server
+// editions), WMI broken, PowerShell timing out at login. A failed check
+// is reported as such (checked: false), never as "no antivirus".
+const WINDOWS_AV_SCRIPT =
+  "$ErrorActionPreference='SilentlyContinue';" +
+  "$r=@{ok=$false;products=@()};" +
+  "try {" +
+  "  $av = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct -ErrorAction Stop;" +
+  "  $r.products = @(foreach ($p in $av) {" +
+  "    $hex = ([Convert]::ToString($p.productState,16)).PadLeft(6,'0');" +
+  "    [pscustomobject]@{ name=$p.displayName; enabled=($hex.Substring(2,2) -in '10','11'); updated=($hex.Substring(4,2) -eq '00'); timestamp=$p.timestamp }" +
+  "  });" +
+  "  $r.ok = $true" +
+  "} catch {};" +
+  "[pscustomobject]$r | ConvertTo-Json -Compress -Depth 4";
+
 // Antivirus detection. systeminformation has no AV API, so this queries the
 // platform directly: Windows Security Center (where McAfee/Norton/etc register)
 // on Windows, known app bundles on macOS, and known products on Linux. Returns
@@ -443,40 +455,33 @@ function detectAntivirus() {
   const plat = process.platform;
 
   if (plat === "win32") {
-    // Decode productState (a hex bitfield): middle byte = real-time protection
-    // on (0x10/0x11), last byte = signatures up to date (0x00).
-    const ps =
-      "$ErrorActionPreference='SilentlyContinue';" +
-      "$av = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName AntiVirusProduct;" +
-      "$out = foreach ($p in $av) {" +
-      "  $hex = ([Convert]::ToString($p.productState,16)).PadLeft(6,'0');" +
-      "  [pscustomobject]@{ name=$p.displayName; enabled=($hex.Substring(2,2) -in '10','11'); updated=($hex.Substring(4,2) -eq '00'); timestamp=$p.timestamp }" +
-      "};" +
-      "$out | ConvertTo-Json -Compress";
+    // WINDOWS_AV_SCRIPT decodes productState (a hex bitfield): middle byte =
+    // real-time protection on (0x10/0x11), last byte = signatures up to date.
     return new Promise((resolve) => {
       execFile(
         "powershell.exe",
-        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_AV_SCRIPT],
         { timeout: 15000, windowsHide: true },
         (err, stdout) => {
-          let products = err ? [] : parseWindowsAv((stdout || "").trim());
+          if (err) return resolve({ products: [], checked: false });
+          let { products, checked } = parseWindowsAvResult((stdout || "").trim());
           // Prefer third-party AV: drop the built-in Defender when another
           // product is present, so a single real AV reads as "one AV".
           const thirdParty = products.filter(
             (p) => !/windows defender|microsoft defender/i.test(p.name),
           );
           if (thirdParty.length) products = thirdParty;
-          resolve({ products });
+          resolve({ products, checked });
         },
       );
     });
   }
 
-  if (plat === "darwin") return Promise.resolve({ products: detectMacAv() });
+  if (plat === "darwin") return Promise.resolve({ products: withMacBuiltIn(detectMacAv(), xprotectAge()), checked: true });
 
   if (plat === "linux") return linuxAntivirus();
 
-  return Promise.resolve({ products: [] });
+  return Promise.resolve({ products: [], checked: false });
 }
 
 // Linux has no equivalent of Security Center, so this looks for the products
@@ -517,7 +522,7 @@ async function linuxAntivirus() {
     updated: null,
     definitionsAge: p.name === "ClamAV" ? clamavDefinitionsAge() : null,
   }));
-  return { products };
+  return { products, checked: true };
 }
 
 // The names of every running process, read from /proc rather than by spawning
@@ -553,6 +558,31 @@ function clamavDefinitionsAge() {
   return humanAge(newest.toISOString());
 }
 
+// Every Mac has Apple's own malware protection, XProtect, built in. With no
+// third-party product found, the card says that rather than "no antivirus",
+// which would be wrong on every Mac. Like Windows dropping Defender when
+// another product is present, it isn't listed alongside a third-party one.
+// Its running state isn't visible, so it reads "Installed"; the age is when
+// Apple last updated its definitions, when the bundle can be read.
+function withMacBuiltIn(products, definitionsAge = null) {
+  if (products.length) return products;
+  return [{ name: "Built-in protection (XProtect)", version: null, running: null, updated: null, definitionsAge }];
+}
+
+// When XProtect's definitions were last updated: its bundle's Info.plist is
+// replaced with each update. Its home moved in macOS 11; null if neither is
+// there. Untested on a real Mac from the Linux machine.
+function xprotectAge() {
+  for (const f of [
+    "/Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info.plist",
+    "/System/Library/CoreServices/XProtect.bundle/Contents/Info.plist",
+  ]) {
+    const m = fileMtime(f);
+    if (m) return humanAge(m.toISOString());
+  }
+  return null;
+}
+
 // macOS has no Security Center, so this finds known AV app bundles. A bundle
 // on disk says the product is installed, not that it is running or current,
 // so both stay null rather than reporting a check that never happened.
@@ -580,6 +610,23 @@ function detectMacAv(has = exists) {
       updated: null,
       definitionsAge: null,
     }));
+}
+
+// The Windows query's JSON → { products, checked }. checked is false when the
+// query says it failed, or printed nothing usable: an empty but successful
+// query is a real "none installed". Output without the ok field (a bare
+// product list) is read as checked.
+function parseWindowsAvResult(stdout) {
+  let parsed;
+  try {
+    parsed = JSON.parse(stdout || "");
+  } catch (_) {
+    return { products: [], checked: false };
+  }
+  if (parsed && !Array.isArray(parsed) && typeof parsed === "object" && "ok" in parsed) {
+    return { products: parseWindowsAv(JSON.stringify(parsed.products || [])), checked: parsed.ok === true };
+  }
+  return { products: parseWindowsAv(stdout), checked: parsed != null };
 }
 
 function parseWindowsAv(stdout) {
@@ -706,11 +753,12 @@ function parseHyprlandMonitors(stdout) {
 }
 
 // A panel's width and height in millimetres → its diagonal in whole inches,
-// or null when unknown or implausibly small.
+// or null when unknown or implausible: under 5 inches (no size, or only an
+// aspect ratio) or over 150 (no real display; a garbled EDID).
 function diagonalInches(widthMm, heightMm) {
   if (!widthMm || !heightMm) return null;
   const inches = Math.round(Math.hypot(widthMm, heightMm) / 25.4);
-  return inches >= 5 ? inches : null;
+  return inches >= 5 && inches <= 150 ? inches : null;
 }
 
 // In a Linux Wayland session, systeminformation's modes come from XWayland,
@@ -904,6 +952,25 @@ function cpuSpeed(cpu) {
   if (c.speedMax > 0) return { ghz: round1(c.speedMax), ghzKind: "max" };
   if (c.speed > 0) return { ghz: round1(c.speed), ghzKind: "base" };
   return { ghz: 0, ghzKind: null };
+}
+
+// The OS card's name, version and build. On Linux they come from os-release
+// when it can be read, all three from the same file; a rolling release with no
+// VERSION_ID (Arch) shows its BUILD_ID ("rolling") as the version. The build
+// is left out when it only repeats the version. systeminformation's own
+// fallback for an unknown release is a lowercase "unknown", which reads
+// "Unknown" like every other card.
+function osNameVersion(release, osInfo = {}, fallback = { type: os.type(), release: os.release() }) {
+  const known = (v) => (typeof v === "string" && v && !/^unknown$/i.test(v) ? v : null);
+  if (release && release.name) {
+    const version = release.version || release.build || known(osInfo.release) || "Unknown";
+    return { name: release.name, version, build: release.build && release.build !== version ? release.build : "" };
+  }
+  return {
+    name: known(osInfo.distro) || fallback.type,
+    version: known(osInfo.release) || fallback.release || "Unknown",
+    build: known(osInfo.build) || "",
+  };
 }
 
 // The distribution's name and version from os-release. /etc/os-release wins
@@ -1421,6 +1488,10 @@ module.exports = {
   cpuSpeed,
   pacmanPending,
   matchBackgroundApps,
+  parseWindowsAvResult,
+  WINDOWS_AV_SCRIPT,
+  withMacBuiltIn,
+  osNameVersion,
   // The Linux plumbing. Exported so the choices that are easy to revert by
   // accident — the loader variables a spawned tool must not inherit, which
   // stamp file outranks which — are pinned by a test rather than by a comment.
