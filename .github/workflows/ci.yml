@@ -41,10 +41,19 @@ jobs:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
+    # The Ubuntu 26.04 job is an early warning: it may fail without failing
+    # the run, until the app is known to work there.
+    continue-on-error: ${{ matrix.experimental == true }}
     strategy:
       fail-fast: false # one OS failing should not hide the others' results
       matrix:
-        os: [windows-latest, macos-latest, ubuntu-latest]
+        # Ubuntu is pinned: ubuntu-latest moves to 26.04 on 2026-10-19, and
+        # the .deb's AppArmor handling is what's most likely to break there.
+        # 26.04 runs alongside, allowed to fail, to find out first.
+        os: [windows-latest, macos-latest, ubuntu-24.04]
+        include:
+          - os: ubuntu-26.04
+            experimental: true
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -144,6 +153,7 @@ jobs:
           export WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json"
           xvfb-run --auto-servernum workstation-scanner > app.log 2>&1 &
           set +e
+          node tools/check-fuses.js "/opt/Workstation Scanner/workstation-scanner"
           node tools/check-selftest.js "$WHD_SELFTEST_FILE" 60 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
           ok=$?
           sleep 5
@@ -201,6 +211,8 @@ jobs:
           Write-Host "installed $($entry.DisplayName) $($entry.DisplayVersion) in $dir"
           $exe = Join-Path $dir 'Workstation Scanner.exe'
           if (-not (Test-Path $exe)) { Write-Error "no app at $exe"; exit 1 }
+          node tools/check-fuses.js $exe --integrity
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           $env:WHD_SELFTEST_FILE = Join-Path $env:RUNNER_TEMP 'selftest.json'
           Start-Process -FilePath $exe | Out-Null
           node tools/check-selftest.js $env:WHD_SELFTEST_FILE 90 rendered,osName,cpuModel,ramTotal,diskTotal,networkInterface,lastUpdateCheck
@@ -230,6 +242,7 @@ jobs:
           hdiutil detach /Volumes/wss
           app="/Applications/Workstation Scanner.app"
           codesign --verify --deep --strict --verbose=2 "$app"
+          node tools/check-fuses.js "$app" --integrity
           WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json" "$app/Contents/MacOS/Workstation Scanner" > app.log 2>&1 &
           pid=$!
           set +e
@@ -244,7 +257,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: installer-${{ runner.os }}
+          name: installer-${{ runner.os }}${{ matrix.experimental && '-ubuntu-26.04' || '' }}
           path: |
             dist/*.exe
             dist/*.dmg
