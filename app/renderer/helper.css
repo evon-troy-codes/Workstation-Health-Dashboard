@@ -30,15 +30,15 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 }
 .helper-head .brand { display: flex; align-items: center; gap: 12px; }
 .helper-head .brand-name { font-family: var(--font-display); font-size: 22px; font-weight: 600; color: var(--text-strong); letter-spacing: -0.01em; line-height: 1.1; }
-.helper-head .brand-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
+.helper-head .brand-sub { font-size: 13px; color: var(--text-muted); margin-top: 2px; }
 .helper-head .head-right { display: flex; align-items: center; gap: 12px; }
-.helper-head .syncline { font-size: 13px; font-weight: 700; color: var(--text-strong); text-align: right; }
-.helper-head .syncsub { font-size: 11px; color: var(--text-muted); text-align: right; margin-top: 2px; }
+.helper-head .syncline { font-size: 14px; font-weight: 700; color: var(--text-strong); text-align: right; }
+.helper-head .syncsub { font-size: 12px; color: var(--text-muted); text-align: right; margin-top: 2px; }
 
 .send-btn {
   background: var(--accent); color: var(--accent-contrast); border: none;
   padding: 12px 22px; border-radius: 8px;
-  font-family: var(--font-sans); font-weight: 700; font-size: 14px;
+  font-family: var(--font-sans); font-weight: 700; font-size: 15px;
   cursor: pointer; display: inline-flex; align-items: center; gap: 8px;
   white-space: nowrap; flex-shrink: 0;
 }
@@ -69,21 +69,21 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   flex-shrink: 0;
 }
 .hcard-title { flex: 1; min-width: 0; }
-.hcard-title .t { font-weight: 700; font-size: 14px; color: var(--text-strong); }
-.hcard-title .s { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.hcard-title .t { font-weight: 700; font-size: 15px; color: var(--text-strong); }
+.hcard-title .s { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
-.hcard-body { padding: 12px 14px; font-size: 13px; }
+.hcard-body { padding: 12px 14px; font-size: 14px; }
 .kv {
   display: grid;
-  grid-template-columns: 110px 1fr;
+  grid-template-columns: 140px 1fr;
   gap: 10px;
   padding: 6px 0;
   align-items: baseline;
 }
 .kv + .kv { border-top: 1px solid var(--line-hairline); }
-.kv-k { color: var(--text-muted); font-size: 12px; }
+.kv-k { color: var(--text-muted); font-size: 13px; }
 .kv-v {
-  color: var(--text-strong); font-weight: 500; font-size: 13px;
+  color: var(--text-strong); font-weight: 500; font-size: 14px;
   text-align: right; min-width: 0;
   display: inline-flex; align-items: center; gap: 6px; justify-content: flex-end;
   word-break: normal; overflow-wrap: anywhere;
@@ -106,7 +106,7 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   background: var(--surface-card); color: var(--text-body);
   border: 1px solid var(--line-strong);
   padding: 8px 12px; border-radius: 6px;
-  font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+  font-family: var(--font-sans); font-size: 13px; font-weight: 600;
   cursor: pointer; display: inline-flex; align-items: center; gap: 6px;
 }
 .foot-btn:hover { border-color: var(--accent); color: var(--accent); }
@@ -124,13 +124,13 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 }
 .sb-brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 14px; border-bottom: 1px solid var(--line-soft); margin-bottom: 12px; }
 .sb-name { font-family: var(--font-display); font-weight: 700; font-size: 16px; color: var(--text-strong); line-height: 1; }
-.sb-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.sb-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 .sb-nav { display: flex; flex-direction: column; gap: 2px; flex: 1; }
 .sb-item {
   display: flex; align-items: center; gap: 10px;
   padding: 9px 10px;
   background: transparent; border: none;
-  font-family: var(--font-sans); font-size: 13px; font-weight: 600;
+  font-family: var(--font-sans); font-size: 14px; font-weight: 600;
   color: var(--text-body); cursor: pointer;
   border-radius: 8px;
   text-align: left; width: 100%;
@@ -141,8 +141,8 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 .sb-item.active { background: var(--accent); color: var(--accent-contrast); }
 .sb-label { flex: 1; }
 .sb-foot { padding: 10px 8px 0; border-top: 1px solid var(--line-soft); margin-top: 10px; }
-.sb-foot-name { font-weight: 700; font-size: 12px; color: var(--text-strong); }
-.sb-foot-sub { font-size: 11px; color: var(--text-muted); margin-top: 2px; }
+.sb-foot-name { font-weight: 700; font-size: 13px; color: var(--text-strong); }
+.sb-foot-sub { font-size: 12px; color: var(--text-muted); margin-top: 2px; }
 
 .helper-main { flex: 1; padding: 14px 18px; background: var(--surface-page); display: flex; flex-direction: column; min-width: 0; }
 .helper-main .helper-head { margin-bottom: 12px; padding-bottom: 10px; }
@@ -154,7 +154,7 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 .qj-btn {
   flex: 1; background: var(--surface-card); border: 1px solid var(--line-soft);
   padding: 12px 14px; border-radius: 10px;
-  font-family: var(--font-sans); font-size: 13px; font-weight: 600;
+  font-family: var(--font-sans); font-size: 14px; font-weight: 600;
   color: var(--text-body); cursor: pointer;
   display: inline-flex; align-items: center; gap: 8px; justify-content: center;
 }
@@ -171,18 +171,18 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
   margin-bottom: 18px;
 }
 .sh-col { }
-.sh-label { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; }
+.sh-label { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--text-muted); font-weight: 700; }
 .sh-value { font-family: var(--font-display); font-size: 36px; font-weight: 700; line-height: 1; letter-spacing: -0.02em; color: var(--text-strong); margin-top: 6px; }
-.sh-unit { font-size: 14px; color: var(--text-muted); font-weight: 500; margin-left: 4px; }
+.sh-unit { font-size: 15px; color: var(--text-muted); font-weight: 500; margin-left: 4px; }
 .sh-tag {
   display: inline-block; margin-top: 8px;
   padding: 3px 8px; border-radius: 4px;
-  font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
   background: var(--surface-track); color: var(--text-muted);
 }
 .sh-action { text-align: right; align-self: center; }
 .sh-action .send-btn { white-space: nowrap; }
-.sh-meta { font-size: 11px; color: var(--text-muted); margin-top: 6px; }
+.sh-meta { font-size: 12px; color: var(--text-muted); margin-top: 6px; }
 
 /* Scrollbars match the app rather than defaulting to the OS light bar. */
 * { scrollbar-width: thin; scrollbar-color: var(--line-strong) transparent; }
@@ -211,22 +211,22 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 .dialog:focus { outline: none; }
 .dialog-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .dialog-title { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--text-strong); }
-.dialog-label { display: block; font-size: 12px; font-weight: 600; color: var(--text-body); margin-bottom: 6px; }
+.dialog-label { display: block; font-size: 13px; font-weight: 600; color: var(--text-body); margin-bottom: 6px; }
 .dialog-input {
   width: 100%; box-sizing: border-box; padding: 9px 11px; border-radius: 8px;
   background: var(--surface-page); color: var(--text-strong); border: 1px solid var(--line-strong);
-  font-family: var(--font-sans); font-size: 14px;
+  font-family: var(--font-sans); font-size: 15px;
 }
 .dialog-input:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-wash); }
 .dialog-input[aria-invalid="true"] { border-color: var(--danger); }
-.dialog-error { margin-top: 8px; font-size: 12px; font-weight: 600; color: var(--danger); }
-.dialog-text, .dialog-note { font-size: 12px; line-height: 1.5; color: var(--text-muted); margin: 12px 0 0; }
-.dialog-text { font-size: 13px; color: var(--text-body); margin-top: 0; }
+.dialog-error { margin-top: 8px; font-size: 13px; font-weight: 600; color: var(--danger); }
+.dialog-text, .dialog-note { font-size: 13px; line-height: 1.5; color: var(--text-muted); margin: 12px 0 0; }
+.dialog-text { font-size: 14px; color: var(--text-body); margin-top: 0; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .dialog-primary {
   display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 8px; cursor: pointer;
   background: var(--accent); color: var(--accent-contrast); border: none;
-  font-family: var(--font-sans); font-size: 12px; font-weight: 700;
+  font-family: var(--font-sans); font-size: 13px; font-weight: 700;
 }
 .dialog-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .dialog-primary:disabled, .foot-btn:disabled { opacity: 0.6; cursor: default; }
@@ -235,16 +235,60 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 .dialog-wide { max-width: 560px; max-height: calc(100vh - 32px); overflow-y: auto; }
 .ai-tag {
   margin-left: auto; padding: 2px 8px; border-radius: 999px;
-  background: var(--accent-wash); color: var(--accent); font-size: 11px; font-weight: 700; letter-spacing: 0.04em;
+  background: var(--accent-wash); color: var(--accent); font-size: 12px; font-weight: 700; letter-spacing: 0.04em;
 }
 .ai-asking { display: flex; align-items: center; gap: 8px; }
-.ai-summary { margin: 0 0 12px; font-size: 14px; line-height: 1.5; color: var(--text-strong); }
+.ai-summary { margin: 0 0 12px; font-size: 15px; line-height: 1.5; color: var(--text-strong); }
 .ai-findings { margin: 0; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 10px; }
 .ai-finding { padding: 10px 12px; border-radius: 8px; background: var(--surface-page); border: 1px solid var(--line-soft); }
 .ai-finding-head { display: flex; align-items: center; gap: 8px; }
-.ai-finding-title { font-size: 13px; font-weight: 700; color: var(--text-strong); }
-.ai-finding-detail, .ai-finding-fix { margin-top: 6px; font-size: 12px; line-height: 1.5; color: var(--text-body); }
-.ai-sev { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; }
+.ai-finding-title { font-size: 14px; font-weight: 700; color: var(--text-strong); }
+.ai-finding-detail, .ai-finding-fix { margin-top: 6px; font-size: 13px; line-height: 1.5; color: var(--text-body); }
+.ai-sev { flex-shrink: 0; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; }
 .ai-sev-high { background: rgba(239, 132, 118, 0.16); color: var(--danger); }
 .ai-sev-medium { background: var(--accent-wash); color: var(--accent); }
 .ai-sev-low, .ai-sev-ok { background: var(--surface-track); color: var(--text-muted); }
+
+/* ============================================================
+   Readability (2026-10-02): text is one step larger throughout; these are
+   the additions that went with it.
+   ============================================================ */
+
+/* "?" after a label, and the explanation it opens under the row (hints.js). */
+.hint-btn {
+  margin-left: 6px; width: 17px; height: 17px; padding: 0;
+  border-radius: 999px; border: 1px solid var(--line-strong);
+  background: transparent; color: var(--text-muted);
+  font-family: var(--font-sans); font-size: 11px; font-weight: 700; line-height: 1;
+  cursor: pointer; vertical-align: 1px;
+}
+.hint-btn:hover, .hint-btn[aria-expanded="true"] { border-color: var(--accent); color: var(--accent); }
+.hint-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+.kv-hint, .sh-hint {
+  grid-column: 1 / -1;
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--accent-wash); color: var(--text-body);
+  font-size: 13px; line-height: 1.5;
+}
+.sh-hint { margin: -4px 0 16px; }
+
+/* At a glance: four tiles at the top of the Overview, each a button to the
+   screen with the details. */
+.glance-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px; }
+@media (max-width: 1100px) { .glance-grid { grid-template-columns: repeat(2, 1fr); } }
+.glance {
+  text-align: left; cursor: pointer;
+  background: var(--surface-card); border: 1px solid var(--line-soft); border-radius: 10px;
+  padding: 12px 14px; color: var(--text-body); font-family: var(--font-sans);
+}
+.glance:hover { border-color: var(--accent); }
+.glance:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+.glance-head { display: flex; align-items: center; gap: 6px; font-size: 13px; font-weight: 700; color: var(--text-muted); }
+.glance-value { margin-top: 8px; font-family: var(--font-display); font-size: 20px; font-weight: 700; color: var(--text-strong); }
+.glance-sub { margin-top: 4px; font-size: 13px; color: var(--text-muted); }
+.glance-bar { margin-top: 8px; height: 4px; border-radius: 999px; background: var(--line-soft); overflow: hidden; }
+.glance-bar > div { height: 100%; background: var(--accent); transition: width .3s; }
+
+/* Explain my results leads the footer: it's the most useful next step. */
+.foot-btn-primary { background: var(--accent); border-color: var(--accent); color: var(--accent-contrast); }
+.foot-btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); color: var(--accent-contrast); }

@@ -8,9 +8,10 @@ import { Toast } from "./toast.jsx";
 import * as speedtest from "./speedtest.js";
 import { ReportDialog } from "./report-dialog.jsx";
 import { ExplainDialog } from "./explain-dialog.jsx";
+import { HINTS } from "./hints.js";
 
 const {
-  useState, useEffect, useRef, useCallback, useContext, createContext,
+  useState, useEffect, useRef, useCallback, useContext, createContext, useId,
 } = React;
 
 // ---- shared state ----------------------------------------------------------
@@ -123,11 +124,37 @@ function Card({ icon, title, children, sub }) {
   );
 }
 
-function KV({ k, v }) {
+// A label and its value. With `hint`, a small "?" after the label opens a
+// one-sentence explanation under the row (hints.js). It opens in place rather
+// than as a floating tooltip: cards clip what spills over their edges, and a
+// click works with a keyboard and on a touch screen alike.
+function KV({ k, v, hint }) {
+  const [open, setOpen] = useState(false);
+  const id = useId();
   return (
     <div className="kv">
-      <span className="kv-k">{k}</span>
+      <span className="kv-k">
+        {k}
+        {hint && (
+          <button type="button" className="hint-btn" aria-expanded={open} aria-controls={id}
+            aria-label={`What is ${k}?`} title={`What is ${k}?`} onClick={() => setOpen((o) => !o)}>?</button>
+        )}
+      </span>
       <span className="kv-v">{v}</span>
+      {hint && open && <div id={id} className="kv-hint">{hint}</div>}
+    </div>
+  );
+}
+
+// The same "?" for the speed test's labels. Their columns are too narrow to
+// hold an explanation, so the screen shows the open one in a full-width line
+// under the speed panel (one at a time); `openId` names that line.
+function HintLabel({ label, open, onToggle, openId }) {
+  return (
+    <div className="sh-label">
+      {label}
+      <button type="button" className="hint-btn" aria-expanded={open} aria-controls={openId}
+        aria-label={`What is ${label}?`} title={`What is ${label}?`} onClick={onToggle}>?</button>
     </div>
   );
 }
@@ -196,7 +223,7 @@ function HelperApp() {
           </div>
           <div className="foot-actions">
             {reportEnabled && (
-              <button ref={explainButton} className="foot-btn" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
+              <button ref={explainButton} className="foot-btn foot-btn-primary" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
                 <Icon name="sparkles" size={12} /> Explain my results
               </button>
             )}
@@ -263,10 +290,61 @@ function Sidebar({ active, onChange }) {
 // ============================================================================
 // Screen 1 — Overview
 // ============================================================================
+// The readings people look for first, each a button to the screen with the
+// details. Facts only: no colours or verdicts on them.
+function GlanceTile({ icon, label, value, sub, onClick, progress }) {
+  return (
+    <button type="button" className="glance" onClick={onClick}>
+      <div className="glance-head"><Icon name={icon} size={13} /> {label}</div>
+      <div className="glance-value">{value}</div>
+      {progress != null && (
+        <div className="glance-bar" role="progressbar" aria-valuemin={0} aria-valuemax={100} aria-valuenow={progress}>
+          <div style={{ width: `${progress}%` }} />
+        </div>
+      )}
+      {sub && <div className="glance-sub">{sub}</div>}
+    </button>
+  );
+}
+
+function AtAGlance({ onJump }) {
+  const { facts, speed, deferredFailed } = useApp();
+  const b = facts.bandwidth;
+  const os = facts.os;
+  const power = facts.power;
+  const measured = b.downMbps != null || b.upMbps != null;
+
+  const internet = speed.testing
+    ? { value: `Testing… ${speed.progress}%`, sub: "Measuring your connection", progress: speed.progress }
+    : measured
+      ? { value: `${b.downMbps ?? "—"} Mbps down`, sub: <>{b.upMbps ?? "—"} Mbps up · measured <Ago ts={b.measuredAt} /></> }
+      : { value: b.measuredAt == null ? "Not measured yet" : "No result", sub: "Run it on the Network screen" };
+
+  const updates = os.pendingUpdates == null
+    ? (deferredFailed || os.lastUpdateCheck === "Unknown" ? "Unknown" : "Checking…")
+    : os.pendingUpdates === 0 ? "None pending" : `${os.pendingUpdates} pending`;
+  const updatesSub = os.lastUpdateCheck && !["Checking…", "Unknown"].includes(os.lastUpdateCheck)
+    ? `${os.lastUpdateKind === "installed" ? "Last installed" : "Last checked"} ${os.lastUpdateCheck}`
+    : null;
+
+  return (
+    <div className="glance-grid">
+      <GlanceTile icon="globe" label="Internet" {...internet} onClick={() => onJump("network")} />
+      <GlanceTile icon="briefcase" label="Storage" value={`${facts.disk.freeGB} GB free`}
+        sub={`of ${facts.disk.totalGB} GB · ${facts.disk.usedPercent}% used`} onClick={() => onJump("system")} />
+      <GlanceTile icon="circle-info" label="OS updates" value={updates} sub={updatesSub} onClick={() => onJump("system")} />
+      <GlanceTile icon="phone" label="Power"
+        value={power.hasBattery ? `${power.batteryLevel}% battery` : "No battery"}
+        sub={power.hasBattery ? (power.plugged ? "Plugged in" : "On battery") : null} onClick={() => onJump("system")} />
+    </div>
+  );
+}
+
 function OverviewScreen({ onJump }) {
   const { facts } = useApp();
   return (
     <>
+      <AtAGlance onJump={onJump} />
       <div className="card-grid card-grid-2">
         <Card icon="cog" title="Quick specs" sub={facts.machineType || facts.os.name}>
           <KV k="CPU" v={facts.cpu.model} />
@@ -278,7 +356,7 @@ function OverviewScreen({ onJump }) {
         <Card icon="cloud" title="Session" sub="This scan">
           <KV k="Hostname" v={facts.hostname} />
           <KV k="User" v={facts.user} />
-          <KV k="Uptime" v={facts.uptime} />
+          <KV k="Uptime" v={facts.uptime} hint={HINTS.uptime} />
           <KV k="App version" v={`v${facts.appVersion}`} />
         </Card>
       </div>
@@ -322,14 +400,14 @@ function SystemScreen() {
       <Card icon="grip" title="Memory" sub={`${facts.ram.totalGB} GB · ${facts.ram.freeGB} GB free`}>
         <KV k="Total" v={`${facts.ram.totalGB} GB ${facts.ram.type}`} />
         <KV k="Free" v={`${facts.ram.freeGB} GB`} />
-        <KV k="Pressure" v={facts.ram.pressure} />
+        <KV k="Pressure" v={facts.ram.pressure} hint={HINTS.memoryPressure} />
       </Card>
 
       <Card icon="briefcase" title="Hard drive" sub={`${driveType} · ${facts.disk.totalGB} GB total`}>
         <KV k="Total" v={`${facts.disk.totalGB} GB`} />
         <KV k="Free" v={`${facts.disk.freeGB} GB`} />
         <KV k="Used" v={`${facts.disk.usedPercent}%`} />
-        <KV k="Drive type" v={driveType} />
+        <KV k="Drive type" v={driveType} hint={HINTS.driveType} />
       </Card>
 
       <Card icon="house" title="Operating system" sub={`${facts.os.name} ${facts.os.version}`}>
@@ -338,7 +416,7 @@ function SystemScreen() {
       </Card>
 
       <Card icon="circle-info" title="OS updates" sub={`${updateInstalled ? "Last update installed" : "Last checked"} ${facts.os.lastUpdateCheck}`}>
-        <KV k="Pending updates" v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
+        <KV k="Pending updates" hint={HINTS.pendingUpdates} v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
         <KV k={updateInstalled ? "Last update installed" : "Last check"} v={facts.os.lastUpdateCheck} />
       </Card>
 
@@ -427,26 +505,33 @@ function NetworkScreen() {
   // four dashes would imply a result. One real value is enough, since the
   // dashes already mark whatever is missing.
   const measured = [b.downMbps, b.upMbps, b.ping, b.jitter].some((v) => v != null);
+  // Which speed label's explanation is open, if any.
+  const [heroHint, setHeroHint] = useState(null);
+  const heroHintId = useId();
+  const heroLabel = (key, label) => (
+    <HintLabel label={label} open={heroHint === key} openId={heroHintId}
+      onToggle={() => setHeroHint((h) => (h === key ? null : key))} />
+  );
   return (
     <>
       {/* Big speed card */}
       <div className="speed-hero">
         <div className="sh-col">
-          <div className="sh-label">Download</div>
+          {heroLabel("download", "Download")}
           <div className="sh-value">{value(b.downMbps)}<span className="sh-unit">Mbps</span></div>
           <TestingTag show={b.downMbps == null && testing} />
         </div>
         <div className="sh-col">
-          <div className="sh-label">Upload</div>
+          {heroLabel("upload", "Upload")}
           <div className="sh-value">{value(b.upMbps)}<span className="sh-unit">Mbps</span></div>
           <TestingTag show={b.upMbps == null && testing} />
         </div>
         <div className="sh-col">
-          <div className="sh-label">Ping</div>
+          {heroLabel("ping", "Ping")}
           <div className="sh-value">{value(b.ping)}<span className="sh-unit">ms</span></div>
         </div>
         <div className="sh-col">
-          <div className="sh-label">Jitter</div>
+          {heroLabel("jitter", "Jitter")}
           <div className="sh-value">{value(b.jitter)}<span className="sh-unit">ms</span></div>
         </div>
         <div className="sh-action">
@@ -463,32 +548,34 @@ function NetworkScreen() {
         </div>
       </div>
 
+      {heroHint && <div id={heroHintId} className="sh-hint">{HINTS[heroHint]}</div>}
+
       <div className="card-grid card-grid-2">
         <Card icon="globe" title="Network interface" sub={facts.network.type}>
-          <KV k="Connection type" v={facts.network.isVirtual ? "Virtual (VPN or tunnel)" : facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
-          <KV k="Interface" v={`${facts.network.interface} · ${facts.network.linkSpeed}`} />
-          <KV k="MAC address" v={facts.network.mac} />
-          <KV k="MTU" v={facts.network.mtu || "Unknown"} />
+          <KV k="Connection type" hint={HINTS.connectionType} v={facts.network.isVirtual ? "Virtual (VPN or tunnel)" : facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
+          <KV k="Interface" v={`${facts.network.interface} · ${facts.network.linkSpeed}`} hint={HINTS.interface} />
+          <KV k="MAC address" v={facts.network.mac} hint={HINTS.mac} />
+          <KV k="MTU" v={facts.network.mtu || "Unknown"} hint={HINTS.mtu} />
         </Card>
 
         <Card icon="cloud" title="Routing" sub="IPv4, gateway, DNS">
-          <KV k="IPv4" v={facts.network.ipv4} />
-          <KV k="Gateway" v={facts.network.gateway} />
-          <KV k="DNS" v={facts.network.dns.join(", ")} />
-          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
+          <KV k="IPv4" v={facts.network.ipv4} hint={HINTS.ipv4} />
+          <KV k="Gateway" v={facts.network.gateway} hint={HINTS.gateway} />
+          <KV k="DNS" v={facts.network.dns.join(", ")} hint={HINTS.dns} />
+          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} hint={HINTS.ipv6} />
         </Card>
 
         <Card icon="circle-check" title="VPN" sub="Traditional VPNs may add jitter">
-          <KV k="Detected" v={facts.vpn.detected ? facts.vpn.name || "Unknown VPN" : "None"} />
+          <KV k="Detected" hint={HINTS.vpn} v={facts.vpn.detected ? facts.vpn.name || "Unknown VPN" : "None"} />
         </Card>
 
         <Card icon="users" title="Background apps" sub="Apps that may compete for bandwidth or CPU">
-          <KV k="Running" v={
+          <KV k="Running" hint={HINTS.backgroundApps} v={
             facts.backgroundApps == null ? pendingText
               : facts.backgroundApps.runningApps.length === 0 ? "None detected"
               : facts.backgroundApps.runningApps.join(", ")
           } />
-          <KV k="Browser extensions" v={
+          <KV k="Browser extensions" hint={HINTS.browserExtensions} v={
             facts.backgroundApps == null ? pendingText : `${facts.backgroundApps.browserExtensions} installed`
           } />
         </Card>
