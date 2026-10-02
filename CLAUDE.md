@@ -152,6 +152,9 @@ keeps working.
   call) hung on every attempt on windows-latest (4 of 4, past 120 s), while
   the default mode's first scan took ~4 s. Don't adopt it. The benchmark is
   `tools/bench-scan.js` on branch `experiment/ps-session`.
+- **CI's Linux job is pinned to `ubuntu-24.04`**; an `ubuntu-26.04` job runs
+  alongside, allowed to fail, as an early warning (2026-10-02). Move the pin
+  once 26.04 passes.
 - **CI installs and starts every installer but the AppImage and the Intel
   .dmg** on packaging runs (push to `main`, or Run workflow): the `.deb`,
   the Windows NSIS installer (silent, then uninstalled) and the Apple
@@ -163,7 +166,8 @@ keeps working.
   aren't exercised (they act only on browser downloads).
 - **Electron fuses are flipped in `tools/after-pack.js`, before the macOS
   ad-hoc signing** (RunAsNode, NODE_OPTIONS, `--inspect` off;
-  OnlyLoadAppFromAsar on). Not through electron-builder's `electronFuses`
+  OnlyLoadAppFromAsar on; asar integrity on for Windows and macOS). CI
+  checks them in every installed build (`tools/check-fuses.js`). Not through electron-builder's `electronFuses`
   setting: it flips them after the afterPack hook, which changes the Mac
   binary after it was signed and brings back "is damaged and can't be
   opened". A test harness can't reach into a packaged app any more, which is

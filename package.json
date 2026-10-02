@@ -38,6 +38,7 @@
     "reportUrl": "https://workstation-scanner-report-mailer.evon-codes.workers.dev/"
   },
   "devDependencies": {
+    "@electron/fuses": "1.8.0",
     "electron": "^42.11.8",
     "electron-builder": "^26.16.1",
     "esbuild": "^0.28.2",

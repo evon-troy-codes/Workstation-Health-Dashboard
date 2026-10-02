@@ -8,9 +8,12 @@
 // folder dropped next to it. They're flipped here rather than with
 // electron-builder's `electronFuses` setting because it flips them *after*
 // this hook, which would change the macOS binary after it was signed below
-// and bring back "is damaged and can't be opened". Asar integrity checking
-// is left off: it stops the app starting if the integrity data is missing,
-// and CI never starts the Windows or macOS builds to prove it's there.
+// and bring back "is damaged and can't be opened". On Windows and macOS,
+// embedded asar integrity checking is on too: the app refuses to start if
+// app.asar has been changed since the build (electron-builder records its
+// hash in the build). CI's packaging runs install and start both, and
+// tools/check-fuses.js checks every fuse, so a build missing the hash fails
+// there. Linux is left without it.
 //
 // electron-builder renames the .app and rewrites its Info.plist after Electron
 // signed itself, which invalidates that signature. macOS then refuses a
@@ -39,10 +42,14 @@ const FUSES = {
   onlyLoadAppFromAsar: true,
 };
 
+const INTEGRITY_PLATFORMS = new Set(["darwin", "win32"]);
+
 exports.default = async function afterPack(context) {
-  const { packager } = context;
-  await packager.addElectronFuses(context, await packager.generateFuseConfig(FUSES));
-  console.log("  • electron fuses flipped (no RunAsNode, NODE_OPTIONS or inspect; asar only)");
+  const { packager, electronPlatformName } = context;
+  const integrity = INTEGRITY_PLATFORMS.has(electronPlatformName);
+  const fuses = { ...FUSES, ...(integrity ? { enableEmbeddedAsarIntegrityValidation: true } : {}) };
+  await packager.addElectronFuses(context, await packager.generateFuseConfig(fuses));
+  console.log(`  • electron fuses flipped (no RunAsNode, NODE_OPTIONS or inspect; asar only${integrity ? "; asar integrity" : ""})`);
   if (context.electronPlatformName !== "darwin") return;
   if (process.platform !== "darwin") {
     throw new Error("the macOS app can only be signed on macOS: codesign is not available here");

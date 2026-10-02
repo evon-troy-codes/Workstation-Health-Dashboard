@@ -238,7 +238,8 @@ Done:
   window-open requests denied (https links go to the system browser).
 - **Electron fuses** (`tools/after-pack.js`): the packaged binary can't run
   as plain Node or take NODE_OPTIONS or `--inspect`, and loads only its own
-  `app.asar`. Asar integrity checking is not on yet (see the hook's comment).
+  `app.asar`. On Windows and macOS, asar integrity checking is on as well.
+  CI checks every fuse in the installed builds (`tools/check-fuses.js`).
 - **Installed-build check in CI**: packaging runs install and start each
   installer (`.github/workflows/ci.yml`). With `WHD_SELFTEST_FILE` set, the
   app writes a small result file (true/false per reading, never values) once
