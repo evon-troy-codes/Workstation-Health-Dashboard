@@ -25,7 +25,9 @@ test("HINTS", async (t) => {
     const source = fs.readFileSync(path.join(__dirname, "helper-app.jsx"), "utf8");
     const used = new Set([...source.matchAll(/HINTS\.(\w+)/g)].map((m) => m[1]));
     for (const m of source.matchAll(/heroLabel\("(\w+)"/g)) used.add(m[1]);
-    assert.ok(used.size >= 15, `only ${used.size} hints found in use`);
+    assert.ok(used.size >= 5, `only ${used.size} hints found in use`);
     for (const key of used) assert.ok(HINTS[key], `HINTS.${key} is used but not defined`);
+    // And none defined that nothing shows.
+    for (const key of Object.keys(HINTS)) assert.ok(used.has(key), `HINTS.${key} is defined but not used`);
   });
 });

@@ -517,12 +517,12 @@ function NetworkScreen() {
       {/* Big speed card */}
       <div className="speed-hero">
         <div className="sh-col">
-          {heroLabel("download", "Download")}
+          <div className="sh-label">Download</div>
           <div className="sh-value">{value(b.downMbps)}<span className="sh-unit">Mbps</span></div>
           <TestingTag show={b.downMbps == null && testing} />
         </div>
         <div className="sh-col">
-          {heroLabel("upload", "Upload")}
+          <div className="sh-label">Upload</div>
           <div className="sh-value">{value(b.upMbps)}<span className="sh-unit">Mbps</span></div>
           <TestingTag show={b.upMbps == null && testing} />
         </div>
@@ -552,30 +552,30 @@ function NetworkScreen() {
 
       <div className="card-grid card-grid-2">
         <Card icon="globe" title="Network interface" sub={facts.network.type}>
-          <KV k="Connection type" hint={HINTS.connectionType} v={facts.network.isVirtual ? "Virtual (VPN or tunnel)" : facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
+          <KV k="Connection type" v={facts.network.isVirtual ? "Virtual (VPN or tunnel)" : facts.network.isWired ? "Wired Ethernet" : "Wireless"} />
           <KV k="Interface" v={`${facts.network.interface} · ${facts.network.linkSpeed}`} hint={HINTS.interface} />
-          <KV k="MAC address" v={facts.network.mac} hint={HINTS.mac} />
+          <KV k="MAC address" v={facts.network.mac} />
           <KV k="MTU" v={facts.network.mtu || "Unknown"} hint={HINTS.mtu} />
         </Card>
 
         <Card icon="cloud" title="Routing" sub="IPv4, gateway, DNS">
-          <KV k="IPv4" v={facts.network.ipv4} hint={HINTS.ipv4} />
+          <KV k="IPv4" v={facts.network.ipv4} />
           <KV k="Gateway" v={facts.network.gateway} hint={HINTS.gateway} />
           <KV k="DNS" v={facts.network.dns.join(", ")} hint={HINTS.dns} />
-          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} hint={HINTS.ipv6} />
+          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
         </Card>
 
         <Card icon="circle-check" title="VPN" sub="Traditional VPNs may add jitter">
-          <KV k="Detected" hint={HINTS.vpn} v={facts.vpn.detected ? facts.vpn.name || "Unknown VPN" : "None"} />
+          <KV k="Detected" v={facts.vpn.detected ? facts.vpn.name || "Unknown VPN" : "None"} />
         </Card>
 
         <Card icon="users" title="Background apps" sub="Apps that may compete for bandwidth or CPU">
-          <KV k="Running" hint={HINTS.backgroundApps} v={
+          <KV k="Running" v={
             facts.backgroundApps == null ? pendingText
               : facts.backgroundApps.runningApps.length === 0 ? "None detected"
               : facts.backgroundApps.runningApps.join(", ")
           } />
-          <KV k="Browser extensions" hint={HINTS.browserExtensions} v={
+          <KV k="Browser extensions" v={
             facts.backgroundApps == null ? pendingText : `${facts.backgroundApps.browserExtensions} installed`
           } />
         </Card>
