@@ -160,7 +160,8 @@ keeps working.
   the Windows NSIS installer (silent, then uninstalled) and the Apple
   silicon `.dmg`. The fuses stop a harness reaching into a packaged app, so
   the app checks itself: with `WHD_SELFTEST_FILE` set, `main.js` writes
-  true/false per reading (never values) once it has rendered and scanned,
+  true/false per reading (never values, `app/main/selftest.js`) once it has
+  scanned and the page confirms the dashboard is on screen,
   and `tools/check-selftest.js` asserts it. SmartScreen and Gatekeeper
   aren't exercised (they act only on browser downloads).
 - **Electron fuses are flipped in `tools/after-pack.js`, before the macOS
@@ -176,7 +177,9 @@ keeps working.
   there is nothing to report: the card is hidden, the email has no Security
   section, and the AI is told it wasn't checked. A work machine running one of
   the known products (CrowdStrike, SentinelOne, Defender for Linux…) still
-  shows it. Windows and macOS always report a reading.
+  shows it. Windows and macOS always report a reading: a failed check is
+  `checked: false` ("Unknown", never "none"), and a Mac with no third-party
+  product shows "Built-in protection (XProtect)" (owner's call, 2026-10-02).
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 

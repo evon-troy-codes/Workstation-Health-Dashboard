@@ -344,8 +344,12 @@ function SystemScreen() {
 
       {/* null on Linux when no known product is installed: nothing to report. */}
       {facts.antivirus && (
-        <Card icon="circle-check" title="Antivirus" sub={`${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
-          {facts.antivirus.products.length === 0 && (
+        <Card icon="circle-check" title="Antivirus" sub={facts.antivirus.checked === false
+          ? "Couldn't check"
+          : `${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
+          {/* checked: false is a check that failed, not "none installed". */}
+          {facts.antivirus.checked === false && <KV k="Status" v="Unknown" />}
+          {facts.antivirus.checked !== false && facts.antivirus.products.length === 0 && (
             <KV k="Status" v="No antivirus detected" />
           )}
           {facts.antivirus.products.map((p, i) => (
@@ -519,12 +523,12 @@ function LoadingScreen({ status }) {
   );
 }
 
-function ErrorScreen({ message, onRetry }) {
+function ErrorScreen({ message, onRetry, title = "Couldn't scan this workstation.", marker }) {
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
+    <div data-render-error={marker} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: 40, textAlign: "center" }}>
       <Icon name="triangle-exclamation" size={38} color="var(--danger)" />
       <div style={{ fontWeight: 700, color: "var(--danger)", marginTop: 14, fontSize: 16 }}>
-        Couldn&apos;t scan this workstation.
+        {title}
       </div>
       <div style={{ fontSize: 13, color: "var(--text-muted)", marginTop: 8, maxWidth: 460 }}>{message}</div>
       <button className="send-btn" style={{ marginTop: 20 }} onClick={onRetry}>
@@ -532,6 +536,44 @@ function ErrorScreen({ message, onRetry }) {
       </button>
     </div>
   );
+}
+
+// Catches an error thrown while drawing the dashboard. Without it, one
+// reading the cards don't expect left an empty window with no way out. It
+// shows what happened and a Try again that re-scans; the speed test and the
+// rest of the app's state are kept. The data-render-error marker is what the
+// installed-build self-test looks for (app/main/selftest.js).
+class RenderGuard extends React.Component {
+  constructor(props) {
+    super(props);
+    this.state = { error: null };
+  }
+
+  static getDerivedStateFromError(error) {
+    return { error };
+  }
+
+  componentDidCatch(error) {
+    console.error("the dashboard failed to render:", error);
+  }
+
+  render() {
+    if (!this.state.error) return this.props.children;
+    const retry = () => {
+      this.setState({ error: null });
+      this.props.onRetry();
+    };
+    return (
+      <ErrorScreen
+        title="Couldn't show the results."
+        // React's own message is a minified code and a link, which means
+        // nothing to the people using this; the details go to the console.
+        message="Something in this scan couldn't be displayed. Try again re-scans this workstation."
+        onRetry={retry}
+        marker="1"
+      />
+    );
+  }
 }
 
 // Owns the facts, the deferred scans and the speed test, and hands them to the
@@ -636,7 +678,7 @@ function App() {
 
   return (
     <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed }}>
-      <Frame><HelperApp /></Frame>
+      <Frame><RenderGuard onRetry={rescan}><HelperApp /></RenderGuard></Frame>
     </AppContext.Provider>
   );
 }

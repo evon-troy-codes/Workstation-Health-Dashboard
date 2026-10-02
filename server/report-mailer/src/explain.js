@@ -89,7 +89,8 @@ function sanitizeScan(raw) {
     speedTest: { downMbps: num(bw.downMbps), upMbps: num(bw.upMbps), pingMs: num(bw.ping), jitterMs: num(bw.jitter),
       partial: bool(bw.partial), failed: bool(bw.failed) },
     // null from the app means nothing to report (Linux with none installed).
-    antivirus: s.antivirus == null ? null : list(obj(s.antivirus).products, (p) => ({ name: str(obj(p).name), running: bool(obj(p).running),
+    // checked: false is a check that failed on the machine: not measured.
+    antivirus: s.antivirus == null || obj(s.antivirus).checked === false ? null : list(obj(s.antivirus).products, (p) => ({ name: str(obj(p).name), running: bool(obj(p).running),
       definitionsAge: str(obj(p).definitionsAge) }), 5),
     power: { hasBattery: bool(power.hasBattery), batteryLevel: num(power.batteryLevel), onBattery: bool(power.onBattery) },
     audio: { kind: str(audio.headsetClass) },

@@ -15,6 +15,7 @@ const {
   sendReport, buildReport, reportEndpoint, normalizeEmail,
   buildAiScan, explainEndpoint, requestExplanation,
 } = require("./app/main/report");
+const { selfTestResult, RENDERED_CHECK } = require("./app/main/selftest");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -55,31 +56,20 @@ let scanCount = 0;
 
 // CI's check of an installed build (.github/workflows/ci.yml). The Electron
 // fuses stop a test harness from reaching into the packaged app, so when
-// WHD_SELFTEST_FILE names a file, the app writes to it once the page has
-// asked for the slow scans, which it does only after it has rendered. It says
-// which readings came back, as true/false only: no values, so nothing about
-// the machine is written. Unset, as it is for every user, nothing happens.
+// WHD_SELFTEST_FILE names a file, the app writes to it once the slow scans are
+// back, after asking the page whether the dashboard is on screen. It says
+// which readings came back, as true/false only (app/main/selftest.js): no
+// values, so nothing about the machine is written. Unset, as it is for every
+// user, nothing happens.
 const SELFTEST_FILE = process.env.WHD_SELFTEST_FILE || "";
 
-function writeSelfTest(facts, deferred) {
-  const f = facts || {};
-  const os = f.os || {}, cpu = f.cpu || {}, ram = f.ram || {}, disk = f.disk || {}, net = f.network || {};
-  const d = deferred || {};
-  const known = (v) => typeof v === "string" && v !== "" && v !== "Unknown";
-  const result = {
-    version: app.getVersion(),
-    packaged: app.isPackaged,
-    checks: {
-      rendered: true,
-      osName: known(os.name),
-      cpuModel: known(cpu.model),
-      ramTotal: ram.totalGB > 0,
-      diskTotal: disk.totalGB > 0,
-      networkInterface: known(net.interface),
-      lastUpdateCheck: known(d.lastUpdateCheck),
-      display: Boolean(d.display && d.display.count > 0),
-    },
-  };
+// Asks the page whether the dashboard is actually on screen: the renderer
+// requests the slow scans just before React draws, so the request alone
+// proves only that the page ran, not that it rendered.
+async function writeSelfTest(facts, deferred) {
+  const [win] = BrowserWindow.getAllWindows();
+  const rendered = win ? await win.webContents.executeJavaScript(RENDERED_CHECK).catch(() => false) : false;
+  const result = selfTestResult({ facts, deferred, rendered, version: app.getVersion(), packaged: app.isPackaged });
   try {
     fs.writeFileSync(SELFTEST_FILE, JSON.stringify(result, null, 2));
   } catch (err) {
@@ -166,6 +156,7 @@ if (!gotLock) {
       const scan = scanCount;
       const deferred = await detectDeferred();
       if (scan === scanCount) lastDeferred = deferred;
+      // Not awaited: the page's own results shouldn't wait on the check.
       if (SELFTEST_FILE && scan === scanCount) writeSelfTest(lastFacts, deferred);
       return deferred;
     });

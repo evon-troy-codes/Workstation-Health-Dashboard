@@ -10,8 +10,9 @@
 import { React } from "./react-globals.js";
 import { Icon, Spinner } from "./icons.jsx";
 import { explainFailure } from "./report-messages.js";
+import { trapTab, keepFocusInside } from "./dialog-focus.js";
 
-const { useState, useEffect } = React;
+const { useState, useEffect, useRef } = React;
 
 const SEVERITY = {
   high: { label: "Fix now", className: "ai-sev-high" },
@@ -25,16 +26,24 @@ const SEVERITY = {
 function ExplainDialog({ onExplain, onClose }) {
   const [state, setState] = useState("intro"); // intro | asking | done | failed
   const [result, setResult] = useState(null);
+  const dialog = useRef(null);
 
   // Escape closes the dialog, except while the AI is answering: like the
   // disabled Close button, it would throw away an answer already paid for.
   useEffect(() => {
     const onKey = (e) => {
       if (e.key === "Escape" && state !== "asking") onClose();
+      else trapTab(e, dialog.current);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [onClose, state]);
+
+  // Focus moves into the dialog when it opens, onto Explain (or Try again),
+  // and stays inside when that button is disabled while the AI answers.
+  useEffect(() => {
+    keepFocusInside(dialog.current, dialog.current && dialog.current.querySelector(".dialog-primary"));
+  }, [state]);
 
   const explain = async () => {
     setState("asking");
@@ -50,7 +59,7 @@ function ExplainDialog({ onExplain, onClose }) {
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && state !== "asking") onClose(); }}>
-      <div className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="explain-title">
+      <div ref={dialog} tabIndex={-1} className="dialog dialog-wide" role="dialog" aria-modal="true" aria-labelledby="explain-title">
         <div className="dialog-head">
           <div className="hcard-icon"><Icon name="sparkles" size={16} /></div>
           <div id="explain-title" className="dialog-title">Explain my results</div>

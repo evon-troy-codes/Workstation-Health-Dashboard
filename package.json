@@ -1,6 +1,6 @@
 {
   "name": "workstation-scanner",
-  "version": "1.3.0",
+  "version": "1.3.1",
   "description": "Workstation Scanner — an Electron desktop app that checks a computer's health (CPU, RAM, disk, OS, network, antivirus, audio) and runs a real network speed test, all from real local system data.",
   "main": "main.js",
   "scripts": {
@@ -61,6 +61,7 @@
       "app/preload.js",
       "app/main/system-facts.js",
       "app/main/report.js",
+      "app/main/selftest.js",
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",

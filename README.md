@@ -169,7 +169,7 @@ the same.
 | ----------------------------------------------------- | --------------------------------------------- |
 | CPU, RAM + pressure, disk, OS, power, uptime          | `systeminformation` + Node `os`               |
 | Displays: each monitor's resolution and refresh rate  | GNOME's display service (Mutter) on GNOME/Wayland, else `systeminformation` (fetched after first paint) |
-| Antivirus                                             | Windows Security Center / macOS app bundles / Linux install markers + process check (on Linux the card appears only when a known product is installed) |
+| Antivirus                                             | Windows Security Center / macOS app bundles / Linux install markers + process check (on Linux the card appears only when a known product is installed; macOS shows its built-in XProtect when nothing else is installed; a check that fails reads "Unknown") |
 | VPN                                                   | active tunnel-interface scan                  |
 | DNS                                                   | Node `dns`, or `resolvectl` behind systemd-resolved |
 | Background apps, browser-extension count              | process/file scans (fetched after first paint) |

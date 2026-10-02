@@ -163,7 +163,8 @@ function buildAiScan(report) {
       partial: bw.partial, failed: bw.failed },
     // null (a Linux machine with none installed) stays null: not checked,
     // rather than "none found", which the AI might treat as a problem.
-    antivirus: r.antivirus == null ? null : { products: (Array.isArray(o(r.antivirus).products) ? r.antivirus.products : []).map((p) => ({
+    // A Windows check that failed (checked: false) is "not checked" too.
+    antivirus: r.antivirus == null || o(r.antivirus).checked === false ? null : { products: (Array.isArray(o(r.antivirus).products) ? r.antivirus.products : []).map((p) => ({
       name: o(p).name, running: o(p).running, definitionsAge: o(p).definitionsAge })) },
     power: { hasBattery: power.hasBattery, batteryLevel: power.batteryLevel, onBattery: power.onBattery },
     audio: { headsetClass: o(r.audio).headsetClass },

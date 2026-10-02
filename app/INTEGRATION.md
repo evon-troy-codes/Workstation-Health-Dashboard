@@ -158,6 +158,22 @@ the source of truth.
 Anyone reading the reports should key on `appVersion`, which every report
 carries.
 
+**1.3.1**
+
+- New `antivirus.checked` (true or false) whenever `antivirus` is an object.
+  `false` means the check itself failed (on Windows: Security Center missing,
+  as on Server editions, or PowerShell failing or timing out): the card says
+  "Unknown", the email "Unknown (the check failed)", and the AI is told it
+  wasn't checked. An empty `products` with `checked: true` is a real "none
+  installed".
+- macOS with no third-party product reports `"Built-in protection (XProtect)"`
+  (`running: null`, so "Installed", with its definitions age when readable),
+  instead of an empty list: every Mac has it.
+- A rolling Linux release with no `VERSION_ID` (Arch) reports its `BUILD_ID`
+  as `os.version` ("rolling"); systeminformation's lowercase "unknown" now
+  reads "Unknown".
+- Display `size` over 150" is treated as unknown (a garbled EDID).
+
 **1.3.0**
 
 - `antivirus` can be `null` on Linux: none of the known products is installed,
@@ -227,7 +243,8 @@ Done:
 - **Installed-build check in CI**: packaging runs install and start each
   installer (`.github/workflows/ci.yml`). With `WHD_SELFTEST_FILE` set, the
   app writes a small result file (true/false per reading, never values) once
-  it has scanned; `tools/check-selftest.js` asserts it. Unset, as it is for
+  it has scanned and the page confirms the dashboard is on screen
+  (`main/selftest.js`); `tools/check-selftest.js` asserts it. Unset, as it is for
   users, the app writes nothing.
 
 Still open:

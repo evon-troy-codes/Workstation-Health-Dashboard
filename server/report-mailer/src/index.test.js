@@ -109,8 +109,16 @@ test("handleRequest", async (t) => {
     assert.ok(!/Antivirus|Security/.test(text), "no antivirus section in the text");
     assert.ok(!/Antivirus|Security/.test(html), "no antivirus section in the HTML");
     assert.equal(reportAttachment({ ...report, antivirus: null }).antivirus, null);
+    // A check that failed says so, not "None detected".
+    assert.match(renderEmail({ ...report, antivirus: { products: [], checked: false } }).text, /Antivirus: Unknown \(the check failed\)/);
+    assert.equal(reportAttachment({ ...report, antivirus: { products: [], checked: false } }).antivirus.checked, false);
     // "None found" on Windows or macOS is still a reading, and still shown.
     assert.match(renderEmail({ ...report, antivirus: { products: [] } }).text, /Antivirus: None detected/);
+  });
+
+  await t.test("reportAttachment takes only max or base as the CPU speed's kind", () => {
+    assert.equal(reportAttachment({ ...report, cpu: { ghzKind: "max" } }).cpu.ghzKind, "max");
+    assert.equal(reportAttachment({ ...report, cpu: { ghzKind: "visit phish.example" } }).cpu.ghzKind, null);
   });
 
   await t.test("reportAttachment keeps every field the app sends", () => {
@@ -130,6 +138,28 @@ test("handleRequest", async (t) => {
     assert.equal(a.network.mtu, 1500);
     assert.equal(a.bandwidth.measuredAt, 1790000000000);
     assert.deepEqual(a.antivirus.products, report.antivirus.products);
+  });
+
+  // QA 2026-10-02: the attachment is built from the caller's JSON, so check
+  // the shapes JSON.parse can hand it that a plain object literal can't.
+  await t.test("reportAttachment copes with hostile JSON", () => {
+    const raw = JSON.parse(`{"hostname":"h","__proto__":{"user":"from-proto","polluted":1},
+      "cpu":{"ghz":1e308,"model":["a"],"cores":"8"},
+      "network":{"mac":"aa:bb:cc:dd:ee:ff","ssid":"Home","dns":[["1.1.1.1"],{"a":1},"8.8.8.8"]},
+      "display":{"monitors":[[1,2],null,"x"],"count":"2"},
+      "antivirus":{"products":"none"},"bandwidth":{"downMbps":"100"}}`);
+    const a = reportAttachment(raw);
+    assert.equal(({}).polluted, undefined, "Object.prototype untouched");
+    assert.equal(a.user, null, "a __proto__ key doesn't supply fields");
+    assert.equal(a.cpu.model, null);
+    assert.equal(a.cpu.cores, null);
+    assert.deepEqual(a.network.dns, ["8.8.8.8"]);
+    assert.ok(!("mac" in a.network) && !("ssid" in a.network));
+    assert.deepEqual(a.display.monitors.map((m) => m.name), [null, null, null]);
+    assert.equal(a.display.count, null);
+    assert.deepEqual(a.antivirus, { checked: null, products: [] });
+    assert.equal(a.bandwidth.downMbps, null);
+    assert.doesNotMatch(JSON.stringify(a), /from-proto|aa:bb|Home/);
   });
 
   await t.test("refuses anything but POST", async () => {
