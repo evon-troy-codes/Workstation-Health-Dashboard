@@ -407,7 +407,7 @@ function SystemScreen() {
         <KV k="Total" v={`${facts.disk.totalGB} GB`} />
         <KV k="Free" v={`${facts.disk.freeGB} GB`} />
         <KV k="Used" v={`${facts.disk.usedPercent}%`} />
-        <KV k="Drive type" v={driveType} hint={HINTS.driveType} />
+        <KV k="Drive type" v={driveType} />
       </Card>
 
       <Card icon="house" title="Operating system" sub={`${facts.os.name} ${facts.os.version}`}>
