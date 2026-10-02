@@ -160,6 +160,19 @@ keeps working.
   true/false per reading (never values) once it has rendered and scanned,
   and `tools/check-selftest.js` asserts it. SmartScreen and Gatekeeper
   aren't exercised (they act only on browser downloads).
+- **Electron fuses are flipped in `tools/after-pack.js`, before the macOS
+  ad-hoc signing** (RunAsNode, NODE_OPTIONS, `--inspect` off;
+  OnlyLoadAppFromAsar on). Not through electron-builder's `electronFuses`
+  setting: it flips them after the afterPack hook, which changes the Mac
+  binary after it was signed and brings back "is damaged and can't be
+  opened". A test harness can't reach into a packaged app any more, which is
+  why CI uses the self-test below.
+- **Linux antivirus: `null` when none is installed** (owner's call,
+  2026-09-30). Antivirus is rare on personal Linux machines, so "none found"
+  there is nothing to report: the card is hidden, the email has no Security
+  section, and the AI is told it wasn't checked. A work machine running one of
+  the known products (CrowdStrike, SentinelOne, Defender for Linux…) still
+  shows it. Windows and macOS always report a reading.
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 
