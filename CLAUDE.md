@@ -127,8 +127,8 @@ keeps working.
   nothing itself: a server that mails any address anyone types is a spam
   relay, its mail looks like phishing, and it needed a paid domain. The
   MAC address and Wi-Fi name stay out of reports (`buildReport`). The
-  report-mailer Worker's old email route (`POST /`, Resend) is no longer
-  used by the app; remove it rather than revive it.
+  report-mailer Worker's email route was removed (`POST /` answers 410
+  `email-removed`); the Worker now only serves `/explain`. Don't revive it.
 - **AI "Explain my results"** (prototype): the Worker's `POST /explain` asks
   Claude (`AI_MODEL`, default `claude-opus-5-5`, with `fallbacks: "default"`)
   for a summary and up to five findings in a fixed JSON schema. What leaves
