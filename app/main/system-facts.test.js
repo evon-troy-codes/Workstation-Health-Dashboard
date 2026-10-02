@@ -53,7 +53,78 @@ const {
   cpuSpeed,
   pacmanPending,
   matchBackgroundApps,
+  parseWindowsAvResult,
+  WINDOWS_AV_SCRIPT,
+  withMacBuiltIn,
+  osNameVersion,
 } = require("./system-facts");
+const { execFileSync } = require("child_process");
+
+test("parseWindowsAvResult", async (t) => {
+  const defender = { name: "Windows Defender", enabled: true, updated: true, timestamp: null };
+  await t.test("a query that ran: its products, checked", () => {
+    const r = parseWindowsAvResult(JSON.stringify({ ok: true, products: [defender] }));
+    assert.equal(r.checked, true);
+    assert.deepEqual(r.products.map((p) => [p.name, p.running]), [["Windows Defender", true]]);
+  });
+
+  await t.test("a query that ran and found none is a real 'none installed'", () => {
+    assert.deepEqual(parseWindowsAvResult('{"ok":true,"products":[]}'), { products: [], checked: true });
+  });
+
+  await t.test("a query that failed, or printed nothing usable, is not checked", () => {
+    assert.deepEqual(parseWindowsAvResult('{"ok":false,"products":[]}'), { products: [], checked: false });
+    assert.deepEqual(parseWindowsAvResult(""), { products: [], checked: false });
+    assert.deepEqual(parseWindowsAvResult("Get-CimInstance : Invalid namespace"), { products: [], checked: false });
+  });
+
+  await t.test("a single product (PowerShell unwraps one-item arrays) still reads", () => {
+    assert.equal(parseWindowsAvResult(JSON.stringify({ ok: true, products: defender })).products.length, 1);
+  });
+
+  await t.test("the real script runs and says whether it worked (Windows only)", (t) => {
+    if (process.platform !== "win32") return t.skip("needs PowerShell on Windows");
+    const out = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_AV_SCRIPT],
+      { encoding: "utf8", timeout: 60000, windowsHide: true });
+    const parsed = JSON.parse(out.trim());
+    // CI's runners are Windows Server, which has no Security Center: ok is
+    // false there. On a desktop it is true. Either way the shape must hold.
+    assert.equal(typeof parsed.ok, "boolean", `unexpected output: ${out}`);
+    console.log(`  Windows AV script: ${out.trim()}`);
+  });
+});
+
+test("withMacBuiltIn", async (t) => {
+  await t.test("a Mac with no third-party product reports XProtect", () => {
+    assert.deepEqual(withMacBuiltIn([], "3 days"),
+      [{ name: "Built-in protection (XProtect)", version: null, running: null, updated: null, definitionsAge: "3 days" }]);
+  });
+  await t.test("a third-party product is listed on its own", () => {
+    const products = [{ name: "Malwarebytes", version: null, running: null, updated: null, definitionsAge: null }];
+    assert.deepEqual(withMacBuiltIn(products, "3 days"), products);
+  });
+});
+
+test("osNameVersion", async (t) => {
+  await t.test("a release with a version", () => {
+    assert.deepEqual(osNameVersion({ name: "Omarchy", version: "4.0.4", build: "4.0.4" }), { name: "Omarchy", version: "4.0.4", build: "" });
+    assert.deepEqual(osNameVersion({ name: "Fedora Linux", version: "42", build: null }), { name: "Fedora Linux", version: "42", build: "" });
+  });
+  await t.test("a rolling release shows its build as the version, not 'unknown (rolling)'", () => {
+    assert.deepEqual(osNameVersion({ name: "Arch Linux", version: null, build: "rolling" }, { release: "unknown" }),
+      { name: "Arch Linux", version: "rolling", build: "" });
+  });
+  await t.test("systeminformation's lowercase 'unknown' reads 'Unknown'", () => {
+    assert.deepEqual(osNameVersion({ name: "Minimal", version: null, build: null }, { release: "unknown" }),
+      { name: "Minimal", version: "Unknown", build: "" });
+  });
+  await t.test("without os-release: systeminformation, then Node's own", () => {
+    assert.deepEqual(osNameVersion(null, { distro: "Microsoft Windows 11 Pro", release: "10.0.26100", build: "26100" }),
+      { name: "Microsoft Windows 11 Pro", version: "10.0.26100", build: "26100" });
+    assert.deepEqual(osNameVersion(null, { distro: "unknown", release: "unknown" }, { type: "Linux", release: "6.16.8" }),
+      { name: "Linux", version: "6.16.8", build: "" });
+  });
+});
 
 test("pacmanPending", async (t) => {
   await t.test("counts the listed updates", () => {
@@ -255,6 +326,17 @@ test("parseHyprlandMonitors", async (t) => {
       { name: "HDMI-A-2", make: "TV", model: "X", width: 1920, height: 1080, refreshRate: 60, physicalWidth: 16, physicalHeight: 9 },
     ]);
     assert.deepEqual(parseHyprlandMonitors(list).map((m) => m.sizeInches), [null, null]);
+  });
+
+  // QA 2026-10-02: an implausibly large physical size (a broken EDID, or a
+  // compositor bug) read as a 55-million-inch display on the card. EDID's own
+  // size field tops out at 255 cm (about 142"), so anything far past that is
+  // unknown, as an implausibly small one is.
+  await t.test("an implausibly large physical size has no size", () => {
+    const list = JSON.stringify([
+      { name: "HDMI-A-1", make: "TV", model: "Y", width: 3840, height: 2160, refreshRate: 60, physicalWidth: 1e9, physicalHeight: 1e9 },
+    ]);
+    assert.deepEqual(parseHyprlandMonitors(list).map((m) => m.sizeInches), [null]);
   });
 
   await t.test("null for output that isn't a JSON list", () => {
@@ -1284,6 +1366,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   // null only on Linux, when no known product is installed: the card is hidden.
   assert.ok(facts.antivirus === null ? process.platform === "linux" : Array.isArray(facts.antivirus.products),
     "antivirus must be { products: [] }, or null on Linux");
+  if (facts.antivirus) assert.equal(typeof facts.antivirus.checked, "boolean", "antivirus.checked must be true or false");
 
   // Filled in by detectDeferred after first paint; null means "still checking".
   assert.equal(facts.backgroundApps, null);

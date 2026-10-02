@@ -8,6 +8,7 @@
 import { React } from "./react-globals.js";
 import { Icon, Spinner } from "./icons.jsx";
 import { isEmail, reportFailure } from "./report-messages.js";
+import { trapTab } from "./dialog-focus.js";
 
 const { useState, useEffect, useRef } = React;
 
@@ -36,11 +37,13 @@ function ReportDialog({ enabled, onClose, onSend, onSent }) {
   const [error, setError] = useState(null);
   const [sending, setSending] = useState(false);
   const input = useRef(null);
+  const dialog = useRef(null);
 
   useEffect(() => {
     if (input.current) input.current.focus();
     const onKey = (e) => {
       if (e.key === "Escape" && !sending) onClose();
+      else trapTab(e, dialog.current);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
@@ -71,7 +74,7 @@ function ReportDialog({ enabled, onClose, onSend, onSent }) {
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget && !sending) onClose(); }}>
-      <form className="dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title" onSubmit={submit} noValidate>
+      <form ref={dialog} tabIndex={-1} className="dialog" role="dialog" aria-modal="true" aria-labelledby="report-dialog-title" onSubmit={submit} noValidate>
         <div className="dialog-head">
           <div className="hcard-icon"><Icon name="envelope" size={16} /></div>
           <div id="report-dialog-title" className="dialog-title">Email this report</div>

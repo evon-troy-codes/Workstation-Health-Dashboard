@@ -254,6 +254,10 @@ test("buildAiScan", async (t) => {
     assert.equal(unknown.cpu.ghzKind, null);
   });
 
+  await t.test("a Windows check that failed is 'not checked' to the AI", () => {
+    assert.equal(buildAiScan({ antivirus: { products: [], checked: false } }).antivirus, null);
+  });
+
   await t.test("keeps 'none found' apart from 'nothing to report'", () => {
     assert.deepEqual(buildAiScan({ antivirus: { products: [] } }).antivirus, { products: [] });
     assert.equal(buildAiScan({ antivirus: null }).antivirus, null);
