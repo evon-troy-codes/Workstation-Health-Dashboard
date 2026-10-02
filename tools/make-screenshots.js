@@ -65,7 +65,8 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("whd:get-facts", async () => facts);
   ipcMain.handle("whd:get-deferred", () => deferred);
-  ipcMain.handle("whd:send-report", async () => ({ ok: true, skipped: true, reason: "no-endpoint" }));
+  // Sharing does nothing here: the screenshots never open the Share dialog.
+  for (const how of ["copy", "save", "email"]) ipcMain.handle(`whd:share-${how}`, async () => ({ ok: false, reason: "cancelled" }));
 
   const win = new BrowserWindow({
     width: WIDTH,

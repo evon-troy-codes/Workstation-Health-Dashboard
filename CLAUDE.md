@@ -120,17 +120,15 @@ keeps working.
   launches the `.deb` with the restriction on. Never ship `--no-sandbox`.
 - **Linux Wi-Fi**: systeminformation can call a Wi-Fi card "wired"; the kernel's
   `DEVTYPE=wlan` decides.
-- **Emailed reports**: Send report asks for an address; main posts
-  `{ email, report }` to `server/report-mailer`, a Cloudflare Worker that
-  emails it through Resend. The Resend key stays in the Worker, never in the
-  public app. The Worker's defences against spam (fixed layout, escaped and
-  capped fields, the attached JSON rebuilt from known fields by
-  `reportAttachment`, per-IP and per-recipient rate limits, optional
-  `ALLOWED_DOMAINS`) are deliberate; keep them. A new report field reaches
-  the attachment only once added there. The MAC address and Wi-Fi name are
-  left out of emails on purpose (2026-09-30). The app finds the Worker
-  through `workstationScanner.reportUrl` in `package.json`
-  (`WHD_REPORT_URL` overrides).
+- **Sharing reports, not emailing them** (changed 2026-10-02: the app is
+  going public, and reports may go to anyone, not just IT). **Share report**
+  emails from the person's own email app (a `mailto:` link, no recipient),
+  saves an HTML page, or copies text (`app/main/share.js`). The app sends
+  nothing itself: a server that mails any address anyone types is a spam
+  relay, its mail looks like phishing, and it needed a paid domain. The
+  MAC address and Wi-Fi name stay out of reports (`buildReport`). The
+  report-mailer Worker's old email route (`POST /`, Resend) is no longer
+  used by the app; remove it rather than revive it.
 - **AI "Explain my results"** (prototype): the Worker's `POST /explain` asks
   Claude (`AI_MODEL`, default `claude-opus-5-5`, with `fallbacks: "default"`)
   for a summary and up to five findings in a fixed JSON schema. What leaves

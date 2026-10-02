@@ -4,7 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 
 const {
-  sendReport, buildReport, reportEndpoint, normalizeEmail, classifyReportError, errorDetail,
+  buildReport, reportEndpoint, classifyReportError, errorDetail,
   buildAiScan, explainEndpoint, requestExplanation,
 } = require("./report");
 
@@ -20,49 +20,6 @@ function fakeFetch(respond) {
 }
 
 const causedBy = (message) => Object.assign(new TypeError("fetch failed"), { cause: new Error(message) });
-
-test("sendReport", async (t) => {
-  await t.test("skips when no endpoint is configured", async () => {
-    const fetch = fakeFetch(() => new Response(null, { status: 200 }));
-    const res = await sendReport("", { host: "x" }, fetch);
-    // No `error` on a result that succeeded.
-    assert.deepEqual(res, { ok: true, skipped: true, reason: "no-endpoint" });
-    assert.equal(fetch.calls.length, 0);
-  });
-
-  await t.test("refuses a non-https endpoint without sending anything", async () => {
-    const fetch = fakeFetch(() => new Response(null, { status: 200 }));
-    const res = await sendReport("http://example.test/report", {}, fetch);
-    assert.equal(res.ok, false);
-    assert.equal(res.reason, "insecure-url");
-    assert.equal(fetch.calls.length, 0);
-  });
-
-  await t.test("POSTs the facts as JSON and refuses redirects", async () => {
-    const fetch = fakeFetch(() => new Response(null, { status: 200 }));
-    const res = await sendReport("https://example.test/report", { host: "x" }, fetch);
-    assert.deepEqual(res, { ok: true, status: 200 });
-    const { init } = fetch.calls[0];
-    assert.equal(init.method, "POST");
-    assert.equal(init.headers["Content-Type"], "application/json");
-    assert.equal(init.body, JSON.stringify({ host: "x" }));
-    assert.equal(init.redirect, "error");
-    assert.ok(init.signal instanceof AbortSignal);
-  });
-
-  await t.test("reports an error status as reason http", async () => {
-    const fetch = fakeFetch(() => new Response(null, { status: 500 }));
-    const res = await sendReport("https://example.test/report", {}, fetch);
-    assert.deepEqual(res, { ok: false, reason: "http", status: 500 });
-  });
-
-  await t.test("keeps the underlying cause in error", async () => {
-    const fetch = fakeFetch(() => { throw causedBy("connect ECONNREFUSED 127.0.0.1:443"); });
-    const res = await sendReport("https://example.test/report", {}, fetch);
-    assert.equal(res.reason, "unreachable");
-    assert.match(res.error, /ECONNREFUSED/);
-  });
-});
 
 test("classifyReportError", async (t) => {
   await t.test("a timeout", () => {
@@ -175,27 +132,6 @@ test("reportEndpoint", async (t) => {
     assert.equal(reportEndpoint({}, { workstationScanner: { reportUrl: 42 } }), "");
     assert.equal(reportEndpoint(undefined, undefined), "");
   });
-});
-
-test("normalizeEmail", async (t) => {
-  await t.test("trims a valid address", () => {
-    assert.equal(normalizeEmail("  sam@example.com\n"), "sam@example.com");
-  });
-
-  await t.test("refuses anything that isn't one plausible address", () => {
-    for (const bad of ["", "sam", "sam@example", "sam@@example.com", "sam @example.com",
-      "a@b.c,d@e.f", `${"a".repeat(250)}@example.com`, null, undefined, 42, {}]) {
-      assert.equal(normalizeEmail(bad), null, String(bad));
-    }
-  });
-});
-
-test("sendReport posts the address and the report together", async () => {
-  const fetch = fakeFetch(() => new Response(null, { status: 200 }));
-  const payload = { email: "sam@example.com", report: { hostname: "host" } };
-  const res = await sendReport("https://mailer.example/", payload, fetch);
-  assert.deepEqual(res, { ok: true, status: 200 });
-  assert.deepEqual(JSON.parse(fetch.calls[0].init.body), payload);
 });
 
 test("classifyReportError reads undici's connect timeout as a timeout", () => {
@@ -312,20 +248,5 @@ test("requestExplanation", async (t) => {
   await t.test("reports an unreachable service", async () => {
     const fetch = async () => { throw causedBy("connect ECONNREFUSED 127.0.0.1:9"); };
     assert.equal((await requestExplanation("https://127.0.0.1:9/explain", {}, fetch)).reason, "unreachable");
-  });
-});
-
-test("sendReport passes the report mailer's reason through", async (t) => {
-  await t.test("reads { error } from a JSON refusal", async () => {
-    const fetch = fakeFetch(() => new Response(JSON.stringify({ ok: false, error: "send-failed", status: 403 }), { status: 502 }));
-    const res = await sendReport("https://mailer.example/", { email: "a@b.co", report: {} }, fetch);
-    assert.deepEqual(res, { ok: false, reason: "http", status: 502, error: "send-failed" });
-  });
-
-  await t.test("leaves it out when the body isn't JSON or has no error", async () => {
-    for (const body of ["<html>Bad gateway</html>", JSON.stringify({ ok: false }), null]) {
-      const fetch = fakeFetch(() => new Response(body, { status: 502 }));
-      assert.deepEqual(await sendReport("https://mailer.example/", {}, fetch), { ok: false, reason: "http", status: 502 });
-    }
   });
 });

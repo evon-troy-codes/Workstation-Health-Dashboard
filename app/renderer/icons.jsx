@@ -11,6 +11,9 @@ const ICONS = {
   // (outlines blur into a blob at button size).
   sparkles: <g fill="currentColor" strokeWidth="1"><path d="M10 4Q11 12 19 13.5Q11 15 10 23Q9 15 1 13.5Q9 12 10 4Z"/><path d="M19 1Q19.5 4.5 23 5Q19.5 5.5 19 9Q18.5 5.5 15 5Q18.5 4.5 19 1Z"/></g>,
   envelope: <path d="M3 7l9 6 9-6M3 7v10h18V7M3 7l9 6 9-6"/>,
+  share: <><path d="M12 15V3M7 8l5-5 5 5"/><path d="M5 12v8h14v-8"/></>,
+  download: <><path d="M12 3v12M7 10l5 5 5-5"/><path d="M5 19h14"/></>,
+  copy: <><rect x="8" y="8" width="12" height="12" rx="2"/><path d="M16 8V5a1 1 0 0 0-1-1H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3"/></>,
   bell: <path d="M6 19h12l-1.6-2A8 8 0 0 0 18 11a6 6 0 0 0-12 0c0 2.3-.5 4.4-1.4 6L6 19zm6 2a2 2 0 0 0 2-2H10a2 2 0 0 0 2 2z"/>,
   phone: <path d="M5 4h3l2 5-2 1a11 11 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/>,
   "phone-slash": <><path d="M5 4h3l2 5-2 1a11 11 0 0 0 6 6l1-2 5 2v3a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/><path d="M4 4l16 16"/></>,

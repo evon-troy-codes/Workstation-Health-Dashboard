@@ -6,7 +6,7 @@ import { React, ReactDOM } from "./react-globals.js";
 import { Icon, Spinner } from "./icons.jsx";
 import { Toast } from "./toast.jsx";
 import * as speedtest from "./speedtest.js";
-import { ReportDialog } from "./report-dialog.jsx";
+import { ShareDialog } from "./share-dialog.jsx";
 import { ExplainDialog } from "./explain-dialog.jsx";
 import { HINTS } from "./hints.js";
 
@@ -174,34 +174,33 @@ function useFocusOnClose(open, button) {
 function HelperApp() {
   const [screen, setScreen] = useState("overview"); // overview | system | network
   const { facts, rescan, rescanning } = useApp();
-  // Send report asks where to email it. `reportEnabled` is null until main
-  // says whether this build has a report endpoint at all.
-  const [dialogOpen, setDialogOpen] = useState(false);
-  const [reportEnabled, setReportEnabled] = useState(null);
-  const reportButton = useRef(null);
+  // "Share report": the person picks how (share-dialog.jsx); main builds the
+  // report from its own scan and takes only the speed test from here.
+  const [shareOpen, setShareOpen] = useState(false);
+  const shareButton = useRef(null);
+  const closeShare = useCallback(() => setShareOpen(false), []);
+  useFocusOnClose(shareOpen, shareButton);
+  const share = useCallback((how) => {
+    if (how === "email") return window.whd.shareEmail(facts);
+    if (how === "save") return window.whd.shareSave(facts);
+    return window.whd.shareCopy(facts);
+  }, [facts]);
+  const onShared = useCallback((text) => {
+    closeShare();
+    toast(text);
+  }, [closeShare]);
 
-  const openReport = () => {
-    setDialogOpen(true);
-    window.whd.reportEnabled().then(setReportEnabled, () => setReportEnabled(false));
-  };
-  const closeReport = useCallback(() => setDialogOpen(false), []);
-  useFocusOnClose(dialogOpen, reportButton);
-  const sendReport = useCallback((email) => window.whd.sendReport(facts, email), [facts]);
-
-  // "Explain my results": shown only in builds with a report endpoint, since
-  // the AI assessment runs on the same Worker.
+  // "Explain my results": shown only in builds with the report service, which
+  // runs the AI assessment.
+  const [explainEnabled, setExplainEnabled] = useState(false);
   const [explainOpen, setExplainOpen] = useState(false);
   const explainButton = useRef(null);
   useEffect(() => {
-    window.whd.reportEnabled().then(setReportEnabled, () => setReportEnabled(false));
+    window.whd.explainEnabled().then(setExplainEnabled, () => setExplainEnabled(false));
   }, []);
   const closeExplain = useCallback(() => setExplainOpen(false), []);
   useFocusOnClose(explainOpen, explainButton);
   const explain = useCallback(() => window.whd.explain(facts), [facts]);
-  const onSent = useCallback((email) => {
-    closeReport();
-    toast(`Report emailed to ${email}`);
-  }, [closeReport]);
 
   return (
     <div className="helper-shell">
@@ -218,17 +217,17 @@ function HelperApp() {
             <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Data source</div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
               Collected locally via native OS APIs. Nothing leaves this machine
-              unless you email a report or ask for an AI explanation.
+              unless you share a report or ask for an AI explanation.
             </div>
           </div>
           <div className="foot-actions">
-            {reportEnabled && (
+            {explainEnabled && (
               <button ref={explainButton} className="foot-btn foot-btn-primary" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
                 <Icon name="sparkles" size={12} /> Explain my results
               </button>
             )}
-            <button ref={reportButton} className="foot-btn" onClick={openReport} disabled={dialogOpen}>
-              <Icon name="envelope" size={12} /> Send report
+            <button ref={shareButton} className="foot-btn" onClick={() => setShareOpen(true)} disabled={shareOpen}>
+              <Icon name="share" size={12} /> Share report
             </button>
             <button className="foot-btn" onClick={rescan} disabled={rescanning}>
               {rescanning
@@ -238,8 +237,8 @@ function HelperApp() {
           </div>
         </div>
       </div>
-      {dialogOpen && (
-        <ReportDialog enabled={reportEnabled} onClose={closeReport} onSend={sendReport} onSent={onSent} />
+      {shareOpen && (
+        <ShareDialog share={share} onClose={closeShare} onDone={onShared} />
       )}
       {explainOpen && (
         <ExplainDialog onExplain={explain} onClose={closeExplain} />

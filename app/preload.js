@@ -10,11 +10,14 @@ contextBridge.exposeInMainWorld("whd", {
   getDeferred: () => ipcRenderer.invoke("whd:get-deferred"),
   // Re-run the scan on demand (the "Re-scan now" button calls this).
   rescan: () => ipcRenderer.invoke("whd:get-facts"),
-  // Email the health report to `email` through the report endpoint. Main sends
-  // its own last scan; it takes only facts.bandwidth from here.
-  sendReport: (facts, email) => ipcRenderer.invoke("whd:send-report", facts, email),
-  // Whether this build has a report endpoint to email reports through.
-  reportEnabled: () => ipcRenderer.invoke("whd:report-enabled"),
+  // "Share report": copy it, save it as a page, or open it as an email in the
+  // person's own email app. Main builds it from its own last scan and takes
+  // only facts.bandwidth from here. The app sends nothing itself.
+  shareCopy: (facts) => ipcRenderer.invoke("whd:share-copy", facts),
+  shareSave: (facts) => ipcRenderer.invoke("whd:share-save", facts),
+  shareEmail: (facts) => ipcRenderer.invoke("whd:share-email", facts),
+  // Whether this build has the report service, which Explain needs.
+  explainEnabled: () => ipcRenderer.invoke("whd:explain-enabled"),
   // "Explain my results": the AI's assessment of the scan. Main builds what is
   // sent from its own scan (identifying details removed) and takes only
   // facts.bandwidth from here.

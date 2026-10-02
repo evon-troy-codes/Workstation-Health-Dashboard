@@ -23,9 +23,11 @@ app), try to break it, and report exactly what you found.
   and list them in your report.
 - **Don't run commands that rewrite tracked files:** `npm run screenshots`
   (docs/screenshots) and `npm run icons` (build/, assets/logo).
-- **Don't send real reports.** Never point `WHD_REPORT_URL` at a real
-  server. For the report path, use an unreachable https address such as
-  `https://127.0.0.1:9/report`.
+- **Don't call the real report service.** Never point `WHD_REPORT_URL` at
+  a real server (Explain my results spends real money). Use an unreachable
+  https address such as `https://127.0.0.1:9/`. Share report sends nothing
+  itself; to test Email or Save, stub `shell.openExternal` and
+  `dialog.showSaveDialog` in a scratch script rather than opening real apps.
 - **Test only this machine.** Network traffic is limited to the Cloudflare
   speed test the app itself uses.
 
@@ -63,7 +65,7 @@ you're on (`uname -s`, or `$env:OS` in PowerShell) before running anything.
    preload or IPC. Write a scratch Electron script that `require`s the
    repo's `main.js`, waits for the window's `did-finish-load`, and drives it
    with `webContents.executeJavaScript` (for example `whd.getFacts()` or
-   `whd.sendReport({...})`). Open a second `BrowserWindow` with the same
+   `whd.shareCopy({...})`). Open a second `BrowserWindow` with the same
    preload on a `data:` URL to check that IPC from other pages is refused.
    Call `app.exit()` when done.
 5. **Postman (optional, uses the network):** `npm run test:postman` checks
