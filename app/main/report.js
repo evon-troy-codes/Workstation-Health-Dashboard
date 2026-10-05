@@ -41,6 +41,15 @@ function errorDetail(err) {
   return String(cause);
 }
 
+// systemd names a USB network adapter after its MAC address: "enx" + MAC for
+// Ethernet, "wlx" + MAC for Wi-Fi. Shared, such a name would carry the MAC
+// out of the report anyway, so it goes out as what it is instead.
+const MAC_NAMED_IFACE = /^(en|wl)x[0-9a-f]{12}$/i;
+function shareableInterface(name) {
+  if (typeof name !== "string" || !MAC_NAMED_IFACE.test(name)) return name;
+  return name.slice(0, 2).toLowerCase() === "wl" ? "USB Wi-Fi adapter" : "USB Ethernet adapter";
+}
+
 // The report main sends: its own last scan, with the deferred results merged
 // in as the renderer merges them. Only the speed test runs in the renderer, so
 // that is all taken from it, and only as numbers and flags. Anything else the
@@ -52,7 +61,7 @@ function buildReport(facts, deferred, fromRenderer) {
   // mailer leaves them out of the email too.
   if (facts.network) {
     const { mac, ssid, ...network } = facts.network;
-    report.network = network;
+    report.network = { ...network, interface: shareableInterface(network.interface) };
   }
   if (deferred) {
     report.os = {
@@ -92,34 +101,37 @@ const AI_TIMEOUT_MS = 60000;
 function buildAiScan(report) {
   const r = report || {};
   const o = (v) => (v && typeof v === "object" ? v : {});
+  // Only plain values leave the machine: a field that holds an object
+  // (whatever is nested in it) goes out as null.
+  const p = (v) => (v == null || ["string", "number", "boolean"].includes(typeof v) ? v : null);
   const cpu = o(r.cpu), ram = o(r.ram), disk = o(r.disk), os = o(r.os), net = o(r.network);
   const bw = o(r.bandwidth), power = o(r.power), apps = o(r.backgroundApps), display = o(r.display);
   return {
-    machineType: r.machineType,
-    uptime: r.uptime,
-    os: { name: os.name, version: os.version, pendingUpdates: os.pendingUpdates,
-      lastUpdateCheck: os.lastUpdateCheck, lastUpdateKind: os.lastUpdateKind },
+    machineType: p(r.machineType),
+    uptime: p(r.uptime),
+    os: { name: p(os.name), version: p(os.version), pendingUpdates: p(os.pendingUpdates),
+      lastUpdateCheck: p(os.lastUpdateCheck), lastUpdateKind: p(os.lastUpdateKind) },
     // The speed only with its kind (maximum or base clock), and none when
     // neither is known, rather than the 0 that stands for that.
-    cpu: { model: cpu.model, cores: cpu.cores, threads: cpu.threads,
-      ghz: cpu.ghzKind ? cpu.ghz : null, ghzKind: cpu.ghzKind || null },
-    ram: { totalGB: ram.totalGB, freeGB: ram.freeGB, pressure: ram.pressure, type: ram.type },
-    disk: { totalGB: disk.totalGB, freeGB: disk.freeGB, usedPercent: disk.usedPercent, ssd: disk.ssd },
+    cpu: { model: p(cpu.model), cores: p(cpu.cores), threads: p(cpu.threads),
+      ghz: cpu.ghzKind ? p(cpu.ghz) : null, ghzKind: p(cpu.ghzKind) || null },
+    ram: { totalGB: p(ram.totalGB), freeGB: p(ram.freeGB), pressure: p(ram.pressure), type: p(ram.type) },
+    disk: { totalGB: p(disk.totalGB), freeGB: p(disk.freeGB), usedPercent: p(disk.usedPercent), ssd: p(disk.ssd) },
     display: { monitors: (Array.isArray(display.monitors) ? display.monitors : []).map((m) => ({
-      builtin: o(m).builtin, main: o(m).main, resolution: o(m).resolution, refreshRate: o(m).refreshRate })) },
-    network: { type: net.type, isWired: net.isWired, isVirtual: net.isVirtual, linkSpeed: net.linkSpeed },
-    vpn: { detected: o(r.vpn).detected },
-    bandwidth: { downMbps: bw.downMbps, upMbps: bw.upMbps, ping: bw.ping, jitter: bw.jitter,
-      partial: bw.partial, failed: bw.failed },
+      builtin: p(o(m).builtin), main: p(o(m).main), resolution: p(o(m).resolution), refreshRate: p(o(m).refreshRate) })) },
+    network: { type: p(net.type), isWired: p(net.isWired), isVirtual: p(net.isVirtual), linkSpeed: p(net.linkSpeed) },
+    vpn: { detected: p(o(r.vpn).detected) },
+    bandwidth: { downMbps: p(bw.downMbps), upMbps: p(bw.upMbps), ping: p(bw.ping), jitter: p(bw.jitter),
+      partial: p(bw.partial), failed: p(bw.failed) },
     // null (a Linux machine with none installed) stays null: not checked,
     // rather than "none found", which the AI might treat as a problem.
     // A Windows check that failed (checked: false) is "not checked" too.
-    antivirus: r.antivirus == null || o(r.antivirus).checked === false ? null : { products: (Array.isArray(o(r.antivirus).products) ? r.antivirus.products : []).map((p) => ({
-      name: o(p).name, running: o(p).running, definitionsAge: o(p).definitionsAge })) },
-    power: { hasBattery: power.hasBattery, batteryLevel: power.batteryLevel, onBattery: power.onBattery },
-    audio: { headsetClass: o(r.audio).headsetClass },
-    backgroundApps: { runningApps: Array.isArray(apps.runningApps) ? apps.runningApps : [],
-      browserExtensions: apps.browserExtensions },
+    antivirus: r.antivirus == null || o(r.antivirus).checked === false ? null : { products: (Array.isArray(o(r.antivirus).products) ? r.antivirus.products : []).map((a) => ({
+      name: p(o(a).name), running: p(o(a).running), definitionsAge: p(o(a).definitionsAge) })) },
+    power: { hasBattery: p(power.hasBattery), batteryLevel: p(power.batteryLevel), onBattery: p(power.onBattery) },
+    audio: { headsetClass: p(o(r.audio).headsetClass) },
+    backgroundApps: { runningApps: Array.isArray(apps.runningApps) ? apps.runningApps.filter((a) => typeof a === "string") : [],
+      browserExtensions: p(apps.browserExtensions) },
   };
 }
 
