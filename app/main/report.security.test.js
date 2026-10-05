@@ -54,6 +54,7 @@ const ALLOWED = {
   vpn: { detected: 1 },
   bandwidth: { downMbps: 1, upMbps: 1, ping: 1, jitter: 1, partial: 1, failed: 1 },
   antivirus: { products: [{ name: 1, running: 1, definitionsAge: 1 }] },
+  firewall: { products: [{ name: 1, active: 1, detail: 1 }] },
   power: { hasBattery: 1, batteryLevel: 1, onBattery: 1 },
   audio: { headsetClass: 1 },
   backgroundApps: { runningApps: [1], browserExtensions: 1 },

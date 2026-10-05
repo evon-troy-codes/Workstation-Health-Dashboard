@@ -263,6 +263,14 @@ test("sanitizeScan and shapeAnswer", async (t) => {
     assert.equal(sanitizeScan({}).antivirus, null);
     assert.deepEqual(sanitizeScan({ antivirus: { products: [] } }).antivirus, []);
     assert.equal(sanitizeScan({ antivirus: { products: [], checked: false } }).antivirus, null);
+    // A firewall list, empty or not, is a reading; no firewall (an older
+    // app) or a failed check is not measured.
+    assert.deepEqual(sanitizeScan({ firewall: { products: [{ name: "UFW", active: true, detail: null, path: "/etc/ufw" }] } }).firewall,
+      [{ name: "UFW", active: true, detail: null }]);
+    assert.deepEqual(sanitizeScan({ firewall: { products: [] } }).firewall, []);
+    assert.equal(sanitizeScan({}).firewall, null);
+    assert.equal(sanitizeScan({ firewall: { checked: false, products: [] } }).firewall, null);
+    assert.equal(sanitizeScan({ firewall: { products: [{ name: "x", active: "yes" }] } }).firewall[0].active, null);
   });
 
   await t.test("sends the CPU speed with its kind, and no speed rather than 0", () => {

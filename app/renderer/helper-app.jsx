@@ -450,6 +450,8 @@ function SystemScreen() {
         </Card>
       )}
 
+      <FirewallCard firewall={facts.firewall} pending={deferredFailed ? "Unknown" : "Checking…"} />
+
       <Card icon="microphone" title="Audio" sub={facts.audio.headsetClass}>
         <KV k="Output" v={facts.audio.output} />
         <KV k="Input" v={facts.audio.input} />
@@ -469,6 +471,34 @@ function SystemScreen() {
 // The Display card: one row per monitor, each with its own resolution and
 // refresh rate, the main one first. Its facts arrive with the slow scans, so
 // until then it says "Checking…" (or "Unknown" if those scans failed).
+// Every product found, with what's known of it. An empty list is "No firewall
+// service found": only services can be seen without admin rights, so the
+// wording doesn't claim there are no rules at all. Neutral, never graded.
+// null until the deferred scan lands: `pending` says "Checking…" or "Unknown".
+function FirewallCard({ firewall, pending }) {
+  if (!firewall) {
+    return (
+      <Card icon="shield" title="Firewall" sub={pending}>
+        <KV k="Status" v={pending} hint={HINTS.firewall} />
+      </Card>
+    );
+  }
+  const fw = firewall;
+  const state = (p) => [p.active == null ? "Installed" : p.active ? "Active" : "Inactive", p.detail].filter(Boolean).join(" · ");
+  const active = fw.products.find((p) => p.active === true);
+  const sub = fw.checked === false && !fw.products.length ? "Couldn't check"
+    : !fw.products.length ? "No firewall service found"
+    : active ? `${active.name} active`
+    : fw.products.some((p) => p.active == null) ? "Installed" : "Not active";
+  return (
+    <Card icon="shield" title="Firewall" sub={sub}>
+      {fw.checked === false && !fw.products.length && <KV k="Status" v="Unknown" hint={HINTS.firewall} />}
+      {fw.checked !== false && !fw.products.length && <KV k="Status" v="No firewall service found" hint={HINTS.firewallNone} />}
+      {fw.products.map((p, i) => <KV key={i} k={p.name} v={state(p)} hint={i === 0 ? HINTS.firewall : undefined} />)}
+    </Card>
+  );
+}
+
 function DisplayCard({ display: d, pending }) {
   // Reports from before per-monitor detection carry no list.
   const monitors = d && Array.isArray(d.monitors) ? d.monitors : null;
@@ -699,6 +729,7 @@ function App() {
         disk: { ...f.disk, ssd: d.ssd },
         backgroundApps: d.backgroundApps || f.backgroundApps,
         display: d.display || f.display,
+        firewall: d.firewall || f.firewall,
       }));
     }).catch(() => {
       // Left alone, the cards would say "Checking…" forever.

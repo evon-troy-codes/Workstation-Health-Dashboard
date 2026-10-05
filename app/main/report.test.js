@@ -90,8 +90,10 @@ test("buildReport", async (t) => {
       pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked",
       ssd: true, backgroundApps: { browserExtensions: 1, runningApps: ["Zoom"] },
       display: { count: 1, resolution: "1920 × 1080" },
+      firewall: { checked: true, products: [{ name: "Windows Firewall", active: true, detail: null }] },
     };
     const r = buildReport(scanned, deferred, {});
+    assert.deepEqual(r.firewall, deferred.firewall);
     assert.deepEqual(r.display, deferred.display);
     assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
     assert.equal(r.disk.ssd, true);
@@ -199,8 +201,17 @@ test("buildAiScan", async (t) => {
     assert.equal(buildAiScan({ antivirus: null }).antivirus, null);
   });
 
+  await t.test("firewall: each product, 'none found' as an empty list, and no reading as null", () => {
+    const ufw = { checked: true, products: [{ name: "UFW", active: true, detail: null }] };
+    assert.deepEqual(buildAiScan({ firewall: ufw }).firewall, { products: [{ name: "UFW", active: true, detail: null }] });
+    assert.deepEqual(buildAiScan({ firewall: { checked: true, products: [] } }).firewall, { products: [] });
+    assert.equal(buildAiScan({ firewall: { checked: false, products: [] } }).firewall, null);
+    assert.equal(buildAiScan({ firewall: null }).firewall, null);
+  });
+
   await t.test("copes with a report missing whole sections", () => {
     const s = buildAiScan({ hostname: "x" });
+    assert.equal(s.firewall, null, "no firewall reading is 'not checked', not 'none found'");
     assert.deepEqual(s.display.monitors, []);
     assert.equal(s.antivirus, null, "no antivirus reading is 'not checked', not 'none found'");
     assert.deepEqual(s.backgroundApps.runningApps, []);

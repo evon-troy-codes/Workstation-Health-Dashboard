@@ -108,19 +108,21 @@ jobs:
         run: xvfb-run --auto-servernum --server-args="-screen 0 1920x1080x24" npm run smoke
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }} # for the Electron download
-          WHD_EXPECT: os name,cpu model,ram total,disk total,network interface,pending updates,last update check
+          WHD_EXPECT: os name,cpu model,ram total,disk total,network interface,pending updates,last update check,firewall checked
 
       # Windows adds its last-check row, which falls back to the installed
       # update history. Its pending count is deliberately not asserted: the
       # hosted images have Windows Update disabled, so the offline search
       # finds nothing, which says nothing about the app. macOS asserts only
-      # the basics until step 3 gives it detectors of its own.
+      # the basics until step 3 gives it detectors of its own. Both assert
+      # that the firewall check ran: the runner is the only place its
+      # PowerShell and socketfilterfw paths run for real.
       - name: Smoke test
         if: runner.os != 'Linux'
         run: npm run smoke
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          WHD_EXPECT: ${{ runner.os == 'Windows' && 'os name,cpu model,ram total,disk total,network interface,last update check' || 'os name,cpu model,ram total,disk total,network interface' }}
+          WHD_EXPECT: ${{ runner.os == 'Windows' && 'os name,cpu model,ram total,disk total,network interface,last update check,firewall checked' || 'os name,cpu model,ram total,disk total,network interface,firewall checked' }}
 
       # Packaging is slow and the artifacts are ~100 MB per OS, so it runs for
       # main and manual runs, not on every pull request.

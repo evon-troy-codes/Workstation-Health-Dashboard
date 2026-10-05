@@ -13,5 +13,7 @@ export const HINTS = {
   gateway: "The address of your router: the device this computer goes through to reach the internet.",
   dns: "The servers that turn website names into addresses. Usually your router or internet provider.",
   uptime: "How long since this computer last restarted. Restarting now and then finishes updates and clears memory.",
+  firewall: "A firewall blocks connections other devices try to open to this computer. It matters most on public Wi-Fi, such as in cafés or airports.",
+  firewallNone: "No firewall service is running. The app can see firewall services, not the rules themselves. On Ubuntu, \"sudo ufw enable\" turns on the one already installed.",
   memoryPressure: "How hard the computer is working to fit open apps into memory. High pressure can make it feel slow.",
 };
