@@ -192,6 +192,11 @@ keeps working.
   Docker's iptables rules don't count. Neutral styling, no warning. Windows
   reads `Get-NetFirewallProfile` plus Security Center's FirewallProduct;
   macOS reads `socketfilterfw --getglobalstate`.
+- **No Power card on a desktop** (owner's call, 2026-10-05): with no
+  battery it only ever said "No battery · AC adapter". The System card and
+  the Overview tile are hidden; the Firewall tile takes the tile's slot.
+  Shared reports and the AI keep "no battery", which tells IT it's a
+  desktop.
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 
