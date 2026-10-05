@@ -30,10 +30,20 @@ it knows (`src/explain.js`), asks Claude for a summary and up to five findings,
 and answers `{ ok: true, summary, findings, model }`. The Anthropic key is a
 Worker secret, `ANTHROPIC_API_KEY`.
 
+Only `Content-Type: application/json` is accepted (anything else is 415
+`unsupported-media-type`). The app always sends it, and a web page can't send
+it to another site without a CORS preflight, which the Worker refuses, so no
+page can make its visitors' browsers spend the budget. Bodies are capped at
+256 KB, counted in bytes as they arrive.
+
 Every call spends Anthropic credit and anyone can make one, so it is capped
-three ways:
+four ways:
 
 - About five calls a minute per client IP (`RATE_LIMITER`, key `ai:<ip>`).
+- `AI_DAILY_PER_IP_LIMIT` calls a day per caller (default 3), so one person
+  with a script can't use up everyone's day. A caller is an IPv4 address or
+  an IPv6 /64, kept in the budget counter only as a hash salted afresh each
+  UTC day. Past it, that caller gets 429 `ai-daily-limit`.
 - `AI_MONTHLY_LIMIT` calls a calendar month and `AI_DAILY_LIMIT` a day, in
   UTC, across all callers (`src/budget.js`, a Durable Object bound as
   `AI_BUDGET`). Past either, `/explain` answers 429 `ai-monthly-limit` or
@@ -41,10 +51,12 @@ three ways:
   month under about $5 at 3-4 cents a call on Opus 5.5; change them in
   `wrangler.toml`. The daily limit stops one burst of abuse using up the
   month on its first day. If the counter can't be reached, the call is
-  refused (503 `ai-busy`). A call that never reached Claude (no key, no
+  refused (503 `ai-busy`), as it is if the rate limiter fails. A call that never reached Claude (no key, no
   connection, or an API error such as a rate limit or an empty balance) is
   given back to the budget, so an outage doesn't use up the day; a call that
-  timed out stays counted, since it may have run.
+  timed out stays counted, since it may have run. A failure the Worker didn't
+  expect is given back too, and answered as JSON (502 `ai-failed`) rather
+  than Cloudflare's error page.
 - The Anthropic credit itself: prepaid, with auto-reload off, it is the hard
   ceiling. When it runs out, `/explain` answers 503 `ai-unavailable`, and the
   app says explanations are unavailable rather than asking to try again.

@@ -142,7 +142,11 @@ keeps working.
   login, so its spend is capped: per-IP rate limit, then a global Durable
   Object counter (`src/budget.js`, `AI_MONTHLY_LIMIT` 100 and
   `AI_DAILY_LIMIT` 10, UTC), sized for a $5-a-month budget. The 10 a day is
-  shared by everyone on purpose (owner's call, 2026-09-29). A call that never
+  shared by everyone on purpose (owner's call, 2026-09-29), but since
+  2026-10-05 each caller (an IPv4 address or IPv6 /64, stored as a daily
+  salted hash) gets at most `AI_DAILY_PER_IP_LIMIT` 3 of it, and only
+  `application/json` is accepted, so a web page can't spend it through its
+  visitors' browsers. A call that never
   reached Claude is refunded. Keep it, and resize the limits if the model or
   budget changes.
 - **No persistent PowerShell on Windows.** systeminformation's

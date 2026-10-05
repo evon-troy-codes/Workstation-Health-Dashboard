@@ -40,6 +40,13 @@ test("handleRequest", async (t) => {
     assert.equal((await handleRequest(declared, {}, noNetwork)).status, 413);
   });
 
+  await t.test("refuses anything but JSON, so a web page can't post without a preflight", async () => {
+    for (const type of ["text/plain;charset=UTF-8", "application/x-www-form-urlencoded", "multipart/form-data", "application/jsonp", ""]) {
+      const res = await handleRequest(post("/explain", { scan: {} }, { "Content-Type": type }), {}, noNetwork);
+      assert.deepEqual(await answer(res), { status: 415, body: { ok: false, error: "unsupported-media-type" } }, type);
+    }
+  });
+
   await t.test("refuses broken JSON and a missing scan", async () => {
     assert.deepEqual(await answer(await handleRequest(post("/explain", "{not json"), {}, noNetwork)), { status: 400, body: { ok: false, error: "bad-request" } });
     assert.deepEqual(await answer(await handleRequest(post("/explain", { scan: [] }), {}, noNetwork)), { status: 400, body: { ok: false, error: "invalid-scan" } });

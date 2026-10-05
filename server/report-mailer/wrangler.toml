@@ -22,6 +22,9 @@ AI_EFFORT = "medium"
 # off. Keep the spend limit in the Anthropic console as the hard ceiling.
 AI_MONTHLY_LIMIT = "100"
 AI_DAILY_LIMIT = "10"
+# Each caller's share of the day (an IPv4 address, or an IPv6 /64), so one
+# person can't use up everyone's day.
+AI_DAILY_PER_IP_LIMIT = "3"
 
 # About five explanations a minute per client IP.
 [[ratelimits]]
