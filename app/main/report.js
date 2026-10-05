@@ -128,6 +128,11 @@ function buildAiScan(report) {
     // A Windows check that failed (checked: false) is "not checked" too.
     antivirus: r.antivirus == null || o(r.antivirus).checked === false ? null : { products: (Array.isArray(o(r.antivirus).products) ? r.antivirus.products : []).map((a) => ({
       name: p(o(a).name), running: p(o(a).running), definitionsAge: p(o(a).definitionsAge) })) },
+    // Unlike antivirus, an empty list is a reading ("no firewall service
+    // found"); only a failed check, or none at all, is null.
+    firewall: r.firewall == null || (o(r.firewall).checked === false && !(Array.isArray(o(r.firewall).products) && r.firewall.products.length)) ? null
+      : { products: (Array.isArray(o(r.firewall).products) ? r.firewall.products : []).map((f) => ({
+        name: p(o(f).name), active: p(o(f).active), detail: p(o(f).detail) })) },
     power: { hasBattery: p(power.hasBattery), batteryLevel: p(power.batteryLevel), onBattery: p(power.onBattery) },
     audio: { headsetClass: p(o(r.audio).headsetClass) },
     backgroundApps: { runningApps: Array.isArray(apps.runningApps) ? apps.runningApps.filter((a) => typeof a === "string") : [],

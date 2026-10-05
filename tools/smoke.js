@@ -179,6 +179,8 @@ async function summarise() {
     "audio output": has(facts.audio && facts.audio.output),
     "audio input": has(facts.audio && facts.audio.input),
     "antivirus products": count(facts.antivirus && facts.antivirus.products),
+    // Whether the firewall check ran: "none found" is a real answer.
+    "firewall checked": facts.firewall && facts.firewall.checked ? "yes" : "no",
     "on battery": facts.power ? (facts.power.onBattery ? "yes" : "no") : "n/a",
     "pending updates": deferred.error ? "error" : num(deferred.pendingUpdates),
     "last update check": deferred.error ? "error" : has(deferred.lastUpdateCheck),

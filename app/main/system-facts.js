@@ -125,7 +125,7 @@ async function collectFacts() {
   // queries held up the first paint on Windows.
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, defIfaceName,
-         antivirus, audio, dnsServers] = await Promise.all([
+         antivirus, firewall, audio, dnsServers] = await Promise.all([
     probe(si.cpu(), {}, "cpu"), probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
     probe(si.osInfo(), {}, "osInfo"), probe(si.system(), {}, "system"), probe(si.fsSize(), [], "fsSize"),
     probe(si.networkInterfaces(), [], "networkInterfaces"),
@@ -134,6 +134,7 @@ async function collectFacts() {
     probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
     // On Linux, null (nothing to report) stays null; see linuxAntivirus.
     probe(detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "antivirus"),
+    probe(detectFirewall(), { products: [], checked: false }, "firewall"),
     probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
     probe(detectDnsServers(), [], "dns"),
   ]);
@@ -224,6 +225,7 @@ async function collectFacts() {
     },
     vpn: detectVpn(net),
     antivirus,
+    firewall,
     backgroundApps: null, // filled in by detectDeferred (si.processes is slow)
     power: {
       hasBattery: !!battery.hasBattery,
@@ -670,6 +672,169 @@ function humanAge(ts) {
 // "1 day" rather than "1 days" — this string is rendered straight onto a card.
 function plural(n, unit) {
   return `${n} ${unit}${n === 1 ? "" : "s"}`;
+}
+
+// ---- Firewall ---------------------------------------------------------------
+//
+// facts.firewall: { checked, products: [{ name, active, detail }] }.
+// active is true or false when the platform says, null when only the
+// product's presence is known ("Installed"). detail qualifies an active
+// reading ("Off for: Public"). checked: false is a check that failed
+// ("Unknown"), never "none". Unlike antivirus, an empty list is reported on
+// Linux too: the card says "No firewall service found" (owner's call,
+// 2026-10-05). Without root the rules themselves can't be read, so "found"
+// means a firewall service set up and running, and the wording says so.
+
+// Windows Firewall's three profiles, and any third-party firewall registered
+// with Security Center (which Windows Firewall itself is not). Both without
+// admin rights. ok is whether the profile query ran.
+const WINDOWS_FIREWALL_SCRIPT =
+  "$ErrorActionPreference='SilentlyContinue';" +
+  "$r=@{ok=$false;profiles=@();products=@()};" +
+  "try {" +
+  "  $r.profiles = @(Get-NetFirewallProfile -ErrorAction Stop | ForEach-Object {" +
+  "    [pscustomobject]@{ name=[string]$_.Name; enabled=([string]$_.Enabled -eq 'True') } });" +
+  "  $r.ok = $true" +
+  "} catch {};" +
+  "try {" +
+  "  $fw = Get-CimInstance -Namespace root/SecurityCenter2 -ClassName FirewallProduct -ErrorAction Stop;" +
+  "  $r.products = @(foreach ($p in $fw) {" +
+  "    $hex = ([Convert]::ToString($p.productState,16)).PadLeft(6,'0');" +
+  "    [pscustomobject]@{ name=$p.displayName; enabled=($hex.Substring(2,2) -in '10','11') }" +
+  "  })" +
+  "} catch {};" +
+  "[pscustomobject]$r | ConvertTo-Json -Compress -Depth 4";
+
+function detectFirewall() {
+  const plat = process.platform;
+  if (plat === "win32") {
+    return new Promise((resolve) => {
+      execFile(
+        "powershell.exe",
+        ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_FIREWALL_SCRIPT],
+        { timeout: 15000, windowsHide: true },
+        (err, stdout) => resolve(err ? { products: [], checked: false } : parseWindowsFirewall((stdout || "").trim())),
+      );
+    });
+  }
+  if (plat === "darwin") return macFirewall();
+  if (plat === "linux") return linuxFirewall();
+  return Promise.resolve({ products: [], checked: false });
+}
+
+// The Windows query's JSON → facts.firewall. Third-party firewalls first,
+// then Windows Firewall: on in every profile, off in every one, or on with
+// the profiles that are off named.
+function parseWindowsFirewall(stdout) {
+  let r;
+  try {
+    r = JSON.parse(stdout || "");
+  } catch (_) {
+    return { products: [], checked: false };
+  }
+  if (!r || typeof r !== "object") return { products: [], checked: false };
+  const asList = (v) => (Array.isArray(v) ? v : v ? [v] : []);
+  const products = asList(r.products)
+    .filter((p) => p && typeof p.name === "string" && p.name)
+    .map((p) => ({ name: p.name, active: !!p.enabled, detail: null }));
+  const profiles = asList(r.profiles).filter((p) => p && typeof p.name === "string");
+  if (r.ok === true && profiles.length) {
+    const off = profiles.filter((p) => !p.enabled).map((p) => p.name);
+    products.push({
+      name: "Windows Firewall",
+      active: off.length < profiles.length,
+      detail: off.length && off.length < profiles.length ? `Off for: ${off.join(", ")}` : null,
+    });
+  }
+  return { products, checked: r.ok === true || products.length > 0 };
+}
+
+// macOS's built-in application firewall, plus known third-party firewall
+// apps (installed only: their state isn't visible). Untested on a real Mac
+// from the Linux machine.
+const MAC_FIREWALL_APPS = ["/Applications/Little Snitch.app", "/Applications/LuLu.app"];
+
+async function macFirewall(has = exists) {
+  const others = MAC_FIREWALL_APPS.filter((p) => has(p))
+    .map((p) => ({ name: path.basename(p, ".app"), active: null, detail: null }));
+  const out = await runCmd("/usr/libexec/ApplicationFirewall/socketfilterfw", ["--getglobalstate"]);
+  const active = parseMacFirewall(out);
+  if (active == null) return { products: others, checked: others.length > 0 };
+  return { products: [...others, { name: "macOS Firewall", active, detail: null }], checked: true };
+}
+
+// "Firewall is enabled. (State = 1)", "... blocking all non-essential ...
+// (State = 2)" or "Firewall is disabled. (State = 0)" → true, false, or null
+// when the output says neither.
+function parseMacFirewall(stdout) {
+  const m = /State = (\d)/.exec(stdout || "");
+  if (m) return m[1] !== "0";
+  if (/\bdisabled\b/i.test(stdout || "")) return false;
+  if (/\benabled\b/i.test(stdout || "")) return true;
+  return null;
+}
+
+// Linux: the firewall front ends and services, by what can be read without
+// root: whether each is installed, UFW's own on/off setting, and which
+// services systemd is running. `nft list ruleset` and `ufw status` need root.
+const LINUX_FIREWALL_UNITS = ["ufw", "firewalld", "nftables", "iptables", "netfilter-persistent"];
+
+async function linuxFirewall() {
+  const systemctl = findTool("/usr/bin/systemctl", "/bin/systemctl");
+  const result = systemctl ? await runCmdResult(systemctl, ["is-active", ...LINUX_FIREWALL_UNITS]) : null;
+  return linuxFirewallFrom({
+    ufwInstalled: exists("/usr/sbin/ufw") || exists("/usr/bin/ufw"),
+    firewalldInstalled: exists("/usr/sbin/firewalld") || exists("/usr/bin/firewalld"),
+    ufwEnabled: ufwConfigEnabled(),
+    services: result ? parseSystemctlIsActive(result.stdout, LINUX_FIREWALL_UNITS) : null,
+  });
+}
+
+// /etc/ufw/ufw.conf's ENABLED= → true or false, null if it can't be read.
+function ufwConfigEnabled(readFile = fs.readFileSync) {
+  try {
+    const m = /^\s*ENABLED\s*=\s*"?(yes|no)"?\s*$/im.exec(readFile("/etc/ufw/ufw.conf", "utf8"));
+    return m ? m[1].toLowerCase() === "yes" : null;
+  } catch (_) {
+    return null;
+  }
+}
+
+// `systemctl is-active a b c` prints one state per unit, in order ("active",
+// "inactive", "failed", ...; "inactive" for a unit that doesn't exist).
+// → { unit: state }, or null when the output doesn't line up.
+function parseSystemctlIsActive(stdout, units) {
+  const lines = String(stdout || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (lines.length !== units.length) return null;
+  return Object.fromEntries(units.map((u, i) => [u, lines[i]]));
+}
+
+// What linuxFirewall read → facts.firewall. Pure, for the tests.
+//   ufwInstalled, firewalldInstalled: booleans
+//   ufwEnabled: UFW's ENABLED= setting, null if unread
+//   services: { unit: state } from systemctl, null without systemd
+// UFW is active when it is set to on and its service ran (on Arch, `ufw
+// enable` without the service enabled is off after a reboot). nftables and
+// iptables are listed only when their service is running: the tools are on
+// nearly every system whether anything uses them or not.
+function linuxFirewallFrom({ ufwInstalled, firewalldInstalled, ufwEnabled, services }) {
+  const products = [];
+  const state = (u) => (services ? services[u] === "active" : null);
+  if (ufwInstalled) {
+    // Ubuntu's ufw.service is active even with UFW off, so a running service
+    // with the setting unread is unknown.
+    let active = ufwEnabled;
+    if (services && ufwEnabled !== false) active = !state("ufw") ? false : ufwEnabled === true ? true : null;
+    products.push({ name: "UFW", active, detail: null });
+  }
+  if (firewalldInstalled) products.push({ name: "firewalld", active: state("firewalld"), detail: null });
+  if (services) {
+    if (state("nftables")) products.push({ name: "nftables", active: true, detail: null });
+    if (state("iptables") || state("netfilter-persistent")) products.push({ name: "iptables", active: true, detail: null });
+  }
+  // Without systemd, a machine with no front end could still have rules
+  // loaded some other way, so that is unknown rather than none.
+  return { products, checked: services != null || products.length > 0 };
 }
 
 // Slow detections, fetched lazily after first paint: OS update status, the SSD
@@ -1490,6 +1655,13 @@ module.exports = {
   matchBackgroundApps,
   parseWindowsAvResult,
   WINDOWS_AV_SCRIPT,
+  parseWindowsFirewall,
+  WINDOWS_FIREWALL_SCRIPT,
+  parseMacFirewall,
+  macFirewall,
+  ufwConfigEnabled,
+  parseSystemctlIsActive,
+  linuxFirewallFrom,
   withMacBuiltIn,
   osNameVersion,
   // The Linux plumbing. Exported so the choices that are easy to revert by

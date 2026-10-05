@@ -6,6 +6,7 @@ import { React } from "./react-globals.js";
 const ICONS = {
   cloud: <path d="M17 18a4 4 0 0 0 .6-7.95A6 6 0 0 0 7.4 8.5 4 4 0 0 0 7 16.5"/>,
   house: <path d="M3 12 12 3l9 9M5 10v10h14V10"/>,
+  shield: <path d="M12 3 4 6v6c0 4.6 3.4 8.4 8 9 4.6-.6 8-4.4 8-9V6l-8-3Z"/>,
   comment: <path d="M21 12a8 8 0 1 1-3.05-6.29L21 4l-1.06 3.7A8 8 0 0 1 21 12Z"/>,
   // The common "AI" mark: a large four-pointed star and a small one, filled
   // (outlines blur into a blob at button size).

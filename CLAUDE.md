@@ -182,6 +182,16 @@ keeps working.
   shows it. Windows and macOS always report a reading: a failed check is
   `checked: false` ("Unknown", never "none"), and a Mac with no third-party
   product shows "Built-in protection (XProtect)" (owner's call, 2026-10-02).
+- **Firewall card: shown on every OS, never hidden** (owner's call,
+  2026-10-05), unlike Linux antivirus: a firewall matters on any laptop on
+  public Wi-Fi, and "UFW installed, inactive" (Ubuntu's default) is the
+  reading most worth seeing. Without root the rules can't be read, so Linux
+  reports firewall *services* (UFW by `/etc/ufw/ufw.conf` plus its unit,
+  firewalld, nftables, iptables/netfilter-persistent via `systemctl
+  is-active`) and says "No firewall service found", never "No firewall".
+  Docker's iptables rules don't count. Neutral styling, no warning. Windows
+  reads `Get-NetFirewallProfile` plus Security Center's FirewallProduct;
+  macOS reads `socketfilterfw --getglobalstate`.
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 

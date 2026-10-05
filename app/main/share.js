@@ -64,13 +64,26 @@ function antivirusRows(antivirus) {
   });
 }
 
+// Never hidden: an empty list is "No firewall service found" on every OS.
+function firewallRows(firewall) {
+  if (firewall == null) return [["Firewall", "Unknown"]]; // not read at all
+  const fw = obj(firewall);
+  const products = Array.isArray(fw.products) ? fw.products.slice(0, MAX_LIST) : [];
+  if (!products.length) return [["Firewall", fw.checked === false ? "Unknown (the check failed)" : "No firewall service found"]];
+  return products.map((p) => {
+    const q = obj(p);
+    const state = q.active == null ? "Installed" : q.active ? "Active" : "Inactive";
+    return [val(q.name), q.detail ? `${state} · ${val(q.detail)}` : state];
+  });
+}
+
 // Sections of [label, value] rows, from the report's known fields.
 function reportSections(report) {
   const r = obj(report);
   const cpu = obj(r.cpu), ram = obj(r.ram), disk = obj(r.disk), os = obj(r.os);
   const net = obj(r.network), bw = obj(r.bandwidth), vpn = obj(r.vpn);
   const power = obj(r.power), audio = obj(r.audio), apps = obj(r.backgroundApps);
-  const security = antivirusRows(r.antivirus);
+  const security = [...(antivirusRows(r.antivirus) || []), ...firewallRows(r.firewall)];
   return [
     ["Computer", [
       ["Computer name", val(r.hostname)],
@@ -100,7 +113,7 @@ function reportSections(report) {
       ["Upload", num(bw.upMbps, "Mbps")],
       ["Ping / jitter", `${num(bw.ping, "ms")} / ${num(bw.jitter, "ms")}`],
     ]],
-    ...(security ? [["Security", security]] : []),
+    ["Security", security],
     ["Audio, power and apps", [
       ["Audio output", `${val(audio.output)} (${val(audio.headsetClass)})`],
       ["Audio input", val(audio.input)],

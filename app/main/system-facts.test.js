@@ -55,6 +55,12 @@ const {
   matchBackgroundApps,
   parseWindowsAvResult,
   WINDOWS_AV_SCRIPT,
+  parseWindowsFirewall,
+  WINDOWS_FIREWALL_SCRIPT,
+  parseMacFirewall,
+  ufwConfigEnabled,
+  parseSystemctlIsActive,
+  linuxFirewallFrom,
   withMacBuiltIn,
   osNameVersion,
 } = require("./system-facts");
@@ -1332,6 +1338,127 @@ test("parseWindowsAv", async (t) => {
 // there as "undefined" on a card rather than as an error, so assert the shape
 // the UI relies on. This one does touch the live machine.
 // ---------------------------------------------------------------------------
+test("parseWindowsFirewall", async (t) => {
+  const profiles = (domain, priv, pub) => [
+    { name: "Domain", enabled: domain }, { name: "Private", enabled: priv }, { name: "Public", enabled: pub }];
+
+  await t.test("on in every profile is active, with nothing to qualify it", () => {
+    assert.deepEqual(parseWindowsFirewall(JSON.stringify({ ok: true, profiles: profiles(true, true, true), products: [] })),
+      { products: [{ name: "Windows Firewall", active: true, detail: null }], checked: true });
+  });
+
+  await t.test("off in some profiles is active, naming the ones that are off", () => {
+    assert.deepEqual(parseWindowsFirewall(JSON.stringify({ ok: true, profiles: profiles(true, true, false), products: [] })).products,
+      [{ name: "Windows Firewall", active: true, detail: "Off for: Public" }]);
+  });
+
+  await t.test("off in every profile is inactive", () => {
+    assert.deepEqual(parseWindowsFirewall(JSON.stringify({ ok: true, profiles: profiles(false, false, false), products: [] })).products,
+      [{ name: "Windows Firewall", active: false, detail: null }]);
+  });
+
+  await t.test("a third-party firewall comes first, with Windows Firewall still reported", () => {
+    const out = JSON.stringify({ ok: true, profiles: profiles(false, false, false), products: { name: "Norton Firewall", enabled: true } });
+    assert.deepEqual(parseWindowsFirewall(out).products.map((p) => [p.name, p.active]),
+      [["Norton Firewall", true], ["Windows Firewall", false]]);
+  });
+
+  await t.test("a profile query that failed is not checked, never 'none'", () => {
+    assert.deepEqual(parseWindowsFirewall('{"ok":false,"profiles":[],"products":[]}'), { products: [], checked: false });
+    assert.deepEqual(parseWindowsFirewall(""), { products: [], checked: false });
+    assert.deepEqual(parseWindowsFirewall("Get-NetFirewallProfile : Access denied"), { products: [], checked: false });
+    assert.deepEqual(parseWindowsFirewall("null"), { products: [], checked: false });
+  });
+
+  await t.test("a third-party product still reads when the profile query failed", () => {
+    const out = JSON.stringify({ ok: false, profiles: [], products: [{ name: "ZoneAlarm", enabled: false }] });
+    assert.deepEqual(parseWindowsFirewall(out), { products: [{ name: "ZoneAlarm", active: false, detail: null }], checked: true });
+  });
+
+  await t.test("the real script runs and reads the profiles (Windows only)", (t) => {
+    if (process.platform !== "win32") return t.skip("needs PowerShell on Windows");
+    const out = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_FIREWALL_SCRIPT],
+      { encoding: "utf8", timeout: 60000, windowsHide: true });
+    const parsed = JSON.parse(out.trim());
+    // Get-NetFirewallProfile works on Windows Server too, so CI's runner
+    // reads it, unlike Security Center.
+    assert.equal(parsed.ok, true, `unexpected output: ${out}`);
+    assert.ok(parseWindowsFirewall(out.trim()).products.some((p) => p.name === "Windows Firewall"));
+    console.log(`  Windows firewall script: ${out.trim()}`);
+  });
+});
+
+test("parseMacFirewall", () => {
+  assert.equal(parseMacFirewall("Firewall is enabled. (State = 1)\n"), true);
+  assert.equal(parseMacFirewall("Firewall is blocking all non-essential incoming connections. (State = 2)\n"), true);
+  assert.equal(parseMacFirewall("Firewall is disabled. (State = 0)\n"), false);
+  // Older releases print no state number.
+  assert.equal(parseMacFirewall("Firewall is enabled.\n"), true);
+  assert.equal(parseMacFirewall("Firewall is disabled.\n"), false);
+  for (const none of [null, "", "socketfilterfw: permission denied"]) assert.equal(parseMacFirewall(none), null);
+});
+
+test("ufwConfigEnabled", () => {
+  const conf = (text) => () => text;
+  assert.equal(ufwConfigEnabled(conf("# comment\nENABLED=yes\nLOGLEVEL=low\n")), true);
+  assert.equal(ufwConfigEnabled(conf("ENABLED=no\n")), false);
+  assert.equal(ufwConfigEnabled(conf('ENABLED="yes"\n')), true);
+  assert.equal(ufwConfigEnabled(conf("# ENABLED=yes is commented out\nLOGLEVEL=low\n")), null);
+  assert.equal(ufwConfigEnabled(() => { throw new Error("ENOENT"); }), null);
+});
+
+test("parseSystemctlIsActive", () => {
+  const units = ["ufw", "firewalld", "nftables"];
+  assert.deepEqual(parseSystemctlIsActive("active\ninactive\nfailed\n", units), { ufw: "active", firewalld: "inactive", nftables: "failed" });
+  // Output that doesn't line up with the units asked about can't be trusted.
+  assert.equal(parseSystemctlIsActive("active\n", units), null);
+  assert.equal(parseSystemctlIsActive("", units), null);
+});
+
+test("linuxFirewallFrom", async (t) => {
+  const services = (over = {}) => ({ ufw: "inactive", firewalld: "inactive", nftables: "inactive", iptables: "inactive", "netfilter-persistent": "inactive", ...over });
+  const none = { ufwInstalled: false, firewalldInstalled: false, ufwEnabled: null };
+  const names = (fw) => fw.products.map((p) => [p.name, p.active]);
+
+  await t.test("UFW set to on with its service running is active", () => {
+    assert.deepEqual(linuxFirewallFrom({ ...none, ufwInstalled: true, ufwEnabled: true, services: services({ ufw: "active" }) }),
+      { products: [{ name: "UFW", active: true, detail: null }], checked: true });
+  });
+
+  await t.test("UFW installed but off (Ubuntu's default) is inactive, even with its service up", () => {
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, ufwInstalled: true, ufwEnabled: false, services: services({ ufw: "active" }) })), [["UFW", false]]);
+  });
+
+  await t.test("UFW set to on but its service not running (Arch after a reboot) is inactive", () => {
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, ufwInstalled: true, ufwEnabled: true, services: services() })), [["UFW", false]]);
+  });
+
+  await t.test("UFW with its setting unread and its service up is unknown, not a guess", () => {
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, ufwInstalled: true, ufwEnabled: null, services: services({ ufw: "active" }) })), [["UFW", null]]);
+  });
+
+  await t.test("firewalld follows its service", () => {
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, firewalldInstalled: true, services: services({ firewalld: "active" }) })), [["firewalld", true]]);
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, firewalldInstalled: true, services: services() })), [["firewalld", false]]);
+  });
+
+  await t.test("nftables and saved iptables rules count only when their service runs", () => {
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, services: services({ nftables: "active" }) })), [["nftables", true]]);
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, services: services({ "netfilter-persistent": "active" }) })), [["iptables", true]]);
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, services: services({ iptables: "active", "netfilter-persistent": "active" }) })), [["iptables", true]]);
+  });
+
+  await t.test("nothing set up is a checked, empty list: 'No firewall service found'", () => {
+    assert.deepEqual(linuxFirewallFrom({ ...none, services: services() }), { products: [], checked: true });
+  });
+
+  await t.test("without systemd, UFW goes by its setting, and nothing found is unknown", () => {
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, ufwInstalled: true, ufwEnabled: true, services: null })), [["UFW", true]]);
+    assert.deepEqual(names(linuxFirewallFrom({ ...none, firewalldInstalled: true, services: null })), [["firewalld", null]]);
+    assert.deepEqual(linuxFirewallFrom({ ...none, services: null }), { products: [], checked: false });
+  });
+});
+
 test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, async () => {
   const facts = await collectFacts();
 
@@ -1367,6 +1494,14 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   assert.ok(facts.antivirus === null ? process.platform === "linux" : Array.isArray(facts.antivirus.products),
     "antivirus must be { products: [] }, or null on Linux");
   if (facts.antivirus) assert.equal(typeof facts.antivirus.checked, "boolean", "antivirus.checked must be true or false");
+  // Never null, on any OS: an empty list on Linux is "No firewall service found".
+  assert.ok(facts.firewall && Array.isArray(facts.firewall.products), "firewall must be { products: [] }");
+  assert.equal(typeof facts.firewall.checked, "boolean", "firewall.checked must be true or false");
+  for (const p of facts.firewall.products) {
+    assert.equal(typeof p.name, "string", "firewall.products[].name must be a string");
+    assert.ok(p.active === null || typeof p.active === "boolean", "firewall.products[].active must be true, false or null");
+    assert.ok("detail" in p, "firewall.products[].detail is missing");
+  }
 
   // Filled in by detectDeferred after first paint; null means "still checking".
   assert.equal(facts.backgroundApps, null);
@@ -1407,7 +1542,7 @@ test("probeTimings holds only check names and milliseconds, slowest first", { ti
   if (!probeTimings().some(([k]) => k.startsWith("deferred:"))) await detectDeferred();
   const timings = probeTimings();
   const expected = ["cpu", "mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
-    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
+    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "firewall", "audio", "dns",
     "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics"];
   assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
   for (const [k, ms] of timings) {

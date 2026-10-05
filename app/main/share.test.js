@@ -37,9 +37,23 @@ test("reportText", async (t) => {
   });
 
   await t.test("antivirus: none to report, unknown, none found", () => {
-    assert.ok(!reportSections({ ...report, antivirus: null }).some(([name]) => name === "Security"));
+    // Security stays for the firewall, with no antivirus row.
+    const security = reportSections({ ...report, antivirus: null }).find(([name]) => name === "Security");
+    assert.ok(!security[1].some(([k]) => k === "Antivirus"));
     assert.match(reportText({ ...report, antivirus: { checked: false, products: [] } }, at), /Antivirus: Unknown \(the check failed\)/);
     assert.match(reportText({ ...report, antivirus: { checked: true, products: [] } }, at), /Antivirus: None detected/);
+  });
+
+  await t.test("firewall: each product's state, none found, unknown", () => {
+    const fw = (firewall) => reportText({ ...report, firewall }, at);
+    assert.match(fw({ checked: true, products: [{ name: "UFW", active: true, detail: null }] }), /UFW: Active/);
+    assert.match(fw({ checked: true, products: [{ name: "Windows Firewall", active: true, detail: "Off for: Public" }] }), /Windows Firewall: Active · Off for: Public/);
+    assert.match(fw({ checked: true, products: [{ name: "LuLu", active: null, detail: null }] }), /LuLu: Installed/);
+    assert.match(fw({ checked: true, products: [{ name: "firewalld", active: false, detail: null }] }), /firewalld: Inactive/);
+    assert.match(fw({ checked: true, products: [] }), /Firewall: No firewall service found/);
+    assert.match(fw({ checked: false, products: [] }), /Firewall: Unknown \(the check failed\)/);
+    // No reading at all is unknown, never "none found".
+    assert.match(fw(undefined), /Firewall: Unknown$/m);
   });
 
   await t.test("missing readings read as a dash, not undefined", () => {
