@@ -90,8 +90,10 @@ test("buildReport", async (t) => {
       pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked",
       ssd: true, backgroundApps: { browserExtensions: 1, runningApps: ["Zoom"] },
       display: { count: 1, resolution: "1920 × 1080" },
+      firewall: { checked: true, products: [{ name: "Windows Firewall", active: true, detail: null }] },
     };
     const r = buildReport(scanned, deferred, {});
+    assert.deepEqual(r.firewall, deferred.firewall);
     assert.deepEqual(r.display, deferred.display);
     assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
     assert.equal(r.disk.ssd, true);

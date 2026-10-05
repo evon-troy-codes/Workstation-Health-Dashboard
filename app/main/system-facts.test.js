@@ -1494,19 +1494,11 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   assert.ok(facts.antivirus === null ? process.platform === "linux" : Array.isArray(facts.antivirus.products),
     "antivirus must be { products: [] }, or null on Linux");
   if (facts.antivirus) assert.equal(typeof facts.antivirus.checked, "boolean", "antivirus.checked must be true or false");
-  // Never null, on any OS: an empty list on Linux is "No firewall service found".
-  assert.ok(facts.firewall && Array.isArray(facts.firewall.products), "firewall must be { products: [] }");
-  assert.equal(typeof facts.firewall.checked, "boolean", "firewall.checked must be true or false");
-  for (const p of facts.firewall.products) {
-    assert.equal(typeof p.name, "string", "firewall.products[].name must be a string");
-    assert.ok(p.active === null || typeof p.active === "boolean", "firewall.products[].active must be true, false or null");
-    assert.ok("detail" in p, "firewall.products[].detail is missing");
-  }
-
   // Filled in by detectDeferred after first paint; null means "still checking".
   assert.equal(facts.backgroundApps, null);
   assert.equal(facts.disk.ssd, null);
   assert.equal(facts.display, null);
+  assert.equal(facts.firewall, null);
   assert.equal(facts.bandwidth.measuredAt, null);
 
   // A fallen-back probe must not surface as the string "undefined".
@@ -1516,8 +1508,16 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
 test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
   const d = await detectDeferred();
-  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display"]) {
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall"]) {
     assert.ok(key in d, `deferred.${key} is missing`);
+  }
+  // Never null, on any OS: an empty list on Linux is "No firewall service found".
+  assert.ok(d.firewall && Array.isArray(d.firewall.products), "firewall must be { products: [] }");
+  assert.equal(typeof d.firewall.checked, "boolean", "firewall.checked must be true or false");
+  for (const p of d.firewall.products) {
+    assert.equal(typeof p.name, "string", "firewall.products[].name must be a string");
+    assert.ok(p.active === null || typeof p.active === "boolean", "firewall.products[].active must be true, false or null");
+    assert.ok("detail" in p, "firewall.products[].detail is missing");
   }
   assert.ok(Array.isArray(d.backgroundApps.runningApps));
   assert.equal(typeof d.backgroundApps.browserExtensions, "number");
@@ -1542,8 +1542,8 @@ test("probeTimings holds only check names and milliseconds, slowest first", { ti
   if (!probeTimings().some(([k]) => k.startsWith("deferred:"))) await detectDeferred();
   const timings = probeTimings();
   const expected = ["cpu", "mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
-    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "firewall", "audio", "dns",
-    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics"];
+    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
+    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall"];
   assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
   for (const [k, ms] of timings) {
     assert.match(k, /^(deferred:)?[A-Za-z]+$/);

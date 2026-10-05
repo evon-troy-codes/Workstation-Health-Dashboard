@@ -125,7 +125,7 @@ async function collectFacts() {
   // queries held up the first paint on Windows.
   const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, defIfaceName,
-         antivirus, firewall, audio, dnsServers] = await Promise.all([
+         antivirus, audio, dnsServers] = await Promise.all([
     probe(si.cpu(), {}, "cpu"), probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
     probe(si.osInfo(), {}, "osInfo"), probe(si.system(), {}, "system"), probe(si.fsSize(), [], "fsSize"),
     probe(si.networkInterfaces(), [], "networkInterfaces"),
@@ -134,7 +134,6 @@ async function collectFacts() {
     probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
     // On Linux, null (nothing to report) stays null; see linuxAntivirus.
     probe(detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "antivirus"),
-    probe(detectFirewall(), { products: [], checked: false }, "firewall"),
     probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
     probe(detectDnsServers(), [], "dns"),
   ]);
@@ -225,7 +224,9 @@ async function collectFacts() {
     },
     vpn: detectVpn(net),
     antivirus,
-    firewall,
+    // Resolved lazily (detectDeferred): on Windows it is one more PowerShell,
+    // and the first paint already waits on several.
+    firewall: null,
     backgroundApps: null, // filled in by detectDeferred (si.processes is slow)
     power: {
       hasBattery: !!battery.hasBattery,
@@ -838,17 +839,19 @@ function linuxFirewallFrom({ ufwInstalled, firewalldInstalled, ufwEnabled, servi
 }
 
 // Slow detections, fetched lazily after first paint: OS update status, the SSD
-// flag (both hit slow Windows providers) and the running-process scan. Returned
+// flag (both hit slow Windows providers), the running-process scan and the
+// firewall (a PowerShell on Windows). Returned
 // together so the renderer merges them in a single re-render. Each is wrapped
 // so one slow provider cannot strand the others.
 async function detectDeferred() {
-  const [updates, ssd, backgroundApps, graphics] = await Promise.all([
+  const [updates, ssd, backgroundApps, graphics, firewall] = await Promise.all([
     probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
     probe(detectSsd(), null, "deferred:ssd"),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
     probe(detectDisplays(), [], "deferred:graphics"),
+    probe(detectFirewall(), { products: [], checked: false }, "deferred:firewall"),
   ]);
-  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics) };
+  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall };
 }
 
 // The monitors, one entry each: { name, connection, builtin, main, width,

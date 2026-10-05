@@ -450,7 +450,7 @@ function SystemScreen() {
         </Card>
       )}
 
-      <FirewallCard firewall={facts.firewall} />
+      <FirewallCard firewall={facts.firewall} pending={deferredFailed ? "Unknown" : "Checking…"} />
 
       <Card icon="microphone" title="Audio" sub={facts.audio.headsetClass}>
         <KV k="Output" v={facts.audio.output} />
@@ -474,8 +474,16 @@ function SystemScreen() {
 // Every product found, with what's known of it. An empty list is "No firewall
 // service found": only services can be seen without admin rights, so the
 // wording doesn't claim there are no rules at all. Neutral, never graded.
-function FirewallCard({ firewall }) {
-  const fw = firewall || { products: [], checked: false };
+// null until the deferred scan lands: `pending` says "Checking…" or "Unknown".
+function FirewallCard({ firewall, pending }) {
+  if (!firewall) {
+    return (
+      <Card icon="shield" title="Firewall" sub={pending}>
+        <KV k="Status" v={pending} hint={HINTS.firewall} />
+      </Card>
+    );
+  }
+  const fw = firewall;
   const state = (p) => [p.active == null ? "Installed" : p.active ? "Active" : "Inactive", p.detail].filter(Boolean).join(" · ");
   const active = fw.products.find((p) => p.active === true);
   const sub = fw.checked === false && !fw.products.length ? "Couldn't check"
@@ -721,6 +729,7 @@ function App() {
         disk: { ...f.disk, ssd: d.ssd },
         backgroundApps: d.backgroundApps || f.backgroundApps,
         display: d.display || f.display,
+        firewall: d.firewall || f.firewall,
       }));
     }).catch(() => {
       // Left alone, the cards would say "Checking…" forever.

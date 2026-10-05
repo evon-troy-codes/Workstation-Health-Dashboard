@@ -73,6 +73,7 @@ function buildReport(facts, deferred, fromRenderer) {
     report.disk = { ...facts.disk, ssd: deferred.ssd };
     report.backgroundApps = deferred.backgroundApps || facts.backgroundApps;
     report.display = deferred.display || facts.display;
+    report.firewall = deferred.firewall || facts.firewall;
   }
   const b = (fromRenderer && fromRenderer.bandwidth) || {};
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);
