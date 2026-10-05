@@ -333,7 +333,7 @@ function AtAGlance({ onJump }) {
         sub={`of ${facts.disk.totalGB} GB · ${facts.disk.usedPercent}% used`} onClick={() => onJump("system")} />
       <GlanceTile icon="circle-info" label="OS updates" value={updates} sub={updatesSub} onClick={() => onJump("system")} />
       <GlanceTile icon="phone" label="Power"
-        value={power.hasBattery ? `${power.batteryLevel}% battery` : "No battery"}
+        value={power.hasBattery ? batteryPercent(power.batteryLevel, " battery") : "No battery"}
         sub={power.hasBattery ? (power.plugged ? "Plugged in" : "On battery") : null} onClick={() => onJump("system")} />
     </div>
   );
@@ -374,6 +374,11 @@ function OverviewScreen({ onJump }) {
 // "up to 4.7 GHz" when the scan found the maximum boost clock. Otherwise no
 // speed at all: the base clock alone is easily misread, and "0 GHz" is not a
 // reading.
+// The battery level, or "Unknown" when it couldn't be read: never a guess.
+function batteryPercent(level, suffix = "") {
+  return typeof level === "number" && Number.isFinite(level) ? `${level}%${suffix}` : "Unknown";
+}
+
 function cpuSpeedLabel(cpu) {
   return cpu.ghzKind === "max" ? `up to ${cpu.ghz} GHz` : null;
 }
@@ -451,8 +456,8 @@ function SystemScreen() {
         <KV k="Connection" v={facts.audio.headsetClass === "None" ? "None" : facts.audio.isWired ? "Wired" : "Wireless/built-in"} />
       </Card>
 
-      <Card icon="phone" title="Power" sub={power.hasBattery ? `${power.batteryLevel}% · ${power.plugged ? "Plugged in" : "On battery"}` : "No battery"}>
-        <KV k="Battery" v={power.hasBattery ? `${power.batteryLevel}%` : "None"} />
+      <Card icon="phone" title="Power" sub={power.hasBattery ? `${batteryPercent(power.batteryLevel)} · ${power.plugged ? "Plugged in" : "On battery"}` : "No battery"}>
+        <KV k="Battery" v={power.hasBattery ? batteryPercent(power.batteryLevel) : "None"} />
         <KV k="Power source" v={power.plugged ? "AC adapter" : "Battery"} />
       </Card>
 

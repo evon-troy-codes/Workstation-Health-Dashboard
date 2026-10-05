@@ -123,6 +123,8 @@ function reportText(report, at = new Date()) {
   ].join("\n").trimEnd();
 }
 
+const SAVE_AND_ATTACH = "The full report is too long for an email link: in Workstation Scanner, choose Share report, then Save as a file, and attach it.";
+
 // A short version for an email link too long for the full one: the readings
 // people ask about first, and a pointer to the saved report.
 function shortText(report, at = new Date()) {
@@ -133,25 +135,28 @@ function shortText(report, at = new Date()) {
     "",
     ...rows.map(([k, v]) => `${k}: ${v}`),
     "",
-    "The full report is too long for an email link: in Workstation Scanner, choose Share report, then Save as a file, and attach it.",
+    SAVE_AND_ATTACH,
   ].join("\n");
 }
 
 // A mailto: link with the report filled in and no recipient, so the person
 // picks who it goes to in their own email app. Falls back to the summary
-// when the full text would make the link too long. → { url, shortened }
+// when the full text would make the link too long, and to only the pointer to
+// the saved file when even the summary would: that takes very long or
+// non-ASCII names, which percent-encoding makes up to nine times longer.
+// → { url, shortened }
 function mailtoLink(report, at = new Date()) {
-  const subject = encodeURIComponent(title(report));
-  const link = (body) => `mailto:?subject=${subject}&body=${encodeURIComponent(body)}`;
-  const full = link(reportText(report, at));
+  const link = (subject, body) => `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  const full = link(title(report), reportText(report, at));
   if (full.length <= MAX_MAILTO) return { url: full, shortened: false };
-  return { url: link(shortText(report, at)), shortened: true };
+  const short = link(title(report), shortText(report, at));
+  if (short.length <= MAX_MAILTO) return { url: short, shortened: true };
+  return { url: link("Workstation report", SAVE_AND_ATTACH), shortened: true };
 }
 
 // The report as a self-contained page: no scripts, no outside files, every
 // value escaped. Opens in any browser and attaches to any email or ticket.
 function reportHtml(report, at = new Date()) {
-  const host = val(obj(report).hostname);
   const td = "padding:6px 12px;border-bottom:1px solid #e5e7eb;font-size:14px;vertical-align:top;";
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
