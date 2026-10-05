@@ -148,7 +148,8 @@ five), or `{ ok: false, reason, status?, error? }`. `reason` is as for reports
 (`"no-endpoint"`, `"no-scan"`, `"timeout"`, `"unreachable"`, `"http"`…); with
 `"http"`, `error` is the Worker's code: `rate-limited` (per IP),
 `ai-daily-limit` / `ai-monthly-limit` (the shared budget, 10 a day and 100 a
-month), `ai-unavailable` (out of Anthropic credit), `ai-busy`, `ai-timeout`,
+month, of which one caller gets at most 3 a day), `unsupported-media-type`
+(not sent as `application/json`), `ai-unavailable` (out of Anthropic credit), `ai-busy`, `ai-timeout`,
 `ai-refused`, `ai-unreachable`, `ai-failed`, `ai-incomplete`,
 `ai-bad-answer` or `not-configured`. `renderer/report-messages.js`
 (`explainFailure`) words each one. A call that never reached Claude is given
@@ -159,6 +160,29 @@ the source of truth.
 
 Anyone reading the reports should key on `appVersion`, which every report
 carries.
+
+**Unreleased (after 1.3.1)**
+
+- New `firewall`: `{ checked, products: [{ name, active, detail }] }`,
+  never null once the scan has finished. `active` is true, false, or null
+  when only the product's presence is known ("Installed"). `detail`
+  qualifies an active reading ("Off for: Public"). An empty `products`
+  with `checked: true` means no firewall service was found; on Linux the
+  rules themselves need root, so this is not proof there are no rules.
+  `checked: false` is a check that failed ("Unknown"). It is collected
+  after first paint, so a report made before then has `firewall: null`
+  ("Unknown"). Shared reports list it under Security, which is now always
+  present.
+- `network.interface` no longer carries a MAC address: a Linux USB adapter
+  named `enx`/`wlx` + MAC is reported as `"USB Ethernet adapter"` or
+  `"USB Wi-Fi adapter"`.
+- New `audio.headsetClass` value `"Display audio"`: sound sent to a monitor
+  or TV over HDMI or DisplayPort, which was `"Built-in"`.
+  `audio.headsetConnected` is now true only for `"Bluetooth"` and
+  `"USB headset"`.
+- `os.pendingUpdates` and `os.lastUpdateCheck` now work on macOS, from
+  Software Update's last check. A count it didn't record is `null`.
+- A battery level that can't be read shows as "Unknown", not "null%".
 
 **1.3.1**
 

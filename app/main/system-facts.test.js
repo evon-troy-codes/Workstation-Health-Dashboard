@@ -32,6 +32,7 @@ const {
   parseAptUpgrades,
   parseDnfCheckUpdate,
   parseWindowsUpdates,
+  parseMacSoftwareUpdate,
   parseDefaultAudio,
   detectMacAv,
   isVirtualInterface,
@@ -372,6 +373,16 @@ test("classifyHeadset", async (t) => {
   await t.test("detects bluetooth from Windows' hands-free and stereo endpoints", () => {
     assert.equal(classifyHeadset("Headset (WH-1000XM4 Hands-Free AG Audio)"), "Bluetooth");
     assert.equal(classifyHeadset("Headphones (WH-1000XM4 Stereo)"), "Bluetooth");
+  });
+
+  // Sound over a video cable was "Built-in", and the card then said its
+  // connection was "Wireless/built-in".
+  await t.test("tells sound sent to a monitor or TV apart from the computer's own", () => {
+    assert.equal(classifyHeadset("alsa_output.pci-0000_01_00.1.hdmi-stereo"), "Display audio");
+    assert.equal(classifyHeadset("LG HDR 4K (NVIDIA High Definition Audio)"), "Display audio");
+    assert.equal(classifyHeadset("DELL U2723QE (Intel(R) Display Audio)"), "Display audio");
+    assert.equal(classifyHeadset("Speakers (Realtek(R) Audio)"), "Built-in");
+    assert.equal(classifyHeadset("Headphones (Realtek(R) Audio)"), "Built-in");
   });
 
   await t.test("keeps an explicitly USB device as USB, even when it says stereo", () => {
@@ -1260,6 +1271,29 @@ test("parseWindowsUpdates", async (t) => {
     assert.deepEqual(parseWindowsUpdates(JSON.stringify({ pending: null, lastCheck: null, source: null })), unknown);
     assert.deepEqual(parseWindowsUpdates("not json"), unknown);
     assert.deepEqual(parseWindowsUpdates(""), unknown);
+  });
+});
+
+test("parseMacSoftwareUpdate", async (t) => {
+  const plist = (body) => `{\n${body}\n}\n`;
+
+  await t.test("reads the last check and the recommended updates it found", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-05T12:00:00Z") });
+    const out = plist('    AutomaticCheckEnabled = 1;\n    LastRecommendedUpdatesAvailable = 2;\n    LastSuccessfulDate = "2026-10-05 09:00:00 +0000";\n    LastUpdatesAvailable = 3;');
+    assert.deepEqual(parseMacSoftwareUpdate(out), { pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
+  });
+
+  await t.test("reads a date with a non-UTC offset", (t) => {
+    t.mock.timers.enable({ apis: ["Date"], now: Date.parse("2026-10-05T12:00:00Z") });
+    const out = plist('    LastSuccessfulDate = "2026-10-05 13:00:00 +0200";');
+    assert.equal(parseMacSoftwareUpdate(out).lastUpdateCheck, "1 hour ago");
+  });
+
+  await t.test("a missing key is unknown, never 0", () => {
+    assert.deepEqual(parseMacSoftwareUpdate(plist("    AutomaticCheckEnabled = 1;")), { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null });
+    assert.deepEqual(parseMacSoftwareUpdate(null), { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null });
+    assert.deepEqual(parseMacSoftwareUpdate("Domain /Library/Preferences/com.apple.SoftwareUpdate does not exist"),
+      { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null });
   });
 });
 

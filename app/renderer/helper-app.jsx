@@ -332,9 +332,12 @@ function AtAGlance({ onJump }) {
       <GlanceTile icon="briefcase" label="Storage" value={`${facts.disk.freeGB} GB free`}
         sub={`of ${facts.disk.totalGB} GB · ${facts.disk.usedPercent}% used`} onClick={() => onJump("system")} />
       <GlanceTile icon="circle-info" label="OS updates" value={updates} sub={updatesSub} onClick={() => onJump("system")} />
-      <GlanceTile icon="phone" label="Power"
-        value={power.hasBattery ? batteryPercent(power.batteryLevel, " battery") : "No battery"}
-        sub={power.hasBattery ? (power.plugged ? "Plugged in" : "On battery") : null} onClick={() => onJump("system")} />
+      {/* A desktop has no battery to show; its firewall takes the slot. */}
+      {power.hasBattery
+        ? <GlanceTile icon="phone" label="Power" value={batteryPercent(power.batteryLevel, " battery")}
+            sub={power.plugged ? "Plugged in" : "On battery"} onClick={() => onJump("system")} />
+        : <GlanceTile icon="shield" label="Firewall" value={firewallSummary(facts.firewall, deferredFailed ? "Unknown" : "Checking…")}
+            onClick={() => onJump("system")} />}
     </div>
   );
 }
@@ -347,7 +350,7 @@ function OverviewScreen({ onJump }) {
       <div className="card-grid card-grid-2">
         <Card icon="cog" title="Quick specs" sub={facts.machineType || facts.os.name}>
           <KV k="CPU" v={facts.cpu.model} />
-          <KV k="RAM" v={`${facts.ram.totalGB} GB ${facts.ram.type}`} />
+          <KV k="RAM" v={[`${facts.ram.totalGB} GB`, facts.ram.type].filter(Boolean).join(" ")} />
           <KV k="Storage" v={`${facts.disk.totalGB} GB ${facts.disk.ssd == null ? "" : facts.disk.ssd ? "SSD" : "HDD"}`.trim()} />
           <KV k="OS" v={`${facts.os.name} ${facts.os.version}`} />
         </Card>
@@ -379,6 +382,17 @@ function batteryPercent(level, suffix = "") {
   return typeof level === "number" && Number.isFinite(level) ? `${level}%${suffix}` : "Unknown";
 }
 
+// How the selected output is connected, from the same classification as the
+// card's subtitle. "Built-in" is the computer's own sound, which is also what
+// headphones in its headphone jack play through.
+const AUDIO_CONNECTION = {
+  Bluetooth: "Bluetooth (wireless)",
+  "USB headset": "USB (wired)",
+  "Display audio": "HDMI or DisplayPort",
+  "Built-in": "Speakers or headphone jack",
+  None: "None",
+};
+
 function cpuSpeedLabel(cpu) {
   return cpu.ghzKind === "max" ? `up to ${cpu.ghz} GHz` : null;
 }
@@ -402,7 +416,9 @@ function SystemScreen() {
       </Card>
 
       <Card icon="grip" title="Memory" sub={`${facts.ram.totalGB} GB · ${facts.ram.freeGB} GB free`}>
-        <KV k="Total" v={`${facts.ram.totalGB} GB ${facts.ram.type}`} />
+        <KV k="Total" v={`${facts.ram.totalGB} GB`} />
+        {/* Reading it needs root on Linux: unknown there, not blank. */}
+        <KV k="Type" v={facts.ram.type || "Unknown"} />
         <KV k="Free" v={`${facts.ram.freeGB} GB`} />
         <KV k="Pressure" v={facts.ram.pressure} hint={HINTS.memoryPressure} />
       </Card>
@@ -455,13 +471,16 @@ function SystemScreen() {
       <Card icon="microphone" title="Audio" sub={facts.audio.headsetClass}>
         <KV k="Output" v={facts.audio.output} />
         <KV k="Input" v={facts.audio.input} />
-        <KV k="Connection" v={facts.audio.headsetClass === "None" ? "None" : facts.audio.isWired ? "Wired" : "Wireless/built-in"} />
+        <KV k="Connection" v={AUDIO_CONNECTION[facts.audio.headsetClass] || "Unknown"} />
       </Card>
 
-      <Card icon="phone" title="Power" sub={power.hasBattery ? `${batteryPercent(power.batteryLevel)} · ${power.plugged ? "Plugged in" : "On battery"}` : "No battery"}>
-        <KV k="Battery" v={power.hasBattery ? batteryPercent(power.batteryLevel) : "None"} />
-        <KV k="Power source" v={power.plugged ? "AC adapter" : "Battery"} />
-      </Card>
+      {/* A desktop has no battery: nothing for this card to say. */}
+      {power.hasBattery && (
+        <Card icon="phone" title="Power" sub={`${batteryPercent(power.batteryLevel)} · ${power.plugged ? "Plugged in" : "On battery"}`}>
+          <KV k="Battery" v={batteryPercent(power.batteryLevel)} />
+          <KV k="Power source" v={power.plugged ? "AC adapter" : "Battery"} />
+        </Card>
+      )}
 
       <DisplayCard display={facts.display} pending={deferredFailed ? "Unknown" : "Checking…"} />
     </div>
@@ -475,6 +494,16 @@ function SystemScreen() {
 // service found": only services can be seen without admin rights, so the
 // wording doesn't claim there are no rules at all. Neutral, never graded.
 // null until the deferred scan lands: `pending` says "Checking…" or "Unknown".
+// One line for the card's subtitle and the Overview tile.
+function firewallSummary(fw, pending) {
+  if (!fw) return pending;
+  const active = fw.products.find((p) => p.active === true);
+  return fw.checked === false && !fw.products.length ? "Couldn't check"
+    : !fw.products.length ? "No firewall service found"
+    : active ? `${active.name} active`
+    : fw.products.some((p) => p.active == null) ? "Installed" : "Not active";
+}
+
 function FirewallCard({ firewall, pending }) {
   if (!firewall) {
     return (
@@ -485,13 +514,8 @@ function FirewallCard({ firewall, pending }) {
   }
   const fw = firewall;
   const state = (p) => [p.active == null ? "Installed" : p.active ? "Active" : "Inactive", p.detail].filter(Boolean).join(" · ");
-  const active = fw.products.find((p) => p.active === true);
-  const sub = fw.checked === false && !fw.products.length ? "Couldn't check"
-    : !fw.products.length ? "No firewall service found"
-    : active ? `${active.name} active`
-    : fw.products.some((p) => p.active == null) ? "Installed" : "Not active";
   return (
-    <Card icon="shield" title="Firewall" sub={sub}>
+    <Card icon="shield" title="Firewall" sub={firewallSummary(fw, pending)}>
       {fw.checked === false && !fw.products.length && <KV k="Status" v="Unknown" hint={HINTS.firewall} />}
       {fw.checked !== false && !fw.products.length && <KV k="Status" v="No firewall service found" hint={HINTS.firewallNone} />}
       {fw.products.map((p, i) => <KV key={i} k={p.name} v={state(p)} hint={i === 0 ? HINTS.firewall : undefined} />)}

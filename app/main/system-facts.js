@@ -242,7 +242,7 @@ async function collectFacts() {
       isWired: headsetClass === "USB headset",
       // Whether the selected output is a headset, from the same classification.
       // Counting installed sound drivers made this true on every machine.
-      headsetConnected: headsetClass !== "Built-in",
+      headsetConnected: headsetClass === "Bluetooth" || headsetClass === "USB headset",
       headsetClass,
     },
   };
@@ -1090,6 +1090,7 @@ const UNKNOWN_UPDATES = { pendingUpdates: null, lastUpdateCheck: "Unknown", last
 // with no marker, and an offset-less string would be read back as local time.
 function detectUpdates() {
   if (process.platform === "linux") return linuxUpdates();
+  if (process.platform === "darwin") return macUpdates();
   if (process.platform !== "win32") return Promise.resolve(UNKNOWN_UPDATES);
   const ps =
     "$ErrorActionPreference='SilentlyContinue';" +
@@ -1366,6 +1367,30 @@ function parseDnfCheckUpdate(stdout) {
 }
 
 // detectUpdates' JSON → the os fields the renderer merges.
+// macOS records its last Software Update check, and how many recommended
+// updates it found, in a preferences file anyone can read. Like apt's cached
+// metadata, the count is as of that check: nothing is fetched here.
+// Untested on a real Mac from the Linux machine.
+async function macUpdates() {
+  const out = await runCmd("/usr/bin/defaults", ["read", "/Library/Preferences/com.apple.SoftwareUpdate"]);
+  return parseMacSoftwareUpdate(out);
+}
+
+// `defaults read`'s old-style plist ("LastSuccessfulDate = "2026-10-01
+// 08:07:22 +0000";", "LastRecommendedUpdatesAvailable = 2;") → the updates
+// shape. A missing key is unknown, never 0.
+function parseMacSoftwareUpdate(stdout) {
+  const text = stdout || "";
+  const date = /LastSuccessfulDate\s*=\s*"?(\d{4}-\d\d-\d\d) (\d\d:\d\d:\d\d) ([+-]\d\d)(\d\d)"?;/.exec(text);
+  const count = /LastRecommendedUpdatesAvailable\s*=\s*(\d+);/.exec(text);
+  const age = date ? humanAge(`${date[1]}T${date[2]}${date[3]}:${date[4]}`) : null;
+  return {
+    pendingUpdates: count ? Number(count[1]) : null,
+    lastUpdateCheck: !age ? "Unknown" : age === "just now" ? age : `${age} ago`,
+    lastUpdateKind: age ? "checked" : null,
+  };
+}
+
 function parseWindowsUpdates(stdout) {
   let o;
   try {
@@ -1617,6 +1642,12 @@ function classifyHeadset(outputName) {
   if (/usb/.test(s)) return "USB headset";
   if (/\bstereo\)$/.test(s)) return "Bluetooth";
   if (/headset|plantronics|jabra|logitech|sennheiser/.test(s)) return "USB headset";
+  // Sound sent to a monitor or TV over its video cable: PulseAudio's
+  // "hdmi-stereo" profile, Windows' "NVIDIA/AMD High Definition Audio" and
+  // "Intel(R) Display Audio" endpoints.
+  if (/hdmi|displayport|display audio|(nvidia|amd) high definition audio/.test(s)) return "Display audio";
+  // The computer's own sound: its speakers, or whatever is plugged into its
+  // headphone jack (the two share one device).
   return "Built-in";
 }
 
@@ -1675,6 +1706,7 @@ module.exports = {
   ageOf,
   runningProcessNames,
   parseWindowsUpdates,
+  parseMacSoftwareUpdate,
   parseDefaultAudio,
   detectMacAv,
   isVirtualInterface,
