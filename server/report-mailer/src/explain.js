@@ -157,9 +157,10 @@ async function explainScan(rawScan, env, fetchImpl) {
     if (err instanceof Anthropic.APIError) return unbilled(502, { ok: false, error: "ai-failed", status: err.status });
     throw err;
   }
+  if (!response || typeof response !== "object") return { status: 502, body: { ok: false, error: "ai-bad-answer" }, billed: true };
   if (response.stop_reason === "refusal") return { status: 502, body: { ok: false, error: "ai-refused" }, billed: true };
   if (response.stop_reason === "max_tokens") return { status: 502, body: { ok: false, error: "ai-incomplete" }, billed: true };
-  const text = response.content.filter((b) => b.type === "text").map((b) => b.text).join("");
+  const text = (Array.isArray(response && response.content) ? response.content : []).filter((b) => b.type === "text").map((b) => b.text).join("");
   let parsed;
   try {
     parsed = JSON.parse(text);

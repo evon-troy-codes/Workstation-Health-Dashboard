@@ -9,6 +9,11 @@
 // its first day. Both are UTC. Once either runs out, /explain answers 429
 // ("ai-monthly-limit" or "ai-daily-limit") without calling Claude.
 //
+// AI_DAILY_PER_IP_LIMIT caps each caller's share of the day, so one person
+// with a script can't use up everyone's day. A caller is an IPv4 address or
+// an IPv6 /64 (one home or phone gets a whole /64), stored only as a hash
+// salted afresh each day, so yesterday's entries can't be traced back.
+//
 // The counter is a Durable Object: one instance, named "global", that every
 // request reaches, and whose storage calls don't interleave, so two requests
 // can't both take the last one. It speaks fetch rather than RPC so this file
@@ -18,34 +23,64 @@
 // stays under a $5 monthly budget with room to spare.
 const DEFAULT_MONTHLY_LIMIT = 100;
 const DEFAULT_DAILY_LIMIT = 10;
+const DEFAULT_DAILY_PER_IP_LIMIT = 3;
 
 // The UTC day and month a call counts towards: "2026-09-29" and "2026-09".
 const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
-// The stored usage ({ day, dayCount, month, monthCount } or undefined), the
-// current day and the limits ({ month, day }) → may this call go ahead, why
-// not ("month" or "day"), and the usage to store. A new day or month starts
-// from zero.
-function take(usage, day, limits) {
+// The stored usage ({ day, dayCount, month, monthCount, ips } or undefined),
+// the current day, the limits ({ month, day, perIp }) and the caller's hashed
+// key (or none) → may this call go ahead, why not ("month" or "day"), and the
+// usage to store. A new day or month starts from zero. A caller over their
+// share is told the day is spent: for them, it is.
+function take(usage, day, limits, who) {
   const month = day.slice(0, 7);
   const u = usage || {};
   const monthCount = u.month === month ? u.monthCount : 0;
   const dayCount = u.day === day ? u.dayCount : 0;
-  const now = { day, dayCount, month, monthCount };
+  // At most AI_DAILY_LIMIT entries: only calls that go ahead add one.
+  const ips = u.day === day && u.ips ? { ...u.ips } : {};
+  const now = { day, dayCount, month, monthCount, ips };
   if (monthCount >= limits.month) return { allowed: false, spent: "month", usage: now };
   if (dayCount >= limits.day) return { allowed: false, spent: "day", usage: now };
-  return { allowed: true, usage: { day, dayCount: dayCount + 1, month, monthCount: monthCount + 1 } };
+  if (who && limits.perIp != null && (ips[who] || 0) >= limits.perIp) return { allowed: false, spent: "day", usage: now };
+  if (who) ips[who] = (ips[who] || 0) + 1;
+  return { allowed: true, usage: { day, dayCount: dayCount + 1, month, monthCount: monthCount + 1, ips } };
 }
 
 // Gives one call back, for a call that never reached Claude. Only to the
-// day and month it was taken from, and never below zero.
-function refund(usage, day) {
+// day and month it was taken from (and the caller it was taken for), and
+// never below zero.
+function refund(usage, day, who) {
   const u = usage || {};
   const month = day.slice(0, 7);
+  const ips = u.ips ? { ...u.ips } : undefined;
+  if (ips && who && u.day === day && ips[who]) ips[who] -= 1;
   return {
     day: u.day, dayCount: u.day === day ? Math.max(0, (u.dayCount || 0) - 1) : u.dayCount,
     month: u.month, monthCount: u.month === month ? Math.max(0, (u.monthCount || 0) - 1) : u.monthCount,
+    ...(ips ? { ips } : {}),
   };
+}
+
+// The part of an address that stands for one caller: an IPv4 address whole,
+// an IPv6 address's /64 (its first four groups).
+function callerOf(ip) {
+  if (typeof ip !== "string" || !ip) return null;
+  if (!ip.includes(":")) return ip;
+  const [head, tail] = ip.toLowerCase().split("::");
+  const front = head ? head.split(":") : [];
+  const back = tail === undefined ? [] : tail ? tail.split(":") : [];
+  const groups = tail === undefined ? front : [...front, ...Array(Math.max(0, 8 - front.length - back.length)).fill("0"), ...back];
+  return `${groups.slice(0, 4).map((g) => g.replace(/^0+(?=.)/, "")).join(":")}::/64`;
+}
+
+// A caller's key in storage: a hash of the caller under the day's salt.
+async function callerKey(salt, ip) {
+  const caller = callerOf(ip);
+  if (!caller) return null;
+  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${salt}|${caller}`));
+  return [...new Uint8Array(digest).slice(0, 12)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 class AiBudget {
@@ -53,19 +88,23 @@ class AiBudget {
     this.storage = ctx.storage;
   }
 
-  // POST /take { limits: { month, day } } → { allowed, spent?, usage }.
-  // POST /refund → { usage }.
+  // POST /take { limits: { month, day, perIp }, ip? } → { allowed, spent?, usage }.
+  // POST /refund { ip? } → { usage }.
+  // The address is hashed here and never stored.
   async fetch(request) {
+    const { limits, ip } = await request.json().catch(() => ({}));
+    const day = utcDay(Date.now());
+    const stored = await this.storage.get("usage");
+    const salt = stored && stored.day === day && stored.salt ? stored.salt : crypto.randomUUID();
+    const who = await callerKey(salt, ip);
     if (new URL(request.url).pathname === "/refund") {
-      const usage = await this.storage.get("usage");
-      if (!usage) return Response.json({ usage: null });
-      const back = refund(usage, utcDay(Date.now()));
+      if (!stored) return Response.json({ usage: null });
+      const back = { ...refund(stored, day, who), ...(stored.salt ? { salt: stored.salt } : {}) };
       await this.storage.put("usage", back);
       return Response.json({ usage: back });
     }
-    const { limits } = await request.json();
-    const { allowed, spent, usage } = take(await this.storage.get("usage"), utcDay(Date.now()), limits);
-    if (allowed) await this.storage.put("usage", usage);
+    const { allowed, spent, usage } = take(stored, day, limits, who);
+    if (allowed) await this.storage.put("usage", { ...usage, salt });
     return Response.json({ allowed, spent, usage });
   }
 }
@@ -80,18 +119,19 @@ function limitSetting(raw, fallback) {
 const limitsFrom = (env) => ({
   month: limitSetting(env.AI_MONTHLY_LIMIT, DEFAULT_MONTHLY_LIMIT),
   day: limitSetting(env.AI_DAILY_LIMIT, DEFAULT_DAILY_LIMIT),
+  perIp: limitSetting(env.AI_DAILY_PER_IP_LIMIT, DEFAULT_DAILY_PER_IP_LIMIT),
 });
 
-// Takes one call from the budget. Resolves null if it may go ahead, or which
+// Takes one call from the budget, for the caller at `ip`. Resolves null if it may go ahead, or which
 // limit is spent ("month" or "day"). Without the binding (local tests) nothing
 // is capped, as with the rate limiter. A counter that can't answer throws, and
 // the caller refuses the call.
-async function spendAiBudget(env) {
+async function spendAiBudget(env, ip) {
   if (!env.AI_BUDGET) return null;
   const stub = env.AI_BUDGET.get(env.AI_BUDGET.idFromName("global"));
   const res = await stub.fetch("https://ai-budget/take", {
     method: "POST",
-    body: JSON.stringify({ limits: limitsFrom(env) }),
+    body: JSON.stringify({ limits: limitsFrom(env), ip }),
   });
   if (!res.ok) throw new Error(`AI budget answered ${res.status}`);
   const { allowed, spent } = await res.json();
@@ -102,14 +142,14 @@ async function spendAiBudget(env) {
 // Gives back the call spendAiBudget took, when it never reached Claude, so
 // an outage or a misconfiguration doesn't use up the day. Best effort: a
 // counter that can't answer keeps the call counted.
-async function refundAiBudget(env) {
+async function refundAiBudget(env, ip) {
   if (!env.AI_BUDGET) return;
   try {
     const stub = env.AI_BUDGET.get(env.AI_BUDGET.idFromName("global"));
-    await stub.fetch("https://ai-budget/refund", { method: "POST" });
+    await stub.fetch("https://ai-budget/refund", { method: "POST", body: JSON.stringify({ ip }) });
   } catch (_) {
     /* stays counted */
   }
 }
 
-export { AiBudget, take, refund, refundAiBudget, utcDay, limitSetting, limitsFrom, spendAiBudget, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT };
+export { AiBudget, take, refund, refundAiBudget, utcDay, limitSetting, limitsFrom, spendAiBudget, callerOf, callerKey, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT, DEFAULT_DAILY_PER_IP_LIMIT };
