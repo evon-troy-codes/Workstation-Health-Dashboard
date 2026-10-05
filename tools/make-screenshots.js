@@ -8,8 +8,10 @@
 // before capture. The screenshots go in a public repo; the app itself is
 // untouched.
 //
-// The capture is pinned to 1100x860 at a scale factor of 1, so the images come
-// out the same size, showing the same content, on any display.
+// The capture is pinned to 1260x1360 at a scale factor of 1, so the images come
+// out the same size, showing the same content, on any display. That needs a
+// display with at least 1360 pixels of usable height; a tiling window manager
+// (Hyprland) must float the window at that size, or it captures the tile.
 //
 // Run with:  npm run screenshots
 
@@ -53,8 +55,8 @@ const SHOTS = [
 // scaled screen, showed less of each page.
 app.commandLine.appendSwitch("force-device-scale-factor", "1");
 
-const WIDTH = 1100;
-const HEIGHT = 860;
+const WIDTH = 1260;
+const HEIGHT = 1360;
 
 app.whenReady().then(async () => {
   fs.mkdirSync(OUT, { recursive: true });
@@ -67,6 +69,9 @@ app.whenReady().then(async () => {
   ipcMain.handle("whd:get-deferred", () => deferred);
   // Sharing does nothing here: the screenshots never open the Share dialog.
   for (const how of ["copy", "save", "email"]) ipcMain.handle(`whd:share-${how}`, async () => ({ ok: false, reason: "cancelled" }));
+  // Show "Explain my results" as installed builds do. It is never clicked,
+  // so nothing is sent.
+  ipcMain.handle("whd:explain-enabled", () => true);
 
   const win = new BrowserWindow({
     width: WIDTH,
@@ -80,13 +85,9 @@ app.whenReady().then(async () => {
       sandbox: true,
     },
   });
-
-  // A screen too small for the window makes the OS shrink it, which changes
-  // what each capture shows. Say so rather than publish a cropped page.
-  const [w, h] = win.getContentSize();
-  if (w !== WIDTH || h !== HEIGHT) {
-    console.warn(`  warning: content is ${w}x${h}, not ${WIDTH}x${HEIGHT}; the screen is too small`);
-  }
+  // As main.js does. On Linux the menu bar otherwise takes height from the
+  // page when a window manager sizes the window.
+  win.setMenuBarVisibility(false);
 
   const js = (code) => win.webContents.executeJavaScript(code);
   const settle = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -94,6 +95,14 @@ app.whenReady().then(async () => {
   await win.loadFile(path.join(ROOT, "app/renderer/index.html"));
   // Wait out the scan, then the speed test, so the hero shows real numbers.
   await settle(14000);
+  // A screen too small for the window makes the OS shrink it, which changes
+  // what each capture shows. Say so rather than publish a cropped page.
+  // Checked now, not at creation: a window manager may resize the window
+  // after it opens.
+  const [w, h] = win.getContentSize();
+  if (w !== WIDTH || h !== HEIGHT) {
+    console.warn(`  warning: content is ${w}x${h}, not ${WIDTH}x${HEIGHT}; the screen is too small`);
+  }
   await js(`document.querySelectorAll(".sb-item")[2].click(), true`);
   await settle(46000);
 
