@@ -84,9 +84,23 @@ keeps working.
   update them with any change to the shape.
 - **The app reports facts; it doesn't grade them.** When a value can't be
   known, show "Unknown" or "Installed", never a guess ("Active", "100%").
-- **Commit messages**: an imperative subject line. The body says what was wrong
-  and why the change fixes it, often as bullets, and ends with what was
-  verified and how, including what could not be verified on this machine.
+- **Commit messages** follow [Conventional Commits 1.0](https://www.conventionalcommits.org/)
+  (adopted 2026-10-05; earlier history stays as it was):
+  - Subject: `type(scope): summary`. Imperative, lower case, no full stop,
+    50 characters or fewer where possible and never over 72.
+  - Types: `feat`, `fix`, `perf`, `refactor`, `test`, `docs`, `build`,
+    `ci`, `chore`. Add `!` after the type (`feat(worker)!:`) or a
+    `BREAKING CHANGE:` footer for anything that breaks installed apps or
+    existing configuration.
+  - Scope: the area touched, such as `system`, `network`, `overview`,
+    `share`, `report`, `explain`, `worker`, `build`, `deps`. Leave it out
+    when a change spans the app.
+  - Body, after a blank line, wrapped at 72: what was wrong and why the
+    change fixes it, often as bullets. End with what was verified and how,
+    including what couldn't be verified on this machine.
+  - One logical change per commit. Don't push `wip` or `tmp` commits, and
+    don't merge branches into a feature branch; rebase instead.
+  - PR titles use the same format, since they end up in the merge commit.
 - **Work on a branch** and merge to `main` once it's checked. A push to `main`
   runs CI on all three OSes and builds installers. Pull requests run CI without
   packaging, and **Actions → CI → Run workflow** packages any branch.
