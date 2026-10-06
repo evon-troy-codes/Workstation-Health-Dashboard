@@ -36,6 +36,8 @@ const {
   diskIsSsd,
   parseSnapRefreshList,
   parseFlatpakUpdates,
+  parsePkconUpdates,
+  packageKitMetadataFiles,
   parseWindowsDiskTypes,
   WINDOWS_DISK_SCRIPT,
   parseDefaultAudio,
@@ -1345,6 +1347,45 @@ test("parseFlatpakUpdates", async (t) => {
   await t.test("a failed check is unknown", () => {
     assert.equal(parseFlatpakUpdates({ code: 1, stdout: "", stderr: "error: Unable to load summary from remote flathub\n" }), null);
     assert.equal(parseFlatpakUpdates(null), null);
+  });
+});
+
+// Real output from the Fedora 44 VM (2026-10-06), trimmed: 844 updates,
+// read from PackageKit's cache while dnf's was empty.
+test("parsePkconUpdates", async (t) => {
+  const head = "Transaction:\tGetting updates\nStatus: \tWaiting in queue\nStatus: \tStarting\nStatus: \tFinished\nResults:\n";
+  await t.test("counts each update under Results", () => {
+    const out = head +
+      "Enhancement  7zip-26.03-1.fc44.x86_64 (updates)\n" +
+      "Bug fix      NetworkManager-1:1.56.1-2.fc44.x86_64 (updates)\n" +
+      "Security     openssl-libs-1:3.5.4-1.fc44.x86_64 (updates)\n" +
+      "Available    rpmfusion-free-release-44-1.noarch (rpmfusion-free)\n";
+    assert.equal(parsePkconUpdates({ code: 0, stdout: out }), 4);
+  });
+  await t.test("'no updates' is none, with pkcon's exit 5 for nothing to do", () => {
+    assert.equal(parsePkconUpdates({ code: 5, stdout: head.replace("Results:\n", "") + "There are no updates available at this time.\n" }), 0);
+  });
+  await t.test("a failed or unrecognised run is unknown", () => {
+    assert.equal(parsePkconUpdates({ code: 1, stdout: "Fatal error: cache not found" }), null);
+    assert.equal(parsePkconUpdates({ code: 0, stdout: "something else" }), null);
+    assert.equal(parsePkconUpdates(null), null);
+  });
+});
+
+test("packageKitMetadataFiles", async (t) => {
+  await t.test("finds each repository's repomd.xml under each release", () => {
+    const os = require("os"), fsx = require("fs"), px = require("path");
+    const root = fsx.mkdtempSync(px.join(os.tmpdir(), "pk-"));
+    for (const repo of ["fedora-cff72538bc9825a4", "updates-29a1"]) {
+      fsx.mkdirSync(px.join(root, "44", "metadata", repo, "repodata"), { recursive: true });
+      fsx.writeFileSync(px.join(root, "44", "metadata", repo, "repodata", "repomd.xml"), "<repomd/>");
+    }
+    fsx.mkdirSync(px.join(root, "44", "metadata", "empty-repo"), { recursive: true });
+    assert.equal(packageKitMetadataFiles(root).length, 2);
+    fsx.rmSync(root, { recursive: true });
+  });
+  await t.test("no PackageKit cache is an empty list", () => {
+    assert.deepEqual(packageKitMetadataFiles("/nonexistent/PackageKit"), []);
   });
 });
 

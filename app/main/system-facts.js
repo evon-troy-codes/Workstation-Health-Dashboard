@@ -1313,11 +1313,18 @@ async function linuxUpdates() {
   if (dnf) {
     // dnf exits 100 when updates are pending, 0 when none are.
     const out = await runCmd(dnf, ["-q", "--cacheonly", "check-update"], { okExitCodes: [100] });
+    // Fedora Workstation checks for updates through GNOME Software, i.e.
+    // PackageKit, which keeps its own cache: dnf's can be empty ("no cache
+    // for repository", the Fedora 44 VM) while PackageKit's is current.
+    // `pkcon -c -1` reads that cache only, offline, in a fraction of a second.
+    const pkMeta = packageKitMetadataFiles();
+    const pkcon = out == null && pkMeta.length ? findTool("/usr/bin/pkcon") : null;
+    const pk = pkcon ? await runCmdResult(pkcon, ["-p", "-c", "-1", "get-updates"], { timeout: 25000 }) : null;
     return withKind({
-      pendingUpdates: out == null ? null : parseDnfCheckUpdate(out),
+      pendingUpdates: out != null ? parseDnfCheckUpdate(out) : parsePkconUpdates(pk),
       lastUpdateCheck: ageOf([
         "/var/cache/dnf/last_makecache", // dnf4 only
-        repoMetadataFiles(), // dnf5, and dnf4 without the stamp: newest repo wins
+        [...repoMetadataFiles(), ...pkMeta], // dnf5, dnf4 without the stamp, and PackageKit: newest repo wins
       ]),
     });
   }
@@ -1419,6 +1426,46 @@ function withKind(updates) {
 // refreshed. The cache directory's own mtime is not that: it changes when a
 // repo is added or removed, so on dnf5 (which writes no last_makecache) it
 // would report image build time as the last check.
+// PackageKit's per-repository metadata, rewritten on each refresh:
+// /var/cache/PackageKit/<release>/metadata/<repo>/repodata/repomd.xml.
+function packageKitMetadataFiles(root = "/var/cache/PackageKit") {
+  const files = [];
+  let releases = [];
+  try {
+    releases = fs.readdirSync(root, { withFileTypes: true }).filter((e) => e.isDirectory());
+  } catch (_) {
+    return files;
+  }
+  for (const release of releases) {
+    const meta = path.join(root, release.name, "metadata");
+    let repos = [];
+    try {
+      repos = fs.readdirSync(meta, { withFileTypes: true }).filter((e) => e.isDirectory());
+    } catch (_) {
+      continue;
+    }
+    for (const repo of repos) {
+      const file = path.join(meta, repo.name, "repodata", "repomd.xml");
+      if (exists(file)) files.push(file);
+    }
+  }
+  return files;
+}
+
+// `pkcon -p get-updates` → how many updates, or null. Each update is a line
+// under "Results:", an update kind and then the package and its repository:
+// "Bug fix      NetworkManager-1:1.56.1-2.fc44.x86_64 (updates)". With none,
+// it says so instead of listing any; pkcon exits 5 for "nothing to do".
+function parsePkconUpdates(result) {
+  if (!result || ![0, 5].includes(result.code)) return null;
+  const text = String(result.stdout || "");
+  if (/no updates/i.test(text)) return 0;
+  const at = text.search(/^Results:/m);
+  if (at < 0) return null;
+  return text.slice(at).split("\n").slice(1)
+    .filter((l) => /^\S.*\s{2,}\S+\s+\([^)]+\)\s*$/.test(l)).length;
+}
+
 function repoMetadataFiles() {
   const files = [];
   for (const root of ["/var/cache/libdnf5", "/var/cache/dnf"]) {
@@ -1816,6 +1863,8 @@ module.exports = {
   diskIsSsd,
   parseSnapRefreshList,
   parseFlatpakUpdates,
+  parsePkconUpdates,
+  packageKitMetadataFiles,
   parseWindowsDiskTypes,
   WINDOWS_DISK_SCRIPT,
   parseDefaultAudio,
