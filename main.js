@@ -90,10 +90,10 @@ function createWindow() {
   // The renderer has no reason to navigate anywhere or spawn windows. Anything
   // that tries is either a bug or something hostile, so send external links to
   // the real browser and refuse the rest.
-  win.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https:\/\//.test(url)) shell.openExternal(url);
-    return { action: "deny" };
-  });
+  // The page has no links, so nothing it opens is wanted: refuse every new
+  // window rather than pass https URLs to the browser, which a compromised
+  // page could use to open any site.
+  win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
 
   // The id is read now: the webContents is already destroyed by "closed".
