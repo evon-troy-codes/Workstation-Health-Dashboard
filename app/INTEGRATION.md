@@ -161,7 +161,7 @@ the source of truth.
 Anyone reading the reports should key on `appVersion`, which every report
 carries.
 
-**Unreleased (after 1.3.1)**
+**1.4.0**
 
 - New `firewall`: `{ checked, products: [{ name, active, detail }] }`,
   never null once the scan has finished. `active` is true, false, or null
@@ -263,7 +263,7 @@ carries.
 - Antivirus products may report `running: null` (installed, with no way to see
   whether it runs, e.g. on macOS), rather than a guessed `true`.
 - Reports are emailed: the endpoint receives `{ email, report }`, where it
-  used to receive the report alone. (Since 1.3.1's successor, reports are
+  used to receive the report alone. (Since 1.4.0, reports are
   shared from the person's own email, a file or the clipboard instead; see
   "Sharing a report" above.)
 
