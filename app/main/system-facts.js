@@ -1135,10 +1135,14 @@ function osNameVersion(release, osInfo = {}, fallback = { type: os.type(), relea
     const version = release.version || release.build || known(osInfo.release) || "Unknown";
     return { name: release.name, version, build: release.build && release.build !== version ? release.build : "" };
   }
+  const version = known(osInfo.release) || fallback.release || "Unknown";
+  const build = known(osInfo.build) || "";
   return {
     name: known(osInfo.distro) || fallback.type,
-    version: known(osInfo.release) || fallback.release || "Unknown",
-    build: known(osInfo.build) || "",
+    version,
+    // Windows' build is already the version's third part ("10.0.26300" and
+    // "26300"), so showing it again said nothing new. macOS's ("23F79") isn't.
+    build: build && !version.split(".").includes(build) ? build : "",
   };
 }
 
