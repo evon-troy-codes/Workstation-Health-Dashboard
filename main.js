@@ -18,6 +18,7 @@ const {
 const { selfTestResult, RENDERED_CHECK } = require("./app/main/selftest");
 const { attachZoom } = require("./app/main/zoom");
 const { reportText, reportHtml, reportFileName, mailtoLink } = require("./app/main/share");
+const { fromApp } = require("./app/main/ipc-guard");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -25,26 +26,9 @@ const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
 // The webContents ids of the windows createWindow opened.
 const appContents = new Set();
 
-// IPC is answered only for the top frame of a window this process opened on
-// its own page. Nothing else should ever load, but if something did (a bug, an
-// injected frame, another window) it gets no system facts and cannot send a
-// report.
-//
-// This goes by which window sent the message, not by comparing its URL with
-// the index.html path: Chromium re-encodes the URL it loaded (it leaves [ ]
-// alone, for one), so a string comparison refused every call from an install
-// path holding such characters and the app could never scan. The window cannot
-// navigate away (will-navigate is refused), and the file: check still turns
-// away anything else loaded into it.
-function fromApp(event) {
-  const frame = event.senderFrame;
-  if (!frame || frame.parent) return false;
-  return appContents.has(event.sender.id) && frame.url.startsWith("file:");
-}
-
 function handle(channel, fn) {
   ipcMain.handle(channel, (event, ...args) => {
-    if (!fromApp(event)) throw new Error("refused: not the app page");
+    if (!fromApp(event, appContents)) throw new Error("refused: not the app page");
     return fn(...args);
   });
 }
