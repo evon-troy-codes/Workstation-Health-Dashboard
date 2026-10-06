@@ -26,6 +26,7 @@ const {
   parseWindowsAv,
   toolEnv,
   findTool,
+  windowsPowerShell,
   ageOf,
   parsePactlInfo,
   pactlDescription,
@@ -1026,6 +1027,13 @@ test("toolEnv", async (t) => {
     assert.equal(env.LANG, "C");
     assert.equal(env.COLUMNS, "200"); // and wraps long names to the terminal
   });
+});
+
+test("windowsPowerShell runs PowerShell from System32, never by bare name", () => {
+  assert.equal(windowsPowerShell({ SystemRoot: "C:\\Windows" }), "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  assert.equal(windowsPowerShell({ SystemRoot: "D:\\WIN" }), "D:\\WIN\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  assert.equal(windowsPowerShell({ windir: "E:\\Windows" }), "E:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
+  assert.equal(windowsPowerShell({}), "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe");
 });
 
 test("findTool", async (t) => {

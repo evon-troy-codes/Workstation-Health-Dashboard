@@ -92,6 +92,15 @@ function toolEnv() {
   return env;
 }
 
+// Windows PowerShell by its full path, as findTool does for Linux tools:
+// started by bare name, Windows looks in the current folder before System32,
+// so a powershell.exe dropped there would run instead. SystemRoot is set by
+// Windows itself; C:\\Windows is only the fallback.
+function windowsPowerShell(env = process.env) {
+  const root = env.SystemRoot || env.windir || "C:\\Windows";
+  return path.win32.join(root, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+}
+
 // The first of these paths that exists, for a tool that must be run by full
 // path rather than by name: a writable PATH entry ahead of /usr/bin should not
 // decide what the app runs.
@@ -325,7 +334,7 @@ function detectDefaultAudio() {
   if (process.platform !== "win32") return Promise.resolve(null);
   return new Promise((resolve) => {
     execFile(
-      "powershell.exe",
+      windowsPowerShell(),
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", PS_DEFAULT_AUDIO],
       { timeout: 15000, windowsHide: true },
       (err, stdout) => resolve(err ? null : parseDefaultAudio(stdout)),
@@ -464,7 +473,7 @@ function detectAntivirus() {
     // real-time protection on (0x10/0x11), last byte = signatures up to date.
     return new Promise((resolve) => {
       execFile(
-        "powershell.exe",
+        windowsPowerShell(),
         ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_AV_SCRIPT],
         { timeout: 15000, windowsHide: true },
         (err, stdout) => {
@@ -713,7 +722,7 @@ function detectFirewall() {
   if (plat === "win32") {
     return new Promise((resolve) => {
       execFile(
-        "powershell.exe",
+        windowsPowerShell(),
         ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_FIREWALL_SCRIPT],
         { timeout: 15000, windowsHide: true },
         (err, stdout) => resolve(err ? { products: [], checked: false } : parseWindowsFirewall((stdout || "").trim())),
@@ -1144,7 +1153,7 @@ const WINDOWS_DISK_SCRIPT =
 function windowsSsd() {
   return new Promise((resolve) => {
     execFile(
-      "powershell.exe",
+      windowsPowerShell(),
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_DISK_SCRIPT],
       { timeout: 15000, windowsHide: true },
       (err, stdout) => resolve(err ? null : parseWindowsDiskTypes((stdout || "").trim())),
@@ -1205,7 +1214,7 @@ function detectUpdates() {
     "[pscustomobject]$r | ConvertTo-Json -Compress";
   return new Promise((resolve) => {
     execFile(
-      "powershell.exe",
+      windowsPowerShell(),
       ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", ps],
       { timeout: 25000, windowsHide: true },
       (err, stdout) => resolve(err ? UNKNOWN_UPDATES : parseWindowsUpdates(stdout)),
@@ -1809,6 +1818,7 @@ module.exports = {
   // stamp file outranks which — are pinned by a test rather than by a comment.
   toolEnv,
   findTool,
+  windowsPowerShell,
   ageOf,
   runningProcessNames,
   parseWindowsUpdates,
