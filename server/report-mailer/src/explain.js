@@ -36,6 +36,7 @@ Rules:
 - A missing or null reading means it wasn't measured. Don't treat it as a problem, and don't guess its value.
 - Speeds are in Mbps, ping and jitter in milliseconds, sizes in GB.
 - cpu.ghz is the processor's maximum boost clock when cpu.ghzKind is "max", and its base clock when it is "base". Neither is the speed it runs at now.
+- os.pendingUpdates counts the system package manager's updates. os.appUpdates counts apps installed as snaps or Flatpaks, which update separately: a key appears only for an installed store, and null means it couldn't be checked.
 - firewall lists the firewall services found running or installed (active true, false, or null when only installed). An empty list means no firewall service was found; the rules themselves couldn't be read, so call it "no firewall service found", not "no firewall". firewall null means it wasn't checked.
 - If nothing needs attention, say so in the summary and return few or no findings.
 - Plain language, no jargon without a short explanation. Be calm and specific, never alarming.`;
@@ -81,6 +82,9 @@ function sanitizeScan(raw) {
     machineType: str(s.machineType),
     uptime: str(s.uptime),
     os: { name: str(os.name), version: str(os.version), pendingUpdates: num(os.pendingUpdates),
+      // Snap and Flatpak counts: absent when not installed, null when unchecked.
+      appUpdates: Object.fromEntries(["snap", "flatpak"].filter((k) => k in obj(os.appUpdates))
+        .map((k) => [k, num(obj(os.appUpdates)[k])])),
       lastUpdateCheck: str(os.lastUpdateCheck), lastUpdateKind: str(os.lastUpdateKind) },
     cpu: { model: str(cpu.model), cores: num(cpu.cores), threads: num(cpu.threads),
       // 0 was the app's "not known"; say so as null, as the prompt expects.

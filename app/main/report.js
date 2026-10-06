@@ -69,6 +69,7 @@ function buildReport(facts, deferred, fromRenderer) {
       pendingUpdates: deferred.pendingUpdates,
       lastUpdateCheck: deferred.lastUpdateCheck,
       lastUpdateKind: deferred.lastUpdateKind,
+      appUpdates: deferred.appUpdates || {},
     };
     report.disk = { ...facts.disk, ssd: deferred.ssd };
     report.backgroundApps = deferred.backgroundApps || facts.backgroundApps;
@@ -111,7 +112,11 @@ function buildAiScan(report) {
     machineType: p(r.machineType),
     uptime: p(r.uptime),
     os: { name: p(os.name), version: p(os.version), pendingUpdates: p(os.pendingUpdates),
-      lastUpdateCheck: p(os.lastUpdateCheck), lastUpdateKind: p(os.lastUpdateKind) },
+      lastUpdateCheck: p(os.lastUpdateCheck), lastUpdateKind: p(os.lastUpdateKind),
+      // A key only for an installed app store: absent is "not installed",
+      // null is "couldn't check".
+      appUpdates: Object.fromEntries(["snap", "flatpak"].filter((k) => k in o(os.appUpdates))
+        .map((k) => [k, p(os.appUpdates[k])])) },
     // The speed only with its kind (maximum or base clock), and none when
     // neither is known, rather than the 0 that stands for that.
     cpu: { model: p(cpu.model), cores: p(cpu.cores), threads: p(cpu.threads),

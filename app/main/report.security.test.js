@@ -45,7 +45,7 @@ const leakyDeferred = () => ({
 // The allow-list, as report.js documents it.
 const ALLOWED = {
   machineType: 1, uptime: 1,
-  os: { name: 1, version: 1, pendingUpdates: 1, lastUpdateCheck: 1, lastUpdateKind: 1 },
+  os: { name: 1, version: 1, pendingUpdates: 1, lastUpdateCheck: 1, lastUpdateKind: 1, appUpdates: { snap: 1, flatpak: 1 } },
   cpu: { model: 1, cores: 1, threads: 1, ghz: 1, ghzKind: 1 },
   ram: { totalGB: 1, freeGB: 1, pressure: 1, type: 1 },
   disk: { totalGB: 1, freeGB: 1, usedPercent: 1, ssd: 1 },

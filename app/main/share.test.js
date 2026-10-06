@@ -56,6 +56,13 @@ test("reportText", async (t) => {
     assert.match(fw(undefined), /Firewall: Unknown$/m);
   });
 
+  await t.test("snap and Flatpak rows only for installed stores, Unknown when unchecked", () => {
+    const text = reportText({ ...report, os: { ...report.os, appUpdates: { snap: 4, flatpak: null } } }, at);
+    assert.match(text, /Snap updates: 4/);
+    assert.match(text, /Flatpak updates: Unknown/);
+    assert.ok(!/Snap updates|Flatpak updates/.test(reportText({ ...report, os: { ...report.os, appUpdates: {} } }, at)));
+  });
+
   await t.test("missing readings read as a dash, not undefined", () => {
     const text = reportText({ hostname: "x" }, at);
     assert.ok(!/undefined|NaN|null/.test(text), text);
