@@ -1072,10 +1072,65 @@ function summarizeDisplays(graphics) {
 
 // Is the primary disk an SSD? si.diskLayout() is the reliable source but slow.
 function detectSsd() {
+  if (process.platform === "win32") return windowsSsd();
   return si
     .diskLayout()
-    .then((layout) => (layout || []).some((d) => /ssd|nvme/i.test(d.type || "")))
+    .then((layout) => diskIsSsd((layout || []).map((d) => d.type)))
     .catch(() => null);
+}
+
+// Each physical disk's MediaType, straight from Windows. systeminformation
+// labels every Windows disk "HD" first and swaps in MediaType only when it
+// can match the disk across two queries by serial number or name; a disk
+// with a blank serial and different names in each (the Windows 11 VM's
+// "Red Hat VirtIO" disk) kept the "HD" guess. MediaType is a number from
+// CIM (0 Unspecified, 3 HDD, 4 SSD, 5 SCM); its name is accepted too.
+const WINDOWS_DISK_SCRIPT =
+  "$ErrorActionPreference='SilentlyContinue';" +
+  "$r=@{ok=$false;types=@()};" +
+  "try {" +
+  "  $r.types = @(Get-PhysicalDisk -ErrorAction Stop | ForEach-Object { [string]$_.MediaType });" +
+  "  $r.ok = $true" +
+  "} catch {};" +
+  "[pscustomobject]$r | ConvertTo-Json -Compress";
+
+function windowsSsd() {
+  return new Promise((resolve) => {
+    execFile(
+      "powershell.exe",
+      ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_DISK_SCRIPT],
+      { timeout: 15000, windowsHide: true },
+      (err, stdout) => resolve(err ? null : parseWindowsDiskTypes((stdout || "").trim())),
+    );
+  });
+}
+
+// WINDOWS_DISK_SCRIPT's JSON → diskIsSsd's answer, or null when the query
+// failed or printed nothing usable.
+function parseWindowsDiskTypes(stdout) {
+  let r;
+  try {
+    r = JSON.parse(stdout || "");
+  } catch (_) {
+    return null;
+  }
+  if (!r || r.ok !== true) return null;
+  const names = { 3: "HD", hdd: "HD", 4: "SSD", ssd: "SSD", 5: "SCM", scm: "SCM" };
+  const types = (Array.isArray(r.types) ? r.types : [r.types])
+    .map((t) => names[String(t).trim().toLowerCase()] || "Unspecified");
+  return diskIsSsd(types);
+}
+
+// systeminformation's disk types → true (an SSD), false (only spinning
+// disks) or null (unknown). Windows reports some disks' media type as
+// "Unspecified" (virtual disks, some RAID controllers and USB enclosures),
+// and systeminformation passes that on; calling those HDD was a guess.
+// "SCM" is storage-class memory, faster than any SSD.
+function diskIsSsd(types) {
+  const list = (Array.isArray(types) ? types : []).map((t) => (typeof t === "string" ? t.trim() : ""));
+  if (list.some((t) => /ssd|nvme|scm/i.test(t))) return true;
+  if (list.length && list.every((t) => /^(hd|hdd)$/i.test(t))) return false;
+  return null;
 }
 
 const UNKNOWN_UPDATES = { pendingUpdates: null, lastUpdateCheck: "Unknown", lastUpdateKind: null };
@@ -1135,10 +1190,14 @@ function osNameVersion(release, osInfo = {}, fallback = { type: os.type(), relea
     const version = release.version || release.build || known(osInfo.release) || "Unknown";
     return { name: release.name, version, build: release.build && release.build !== version ? release.build : "" };
   }
+  const version = known(osInfo.release) || fallback.release || "Unknown";
+  const build = known(osInfo.build) || "";
   return {
     name: known(osInfo.distro) || fallback.type,
-    version: known(osInfo.release) || fallback.release || "Unknown",
-    build: known(osInfo.build) || "",
+    version,
+    // Windows' build is already the version's third part ("10.0.26300" and
+    // "26300"), so showing it again said nothing new. macOS's ("23F79") isn't.
+    build: build && !version.split(".").includes(build) ? build : "",
   };
 }
 
@@ -1707,6 +1766,9 @@ module.exports = {
   runningProcessNames,
   parseWindowsUpdates,
   parseMacSoftwareUpdate,
+  diskIsSsd,
+  parseWindowsDiskTypes,
+  WINDOWS_DISK_SCRIPT,
   parseDefaultAudio,
   detectMacAv,
   isVirtualInterface,
