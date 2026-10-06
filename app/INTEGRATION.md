@@ -147,7 +147,7 @@ It resolves `{ ok: true, summary, findings, model }`, where each finding is
 five), or `{ ok: false, reason, status?, error? }`. `reason` is as for reports
 (`"no-endpoint"`, `"no-scan"`, `"timeout"`, `"unreachable"`, `"http"`…); with
 `"http"`, `error` is the Worker's code: `rate-limited` (per IP),
-`ai-daily-limit` / `ai-monthly-limit` (the shared budget, 10 a day and 100 a
+`ai-daily-limit` / `ai-monthly-limit` (the shared Claude budget, 10 a day and 100 a
 month, of which one caller gets at most 3 a day), `unsupported-media-type`
 (not sent as `application/json`), `ai-unavailable` (out of Anthropic credit), `ai-busy`, `ai-timeout`,
 `ai-refused`, `ai-unreachable`, `ai-failed`, `ai-incomplete`,
@@ -183,6 +183,11 @@ carries.
 - `os.pendingUpdates` and `os.lastUpdateCheck` now work on macOS, from
   Software Update's last check. A count it didn't record is `null`.
 - A battery level that can't be read shows as "Unknown", not "null%".
+- Explain's `model` can now be a Workers AI model id
+  (`@cf/google/gemma-4-26b-a4b-it`): once Claude's daily or monthly budget
+  is spent, the Worker answers from that free model instead, with the same
+  answer shape. `ai-daily-limit` then means the free model's day is spent
+  too.
 
 **1.3.1**
 

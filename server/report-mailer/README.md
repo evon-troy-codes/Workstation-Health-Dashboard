@@ -57,6 +57,15 @@ four ways:
   timed out stays counted, since it may have run. A failure the Worker didn't
   expect is given back too, and answered as JSON (502 `ai-failed`) rather
   than Cloudflare's error page.
+- Once Claude's day or month is spent, answers come from a free Workers AI
+  model instead (`FREE_AI_MODEL`, default Gemma 4, through the `AI`
+  binding), within Cloudflare's free daily allocation of 10,000 neurons
+  (about 20 per explanation). It has its own caps, `FREE_AI_DAILY_LIMIT`
+  (250) a day and `FREE_AI_DAILY_PER_IP_LIMIT` (10) per caller, kept in the
+  same counter under `usage:free`. When those, or Cloudflare's allocation,
+  run out, the answer is 429 `ai-daily-limit`. Thinking is turned off for
+  Gemma 4 (`chat_template_kwargs.enable_thinking`): on, it took 30-60 s.
+  Empty `FREE_AI_MODEL` turns the fallback off.
 - The Anthropic credit itself: prepaid, with auto-reload off, it is the hard
   ceiling. When it runs out, `/explain` answers 503 `ai-unavailable`, and the
   app says explanations are unavailable rather than asking to try again.

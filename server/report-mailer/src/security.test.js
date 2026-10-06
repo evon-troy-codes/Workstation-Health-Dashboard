@@ -4,7 +4,8 @@
 // stubbed fetch: nothing is sent and nothing is billed.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleRequest, MAX_BODY_BYTES } from "./index.js";
+import { handleRequest } from "./index.js";
+import { MAX_BODY_BYTES } from "./limits.js";
 import { sanitizeScan, SYSTEM_PROMPT, DEFAULT_MODEL } from "./explain.js";
 import { budgetBinding } from "./budget.test.js";
 

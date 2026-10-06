@@ -161,7 +161,11 @@ keeps working.
   salted hash) gets at most `AI_DAILY_PER_IP_LIMIT` 3 of it, and only
   `application/json` is accepted, so a web page can't spend it through its
   visitors' browsers. A call that never
-  reached Claude is refunded. Keep it, and resize the limits if the model or
+  reached Claude is refunded. Once Claude's day or month is spent, a free
+  Workers AI model answers instead (`FREE_AI_MODEL`, Gemma 4 with thinking
+  off, within Cloudflare's free daily allocation and its own caps: 250 a
+  day, 10 per caller), and the dialog names it as the free model (owner's
+  call, 2026-10-06). Keep it, and resize the limits if the model or
   budget changes.
 - **No persistent PowerShell on Windows.** systeminformation's
   `si.powerShellStart()` (one shared session instead of a PowerShell per

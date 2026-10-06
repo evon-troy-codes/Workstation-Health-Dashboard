@@ -43,3 +43,20 @@ test("explainFailure", async (t) => {
     assert.equal(explainFailure(undefined), "Couldn't get an explanation. Try again in a moment.");
   });
 });
+
+test("modelLabel", async (t) => {
+  const { modelLabel } = await load();
+  await t.test("Claude by name and version", () => {
+    assert.equal(modelLabel("claude-opus-5-5"), "Claude Opus 5.5");
+    assert.equal(modelLabel("claude-sonnet-5"), "Claude Sonnet 5");
+  });
+  await t.test("the free fallback by name, saying it is the free one", () => {
+    assert.equal(modelLabel("@cf/google/gemma-4-26b-a4b-it"), "Gemma 4 (free, on Cloudflare Workers AI)");
+    assert.equal(modelLabel("@cf/openai/gpt-oss-120b"), "gpt-oss-120b (free, on Cloudflare Workers AI)");
+  });
+  await t.test("anything else as given, nothing as null", () => {
+    assert.equal(modelLabel("some-model"), "some-model");
+    assert.equal(modelLabel(null), null);
+    assert.equal(modelLabel(""), null);
+  });
+});

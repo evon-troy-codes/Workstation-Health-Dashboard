@@ -38,3 +38,21 @@ export function explainFailure(res) {
     default: return "Couldn't get an explanation. Try again in a moment.";
   }
 }
+
+// The model that wrote an AI answer, as the dialog names it: "Claude Opus
+// 5.5" for "claude-opus-5-5", and the free fallback (a Workers AI id such
+// as "@cf/google/gemma-4-26b-a4b-it") by name, saying it's the free one.
+const FREE_MODELS = { "@cf/google/gemma-4-26b-a4b-it": "Gemma 4" };
+
+export function modelLabel(id) {
+  if (typeof id !== "string" || !id) return null;
+  const claude = /^claude-([a-z]+)-(\d+)(?:-(\d+))?/.exec(id);
+  if (claude) {
+    const family = claude[1][0].toUpperCase() + claude[1].slice(1);
+    return `Claude ${family} ${claude[3] ? `${claude[2]}.${claude[3]}` : claude[2]}`;
+  }
+  if (id.startsWith("@cf/")) {
+    return `${FREE_MODELS[id] || id.split("/").pop()} (free, on Cloudflare Workers AI)`;
+  }
+  return id;
+}

@@ -25,6 +25,17 @@ const DEFAULT_MONTHLY_LIMIT = 100;
 const DEFAULT_DAILY_LIMIT = 10;
 const DEFAULT_DAILY_PER_IP_LIMIT = 3;
 
+// The free pool: answers from a Workers AI model once Claude's day or month
+// is spent (FREE_AI_MODEL). It costs nothing, but Cloudflare's free daily
+// allocation is shared, so it has its own day and per-caller caps; no month.
+const DEFAULT_FREE_DAILY_LIMIT = 250;
+const DEFAULT_FREE_DAILY_PER_IP_LIMIT = 10;
+const NO_LIMIT = Number.MAX_SAFE_INTEGER;
+
+// Where each pool's usage is stored. "usage" is Claude's, as before.
+const POOL_KEYS = { claude: "usage", free: "usage:free" };
+const poolKey = (pool) => POOL_KEYS[pool] || POOL_KEYS.claude;
+
 // The UTC day and month a call counts towards: "2026-09-29" and "2026-09".
 const utcDay = (ms) => new Date(ms).toISOString().slice(0, 10);
 
@@ -88,23 +99,25 @@ class AiBudget {
     this.storage = ctx.storage;
   }
 
-  // POST /take { limits: { month, day, perIp }, ip? } → { allowed, spent?, usage }.
-  // POST /refund { ip? } → { usage }.
-  // The address is hashed here and never stored.
+  // POST /take { limits: { month, day, perIp }, ip?, pool? } → { allowed, spent?, usage }.
+  // POST /refund { ip?, pool? } → { usage }.
+  // pool is "claude" (the default) or "free". The address is hashed here and
+  // never stored.
   async fetch(request) {
-    const { limits, ip } = await request.json().catch(() => ({}));
+    const { limits, ip, pool } = await request.json().catch(() => ({}));
+    const key = poolKey(pool);
     const day = utcDay(Date.now());
-    const stored = await this.storage.get("usage");
+    const stored = await this.storage.get(key);
     const salt = stored && stored.day === day && stored.salt ? stored.salt : crypto.randomUUID();
     const who = await callerKey(salt, ip);
     if (new URL(request.url).pathname === "/refund") {
       if (!stored) return Response.json({ usage: null });
       const back = { ...refund(stored, day, who), ...(stored.salt ? { salt: stored.salt } : {}) };
-      await this.storage.put("usage", back);
+      await this.storage.put(key, back);
       return Response.json({ usage: back });
     }
     const { allowed, spent, usage } = take(stored, day, limits, who);
-    if (allowed) await this.storage.put("usage", { ...usage, salt });
+    if (allowed) await this.storage.put(key, { ...usage, salt });
     return Response.json({ allowed, spent, usage });
   }
 }
@@ -116,22 +129,28 @@ function limitSetting(raw, fallback) {
   return Number.isInteger(n) && n >= 0 ? n : fallback;
 }
 
-const limitsFrom = (env) => ({
-  month: limitSetting(env.AI_MONTHLY_LIMIT, DEFAULT_MONTHLY_LIMIT),
-  day: limitSetting(env.AI_DAILY_LIMIT, DEFAULT_DAILY_LIMIT),
-  perIp: limitSetting(env.AI_DAILY_PER_IP_LIMIT, DEFAULT_DAILY_PER_IP_LIMIT),
-});
+const limitsFrom = (env, pool = "claude") => (pool === "free"
+  ? {
+    month: NO_LIMIT,
+    day: limitSetting(env.FREE_AI_DAILY_LIMIT, DEFAULT_FREE_DAILY_LIMIT),
+    perIp: limitSetting(env.FREE_AI_DAILY_PER_IP_LIMIT, DEFAULT_FREE_DAILY_PER_IP_LIMIT),
+  }
+  : {
+    month: limitSetting(env.AI_MONTHLY_LIMIT, DEFAULT_MONTHLY_LIMIT),
+    day: limitSetting(env.AI_DAILY_LIMIT, DEFAULT_DAILY_LIMIT),
+    perIp: limitSetting(env.AI_DAILY_PER_IP_LIMIT, DEFAULT_DAILY_PER_IP_LIMIT),
+  });
 
 // Takes one call from the budget, for the caller at `ip`. Resolves null if it may go ahead, or which
 // limit is spent ("month" or "day"). Without the binding (local tests) nothing
 // is capped, as with the rate limiter. A counter that can't answer throws, and
 // the caller refuses the call.
-async function spendAiBudget(env, ip) {
+async function spendAiBudget(env, ip, pool = "claude") {
   if (!env.AI_BUDGET) return null;
   const stub = env.AI_BUDGET.get(env.AI_BUDGET.idFromName("global"));
   const res = await stub.fetch("https://ai-budget/take", {
     method: "POST",
-    body: JSON.stringify({ limits: limitsFrom(env), ip }),
+    body: JSON.stringify({ limits: limitsFrom(env, pool), ip, pool }),
   });
   if (!res.ok) throw new Error(`AI budget answered ${res.status}`);
   const { allowed, spent } = await res.json();
@@ -142,14 +161,15 @@ async function spendAiBudget(env, ip) {
 // Gives back the call spendAiBudget took, when it never reached Claude, so
 // an outage or a misconfiguration doesn't use up the day. Best effort: a
 // counter that can't answer keeps the call counted.
-async function refundAiBudget(env, ip) {
+async function refundAiBudget(env, ip, pool = "claude") {
   if (!env.AI_BUDGET) return;
   try {
     const stub = env.AI_BUDGET.get(env.AI_BUDGET.idFromName("global"));
-    await stub.fetch("https://ai-budget/refund", { method: "POST", body: JSON.stringify({ ip }) });
+    await stub.fetch("https://ai-budget/refund", { method: "POST", body: JSON.stringify({ ip, pool }) });
   } catch (_) {
     /* stays counted */
   }
 }
 
-export { AiBudget, take, refund, refundAiBudget, utcDay, limitSetting, limitsFrom, spendAiBudget, callerOf, callerKey, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT, DEFAULT_DAILY_PER_IP_LIMIT };
+export { AiBudget, take, refund, refundAiBudget, utcDay, limitSetting, limitsFrom, spendAiBudget, callerOf, callerKey, DEFAULT_MONTHLY_LIMIT, DEFAULT_DAILY_LIMIT, DEFAULT_DAILY_PER_IP_LIMIT,
+  DEFAULT_FREE_DAILY_LIMIT, DEFAULT_FREE_DAILY_PER_IP_LIMIT };
