@@ -33,6 +33,9 @@ const {
   parseDnfCheckUpdate,
   parseWindowsUpdates,
   parseMacSoftwareUpdate,
+  diskIsSsd,
+  parseWindowsDiskTypes,
+  WINDOWS_DISK_SCRIPT,
   parseDefaultAudio,
   detectMacAv,
   isVirtualInterface,
@@ -1280,6 +1283,72 @@ test("parseWindowsUpdates", async (t) => {
     assert.deepEqual(parseWindowsUpdates(JSON.stringify({ pending: null, lastCheck: null, source: null })), unknown);
     assert.deepEqual(parseWindowsUpdates("not json"), unknown);
     assert.deepEqual(parseWindowsUpdates(""), unknown);
+  });
+});
+
+// systeminformation's diskLayout types: "SSD", "HD" and "NVMe" on Linux
+// and macOS; on Windows, MediaType mapped to "HD", "SSD" or "SCM", or passed
+// on as "Unspecified" (or "Virtual" for a VirtualBox/Hyper-V disk).
+test("diskIsSsd", async (t) => {
+  await t.test("an SSD, NVMe or SCM disk is an SSD, alongside anything else", () => {
+    for (const types of [["SSD"], ["NVMe"], ["SCM"], ["HD", "SSD"], ["Unspecified", "NVMe"]]) assert.equal(diskIsSsd(types), true, types.join());
+  });
+
+  await t.test("only disks the OS calls spinning is an HDD", () => {
+    assert.equal(diskIsSsd(["HD"]), false);
+    assert.equal(diskIsSsd(["HD", "HDD"]), false);
+  });
+
+  // The Windows 11 VM's disk read "HDD": its MediaType is Unspecified.
+  await t.test("an unspecified or virtual disk is unknown, never a guessed HDD", () => {
+    for (const types of [["Unspecified"], ["Virtual"], ["HD", "Unspecified"], ["USB"], [""], [null], []]) {
+      assert.equal(diskIsSsd(types), null, JSON.stringify(types));
+    }
+    assert.equal(diskIsSsd(undefined), null);
+  });
+});
+
+test("parseWindowsDiskTypes", async (t) => {
+  const out = (types, ok = true) => JSON.stringify({ ok, types });
+
+  // What the Windows 11 VM's disk gave: MediaType 0, Unspecified.
+  await t.test("an unspecified disk is unknown", () => {
+    assert.equal(parseWindowsDiskTypes(out(["0"])), null);
+    assert.equal(parseWindowsDiskTypes(out(["Unspecified"])), null);
+  });
+
+  await t.test("reads MediaType as a number or a name", () => {
+    assert.equal(parseWindowsDiskTypes(out(["4"])), true);
+    assert.equal(parseWindowsDiskTypes(out(["SSD"])), true);
+    assert.equal(parseWindowsDiskTypes(out(["5"])), true);
+    assert.equal(parseWindowsDiskTypes(out(["3"])), false);
+    assert.equal(parseWindowsDiskTypes(out(["HDD"])), false);
+  });
+
+  await t.test("several disks: any SSD is an SSD; HDDs only is an HDD; otherwise unknown", () => {
+    assert.equal(parseWindowsDiskTypes(out(["3", "4"])), true);
+    assert.equal(parseWindowsDiskTypes(out(["3", "3"])), false);
+    assert.equal(parseWindowsDiskTypes(out(["3", "0"])), null);
+  });
+
+  await t.test("PowerShell unwraps a one-item array to a bare value", () => {
+    assert.equal(parseWindowsDiskTypes(JSON.stringify({ ok: true, types: "4" })), true);
+  });
+
+  await t.test("a failed or garbled query is unknown", () => {
+    assert.equal(parseWindowsDiskTypes(out([], false)), null);
+    assert.equal(parseWindowsDiskTypes(out([])), null);
+    assert.equal(parseWindowsDiskTypes(""), null);
+    assert.equal(parseWindowsDiskTypes("Get-PhysicalDisk : Access denied"), null);
+  });
+
+  await t.test("the real script runs and reads the disks (Windows only)", (t) => {
+    if (process.platform !== "win32") return t.skip("needs PowerShell on Windows");
+    const stdout = execFileSync("powershell.exe", ["-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", WINDOWS_DISK_SCRIPT],
+      { encoding: "utf8", timeout: 60000, windowsHide: true });
+    const parsed = JSON.parse(stdout.trim());
+    assert.equal(parsed.ok, true, `unexpected output: ${stdout}`);
+    console.log(`  Windows disk script: ${stdout.trim()}`);
   });
 });
 

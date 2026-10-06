@@ -398,8 +398,8 @@ function cpuSpeedLabel(cpu) {
 }
 
 function SystemScreen() {
-  const { facts, deferredFailed } = useApp();
-  const driveType = facts.disk.ssd == null ? (deferredFailed ? "Unknown" : "Checking…") : facts.disk.ssd ? "SSD" : "HDD";
+  const { facts, deferredFailed, deferredDone } = useApp();
+  const driveType = facts.disk.ssd == null ? (deferredFailed || deferredDone ? "Unknown" : "Checking…") : facts.disk.ssd ? "SSD" : "HDD";
   const { cpu, power } = facts;
   // Only a hybrid CPU has a P/E split worth showing.
   const coreSplit = cpu.effCores > 0 ? ` (${cpu.perfCores}P + ${cpu.effCores}E)` : "";
@@ -730,6 +730,9 @@ function App() {
   const [rescanning, setRescanning] = useState(false);
   const [status, setStatus] = useState("Reading system facts…");
   const [deferredFailed, setDeferredFailed] = useState(false);
+  // Whether the deferred scan has landed: after it, a reading still null is
+  // unknown, not still being checked.
+  const [deferredDone, setDeferredDone] = useState(false);
   // Numbers each deferred load. A re-scan can start a second load while the
   // first is still running; only the latest may write, or an older result
   // landing last would overwrite a newer one.
@@ -744,6 +747,7 @@ function App() {
   const loadDeferred = useCallback(() => {
     const seq = ++deferredSeq.current;
     setDeferredFailed(false);
+    setDeferredDone(false);
     window.whd.getDeferred().then((d) => {
       if (seq !== deferredSeq.current) return;
       if (!d) return setDeferredFailed(true);
@@ -755,6 +759,7 @@ function App() {
         display: d.display || f.display,
         firewall: d.firewall || f.firewall,
       }));
+      setDeferredDone(true);
     }).catch(() => {
       // Left alone, the cards would say "Checking…" forever.
       if (seq !== deferredSeq.current) return;
@@ -823,7 +828,7 @@ function App() {
   if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
 
   return (
-    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed }}>
+    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone }}>
       <Frame><RenderGuard onRetry={rescan}><HelperApp /></RenderGuard></Frame>
     </AppContext.Provider>
   );
