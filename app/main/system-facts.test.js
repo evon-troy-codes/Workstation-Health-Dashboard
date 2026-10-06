@@ -34,6 +34,8 @@ const {
   parseWindowsUpdates,
   parseMacSoftwareUpdate,
   diskIsSsd,
+  parseSnapRefreshList,
+  parseFlatpakUpdates,
   parseWindowsDiskTypes,
   WINDOWS_DISK_SCRIPT,
   parseDefaultAudio,
@@ -1308,6 +1310,44 @@ test("diskIsSsd", async (t) => {
   });
 });
 
+// Real output captured from the Ubuntu 24.04 VM (2026-10-06), and snapd's
+// and Flatpak's documented forms.
+test("parseSnapRefreshList", async (t) => {
+  const ok = (stdout, stderr = "") => ({ code: 0, stdout, stderr });
+  await t.test("counts the snaps listed under the header", () => {
+    const out = "Name              Version                         Rev   Size    Publisher    Notes\n" +
+      "firefox           157.0.1-1                       9036  275MB   mozilla**    -\n" +
+      "firmware-updater  0+git.64c41a0                   262   13.3MB  canonical**  -\n" +
+      "gnome-46-2404     0+git.b31ceab-sdk0+git.f80dd8b  168   645MB   canonical**  -\n" +
+      "snap-store        0+git.d402afd5                  1427  12.4MB  canonical**  -\n";
+    assert.equal(parseSnapRefreshList(ok(out)), 4);
+  });
+  await t.test("'All snaps up to date.' is none, on either stream", () => {
+    assert.equal(parseSnapRefreshList(ok("", "All snaps up to date.\n")), 0);
+    assert.equal(parseSnapRefreshList(ok("All snaps up to date.\n")), 0);
+  });
+  await t.test("offline, snapd down, or output it doesn't recognise is unknown", () => {
+    assert.equal(parseSnapRefreshList({ code: 1, stdout: "", stderr: "error: cannot refresh: unable to contact snap store\n" }), null);
+    assert.equal(parseSnapRefreshList(null), null);
+    assert.equal(parseSnapRefreshList(ok("something else\n")), null);
+  });
+});
+
+test("parseFlatpakUpdates", async (t) => {
+  await t.test("counts app and runtime refs", () => {
+    const out = "app/org.mozilla.firefox/x86_64/stable\nruntime/org.freedesktop.Platform/x86_64/24.08\n";
+    assert.equal(parseFlatpakUpdates({ code: 0, stdout: out, stderr: "" }), 2);
+  });
+  await t.test("a header line is ignored, and nothing listed is none", () => {
+    assert.equal(parseFlatpakUpdates({ code: 0, stdout: "Ref\napp/org.gimp.GIMP/x86_64/stable\n", stderr: "" }), 1);
+    assert.equal(parseFlatpakUpdates({ code: 0, stdout: "", stderr: "" }), 0);
+  });
+  await t.test("a failed check is unknown", () => {
+    assert.equal(parseFlatpakUpdates({ code: 1, stdout: "", stderr: "error: Unable to load summary from remote flathub\n" }), null);
+    assert.equal(parseFlatpakUpdates(null), null);
+  });
+});
+
 test("parseWindowsDiskTypes", async (t) => {
   const out = (types, ok = true) => JSON.stringify({ ok, types });
 
@@ -1584,7 +1624,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
     cpu: ["model", "cores", "threads", "perfCores", "effCores", "ghz", "ghzKind", "family", "arch", "series"],
     ram: ["totalGB", "freeGB", "type", "pressure"],
     disk: ["totalGB", "freeGB", "usedPercent", "ssd"],
-    os: ["name", "version", "build", "lastUpdateCheck", "lastUpdateKind", "pendingUpdates"],
+    os: ["name", "version", "build", "lastUpdateCheck", "lastUpdateKind", "pendingUpdates", "appUpdates"],
     network: ["interface", "type", "linkSpeed", "mtu", "mac", "ipv4",
               "ipv6Disabled", "gateway", "dns", "ssid", "isWired", "isVirtual"],
     bandwidth: ["downMbps", "upMbps", "ping", "jitter", "measuredAt"],
@@ -1620,8 +1660,14 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
 test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
   const d = await detectDeferred();
-  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall"]) {
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall", "appUpdates"]) {
     assert.ok(key in d, `deferred.${key} is missing`);
+  }
+  // A key per installed app store (snap, flatpak), each a count or null.
+  assert.equal(typeof d.appUpdates, "object");
+  for (const [k, v] of Object.entries(d.appUpdates)) {
+    assert.ok(["snap", "flatpak"].includes(k), `appUpdates.${k}`);
+    assert.ok(v === null || Number.isInteger(v), `appUpdates.${k} must be a count or null`);
   }
   // Never null, on any OS: an empty list on Linux is "No firewall service found".
   assert.ok(d.firewall && Array.isArray(d.firewall.products), "firewall must be { products: [] }");
@@ -1655,7 +1701,7 @@ test("probeTimings holds only check names and milliseconds, slowest first", { ti
   const timings = probeTimings();
   const expected = ["cpu", "mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
     "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
-    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall"];
+    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall", "deferred:appUpdates"];
   assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
   for (const [k, ms] of timings) {
     assert.match(k, /^(deferred:)?[A-Za-z]+$/);

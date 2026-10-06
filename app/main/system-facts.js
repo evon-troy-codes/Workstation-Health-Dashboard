@@ -201,6 +201,8 @@ async function collectFacts() {
       // until the update check resolves, or when nothing could be read.
       lastUpdateKind: null,
       pendingUpdates: null, // number once the lazy update check resolves
+      // { snap?, flatpak? } once it resolves: a key per installed tool.
+      appUpdates: null,
     },
     network: {
       interface: iface.iface || defIfaceName || "Unknown",
@@ -844,14 +846,15 @@ function linuxFirewallFrom({ ufwInstalled, firewalldInstalled, ufwEnabled, servi
 // together so the renderer merges them in a single re-render. Each is wrapped
 // so one slow provider cannot strand the others.
 async function detectDeferred() {
-  const [updates, ssd, backgroundApps, graphics, firewall] = await Promise.all([
+  const [updates, ssd, backgroundApps, graphics, firewall, appUpdates] = await Promise.all([
     probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
     probe(detectSsd(), null, "deferred:ssd"),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
     probe(detectDisplays(), [], "deferred:graphics"),
     probe(detectFirewall(), { products: [], checked: false }, "deferred:firewall"),
+    probe(detectAppUpdates(), {}, "deferred:appUpdates"),
   ]);
-  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall };
+  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall, appUpdates };
 }
 
 // The monitors, one entry each: { name, connection, builtin, main, width,
@@ -1077,6 +1080,50 @@ function detectSsd() {
     .diskLayout()
     .then((layout) => diskIsSsd((layout || []).map((d) => d.type)))
     .catch(() => null);
+}
+
+// ---- App updates: snap and Flatpak ------------------------------------------
+//
+// Apps installed as snaps or Flatpaks update outside the system package
+// manager, so apt (or dnf, pacman) saying "none" can hide a pending browser
+// update (the Ubuntu VM, 2026-10-06: apt 0, four snaps including Firefox).
+// → { snap?, flatpak? }: a key only for a tool that is installed, holding
+// the count, or null when the tool couldn't answer (offline, daemon down).
+// Unlike the system check, both ask their store what's new: snapd sends it
+// the installed snaps, as it does on its own several times a day, and
+// Flatpak fetches each remote's index (owner's call, 2026-10-06).
+async function detectAppUpdates() {
+  const snap = findTool("/usr/bin/snap", "/snap/bin/snap");
+  const flatpak = findTool("/usr/bin/flatpak");
+  const [snapResult, flatpakResult] = await Promise.all([
+    snap ? runCmdResult(snap, ["refresh", "--list"], { timeout: 25000 }) : null,
+    flatpak ? runCmdResult(flatpak, ["remote-ls", "--updates", "--columns=ref"], { timeout: 25000 }) : null,
+  ]);
+  const out = {};
+  if (snap) out.snap = parseSnapRefreshList(snapResult);
+  if (flatpak) out.flatpak = parseFlatpakUpdates(flatpakResult);
+  return out;
+}
+
+// `snap refresh --list` → how many snaps have an update, or null. With none
+// it prints "All snaps up to date." (to stderr) and exits 0; otherwise a
+// table headed "Name  Version  Rev ...". Offline or with snapd down it
+// exits non-zero ("error: cannot refresh ...").
+function parseSnapRefreshList(result) {
+  if (!result || result.code !== 0) return null;
+  if (/all snaps up to date/i.test(`${result.stdout}\n${result.stderr}`)) return 0;
+  const lines = String(result.stdout || "").split("\n").map((l) => l.trim()).filter(Boolean);
+  if (!lines.length || !/^name\s+version\b/i.test(lines[0])) return null;
+  return lines.slice(1).filter((l) => /^[a-z0-9][a-z0-9-]*\s/.test(l)).length;
+}
+
+// `flatpak remote-ls --updates --columns=ref` → how many apps and runtimes
+// have an update, or null. Each update is a ref ("app/org.mozilla.firefox/
+// x86_64/stable"); an empty list with exit 0 is none.
+function parseFlatpakUpdates(result) {
+  if (!result || result.code !== 0) return null;
+  return String(result.stdout || "").split("\n").map((l) => l.trim())
+    .filter((l) => /^(app|runtime)\/[^/\s]+\/[^/\s]+\/\S+$/.test(l)).length;
 }
 
 // Each physical disk's MediaType, straight from Windows. systeminformation
@@ -1767,6 +1814,8 @@ module.exports = {
   parseWindowsUpdates,
   parseMacSoftwareUpdate,
   diskIsSsd,
+  parseSnapRefreshList,
+  parseFlatpakUpdates,
   parseWindowsDiskTypes,
   WINDOWS_DISK_SCRIPT,
   parseDefaultAudio,

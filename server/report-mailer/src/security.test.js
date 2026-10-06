@@ -93,7 +93,7 @@ test("sanitizeScan with hostile input", async (t) => {
 
   await t.test("keeps only the allow-listed keys", () => {
     assert.deepEqual(Object.keys(out).sort(), ["antivirus", "audio", "backgroundApps", "cpu", "disk", "displays", "firewall", "machineType", "network", "os", "power", "ram", "speedTest", "uptime"]);
-    assert.deepEqual(Object.keys(out.os).sort(), ["lastUpdateCheck", "lastUpdateKind", "name", "pendingUpdates", "version"]);
+    assert.deepEqual(Object.keys(out.os).sort(), ["appUpdates", "lastUpdateCheck", "lastUpdateKind", "name", "pendingUpdates", "version"]);
     assert.deepEqual(Object.keys(out.network).sort(), ["linkSpeed", "type", "vpnDetected", "vpnOrTunnel", "wired"]);
     assert.deepEqual(Object.keys(out.displays[0]).sort(), ["builtin", "main", "refreshRate", "resolution"]);
     assert.deepEqual(Object.keys(out.antivirus[0]).sort(), ["definitionsAge", "name", "running"]);

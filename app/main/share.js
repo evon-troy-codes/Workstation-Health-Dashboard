@@ -100,6 +100,9 @@ function reportSections(report) {
       ["Disk", `${num(disk.totalGB, "GB")} (${num(disk.freeGB, "GB")} free, ${pct(disk.usedPercent)} used)`],
       ...displayRows(r.display),
       ["Pending updates", val(os.pendingUpdates)],
+      ...[["snap", "Snap updates"], ["flatpak", "Flatpak updates"]]
+        .filter(([k]) => k in obj(os.appUpdates))
+        .map(([k, label]) => [label, os.appUpdates[k] == null ? "Unknown" : val(os.appUpdates[k])]),
       [os.lastUpdateKind === "installed" ? "Last update installed" : "Last update check", val(os.lastUpdateCheck)],
     ]],
     ["Network", [

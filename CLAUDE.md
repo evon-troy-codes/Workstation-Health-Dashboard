@@ -210,6 +210,14 @@ keeps working.
   Docker's iptables rules don't count. Neutral styling, no warning. Windows
   reads `Get-NetFirewallProfile` plus Security Center's FirewallProduct;
   macOS reads `socketfilterfw --getglobalstate`.
+- **Snap and Flatpak updates are counted** (owner's call, 2026-10-06): a
+  user may install apps from either, and the system package manager
+  doesn't see them (the Ubuntu VM: apt 0, four snaps including Firefox).
+  `os.appUpdates` has a key per installed store, `null` when it couldn't be
+  checked; the Overview tile shows the total. These are the app's only
+  checks that contact a server besides the speed test and Explain: snapd
+  sends the store the installed snaps (as it does itself several times a
+  day), and Flatpak fetches each remote's index.
 - **No Power card on a desktop** (owner's call, 2026-10-05): with no
   battery it only ever said "No battery · AC adapter". The System card and
   the Overview tile are hidden; the Firewall tile takes the tile's slot.

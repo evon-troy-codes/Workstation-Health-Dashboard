@@ -174,6 +174,7 @@ the same.
 | Background apps, browser-extension count              | process/file scans (fetched after first paint) |
 | Selected audio devices                                | Windows MMDevice API / PulseAudio-PipeWire (`pactl`) |
 | OS pending updates, SSD flag                          | Windows Update / macOS Software Update's last check / apt / dnf / pacman, from cached metadata (fetched after first paint) |
+| Snap and Flatpak app updates                          | `snap refresh --list` / `flatpak remote-ls --updates`, when installed: unlike the system check, these ask the stores what's new (fetched after first paint) |
 | Network speed (download/upload/ping/jitter)           | Cloudflare speed test, on launch; each run stops at 250 MB down / 100 MB up, so a fast link doesn't burn a metered plan |
 
 ---

@@ -188,6 +188,14 @@ carries.
   is spent, the Worker answers from that free model instead, with the same
   answer shape. `ai-daily-limit` then means the free model's day is spent
   too.
+- New `os.appUpdates`: `{ snap?, flatpak? }`, a key only for an app store
+  that is installed, holding its count of pending updates, or `null` when
+  it couldn't be checked (offline, daemon down). `{}` when neither is
+  installed (always on Windows and macOS). `os.pendingUpdates` is still the
+  system package manager's count alone; the Overview tile shows the total.
+- `disk.ssd` is `null` (Unknown) unless the OS says SSD or HDD; on Windows
+  it now comes from `Get-PhysicalDisk`'s MediaType, and "Unspecified" is
+  `null`, not `false`.
 
 **1.3.1**
 

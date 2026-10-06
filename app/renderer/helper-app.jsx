@@ -319,12 +319,20 @@ function AtAGlance({ onJump }) {
       ? { value: `${b.downMbps ?? "—"} Mbps down`, sub: <>{b.upMbps ?? "—"} Mbps up · measured <Ago ts={b.measuredAt} /></> }
       : { value: b.measuredAt == null ? "Not measured yet" : "No result", sub: "Run it on the Network screen" };
 
-  const updates = os.pendingUpdates == null
+  // The system's count plus every snap and Flatpak count that's known. Any
+  // that couldn't be checked is named rather than counted as none.
+  const apps = Object.entries(os.appUpdates || {});
+  const total = os.pendingUpdates == null ? null
+    : apps.reduce((n, [, v]) => n + (typeof v === "number" ? v : 0), os.pendingUpdates);
+  const unchecked = apps.filter(([, v]) => v == null).map(([k]) => APP_SOURCE[k]);
+  const updates = total == null
     ? (deferredFailed || os.lastUpdateCheck === "Unknown" ? "Unknown" : "Checking…")
-    : os.pendingUpdates === 0 ? "None pending" : `${os.pendingUpdates} pending`;
-  const updatesSub = os.lastUpdateCheck && !["Checking…", "Unknown"].includes(os.lastUpdateCheck)
-    ? `${os.lastUpdateKind === "installed" ? "Last installed" : "Last checked"} ${os.lastUpdateCheck}`
-    : null;
+    : total === 0 ? "None pending" : `${total} pending`;
+  const updatesSub = total != null && unchecked.length
+    ? `Couldn't check ${unchecked.join(" or ")}`
+    : os.lastUpdateCheck && !["Checking…", "Unknown"].includes(os.lastUpdateCheck)
+      ? `${os.lastUpdateKind === "installed" ? "Last installed" : "Last checked"} ${os.lastUpdateCheck}`
+      : null;
 
   return (
     <div className="glance-grid">
@@ -377,6 +385,14 @@ function OverviewScreen({ onJump }) {
 // "up to 4.7 GHz" when the scan found the maximum boost clock. Otherwise no
 // speed at all: the base clock alone is easily misread, and "0 GHz" is not a
 // reading.
+// Snap and Flatpak, as the cards name them.
+const APP_SOURCE = { snap: "Snap", flatpak: "Flatpak" };
+
+// A pending-updates count as a card value: null is a check that couldn't run.
+function updateCount(n) {
+  return n == null ? "Unknown" : n === 0 ? "None" : `${n} pending`;
+}
+
 // The battery level, or "Unknown" when it couldn't be read: never a guess.
 function batteryPercent(level, suffix = "") {
   return typeof level === "number" && Number.isFinite(level) ? `${level}%${suffix}` : "Unknown";
@@ -436,7 +452,11 @@ function SystemScreen() {
       </Card>
 
       <Card icon="circle-info" title="OS updates" sub={`${updateInstalled ? "Last update installed" : "Last checked"} ${facts.os.lastUpdateCheck}`}>
-        <KV k="Pending updates" v={facts.os.pendingUpdates == null ? "Unknown" : facts.os.pendingUpdates === 0 ? "None" : `${facts.os.pendingUpdates} pending`} />
+        <KV k="Pending updates" v={updateCount(facts.os.pendingUpdates)} />
+        {/* A row per installed app store, only once it has been checked. */}
+        {Object.entries(facts.os.appUpdates || {}).map(([k, v]) => (
+          <KV key={k} k={`${APP_SOURCE[k]} updates`} v={updateCount(v)} />
+        ))}
         <KV k={updateInstalled ? "Last update installed" : "Last check"} v={facts.os.lastUpdateCheck} />
       </Card>
 
@@ -753,7 +773,8 @@ function App() {
       if (!d) return setDeferredFailed(true);
       setFacts((f) => f && ({
         ...f,
-        os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck, lastUpdateKind: d.lastUpdateKind },
+        os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck, lastUpdateKind: d.lastUpdateKind,
+          appUpdates: d.appUpdates || {} },
         disk: { ...f.disk, ssd: d.ssd },
         backgroundApps: d.backgroundApps || f.backgroundApps,
         display: d.display || f.display,

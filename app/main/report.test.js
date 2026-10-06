@@ -95,7 +95,7 @@ test("buildReport", async (t) => {
     const r = buildReport(scanned, deferred, {});
     assert.deepEqual(r.firewall, deferred.firewall);
     assert.deepEqual(r.display, deferred.display);
-    assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked" });
+    assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked", appUpdates: {} });
     assert.equal(r.disk.ssd, true);
     assert.deepEqual(r.backgroundApps, deferred.backgroundApps);
   });
@@ -207,6 +207,12 @@ test("buildAiScan", async (t) => {
     assert.deepEqual(buildAiScan({ firewall: { checked: true, products: [] } }).firewall, { products: [] });
     assert.equal(buildAiScan({ firewall: { checked: false, products: [] } }).firewall, null);
     assert.equal(buildAiScan({ firewall: null }).firewall, null);
+  });
+
+  await t.test("snap and Flatpak counts: only installed stores, null kept as unchecked", () => {
+    assert.deepEqual(buildAiScan({ os: { appUpdates: { snap: 4, flatpak: null } } }).os.appUpdates, { snap: 4, flatpak: null });
+    assert.deepEqual(buildAiScan({ os: { appUpdates: {} } }).os.appUpdates, {});
+    assert.deepEqual(buildAiScan({ os: { appUpdates: { snap: { evil: "x" }, other: 3 } } }).os.appUpdates, { snap: null });
   });
 
   await t.test("copes with a report missing whole sections", () => {
