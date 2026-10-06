@@ -225,6 +225,36 @@ test("buildAiScan", async (t) => {
   });
 });
 
+test("shapeExplanation", async (t) => {
+  const { shapeExplanation } = require("./report");
+  await t.test("keeps a good answer as it is", () => {
+    const good = { summary: "Fine.", findings: [{ severity: "low", title: "Disk", detail: "60%", fix: "None" }], model: "claude-opus-5-5" };
+    assert.deepEqual(shapeExplanation(good), good);
+  });
+  // A finding with an object for a title crashed the dialog (React throws).
+  await t.test("drops findings the dialog can't render, and caps the rest", () => {
+    const body = {
+      summary: "x".repeat(5000),
+      findings: [
+        { severity: "high", title: { evil: 1 }, detail: "d", fix: "f" },
+        { severity: "critical", title: "T", detail: "d", fix: "f" },
+        "not a finding", null,
+        ...Array.from({ length: 8 }, () => ({ severity: "ok", title: "T", detail: { x: 1 }, fix: 5, extra: "y" })),
+      ],
+      model: { name: "x" },
+    };
+    const out = shapeExplanation(body);
+    assert.equal(out.summary.length, 600);
+    assert.equal(out.findings.length, 5);
+    assert.deepEqual(out.findings[0], { severity: "ok", title: "T", detail: "", fix: "" });
+    assert.equal(out.model, null);
+  });
+  await t.test("requestExplanation returns the shaped answer", async () => {
+    const fetch = fakeFetch(() => new Response(JSON.stringify({ ok: true, summary: "S", findings: [{ severity: "x" }], model: "m" }), { status: 200 }));
+    assert.deepEqual(await requestExplanation("https://mailer.example/explain", {}, fetch), { ok: true, summary: "S", findings: [], model: "m" });
+  });
+});
+
 test("explainEndpoint", () => {
   assert.equal(explainEndpoint("https://mailer.example.workers.dev/"), "https://mailer.example.workers.dev/explain");
   assert.equal(explainEndpoint("https://mailer.example.workers.dev"), "https://mailer.example.workers.dev/explain");

@@ -146,6 +146,22 @@ function buildAiScan(report) {
   };
 }
 
+// The answer as the dialog renders it: a capped summary, at most five
+// findings each of known severity with string fields, and the model's name.
+// The Worker shapes its answer the same way (shapeAnswer); this holds even
+// if WHD_REPORT_URL points at something else, where a finding with an
+// object for a title would have crashed the dialog.
+const ANSWER_TEXT = 600;
+function shapeExplanation(body) {
+  const b = body && typeof body === "object" ? body : {};
+  const text = (v) => (typeof v === "string" ? v.trim().slice(0, ANSWER_TEXT) : "");
+  const findings = (Array.isArray(b.findings) ? b.findings : [])
+    .filter((f) => f && typeof f === "object" && ["high", "medium", "low", "ok"].includes(f.severity) && text(f.title))
+    .slice(0, 5)
+    .map((f) => ({ severity: f.severity, title: text(f.title), detail: text(f.detail), fix: text(f.fix) }));
+  return { summary: text(b.summary), findings, model: typeof b.model === "string" ? b.model.slice(0, 100) : null };
+}
+
 // The Worker's /explain, next to the report endpoint ("…/" → "…/explain").
 function explainEndpoint(reportUrl) {
   if (!reportUrl) return "";
@@ -179,12 +195,7 @@ async function requestExplanation(endpoint, scan, fetchImpl = fetch) {
       /* not JSON */
     }
     if (res.ok && body && body.ok && typeof body.summary === "string") {
-      return {
-        ok: true,
-        summary: body.summary,
-        findings: Array.isArray(body.findings) ? body.findings : [],
-        model: typeof body.model === "string" ? body.model : null,
-      };
+      return { ok: true, ...shapeExplanation(body) };
     }
     const error = body && typeof body.error === "string" ? body.error : undefined;
     return error ? { ok: false, reason: "http", status: res.status, error } : { ok: false, reason: "http", status: res.status };
@@ -195,5 +206,5 @@ async function requestExplanation(endpoint, scan, fetchImpl = fetch) {
 
 module.exports = {
   buildReport, reportEndpoint, classifyReportError, errorDetail,
-  buildAiScan, explainEndpoint, requestExplanation,
+  buildAiScan, explainEndpoint, requestExplanation, shapeExplanation,
 };
