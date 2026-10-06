@@ -1095,14 +1095,39 @@ function detectSsd() {
 async function detectAppUpdates() {
   const snap = findTool("/usr/bin/snap", "/snap/bin/snap");
   const flatpak = findTool("/usr/bin/flatpak");
-  const [snapResult, flatpakResult] = await Promise.all([
+  const [snapResult, flatpakCount] = await Promise.all([
     snap ? runCmdResult(snap, ["refresh", "--list"], { timeout: 25000 }) : null,
-    flatpak ? runCmdResult(flatpak, ["remote-ls", "--updates", "--columns=ref"], { timeout: 25000 }) : null,
+    flatpak ? flatpakUpdates(flatpak) : null,
   ]);
   const out = {};
   if (snap) out.snap = parseSnapRefreshList(snapResult);
-  if (flatpak) out.flatpak = parseFlatpakUpdates(flatpakResult);
+  if (flatpak) out.flatpak = flatpakCount;
   return out;
+}
+
+// Flatpak's pending updates, asking only the remotes something is installed
+// from. Asking every remote failed for a normal user on Fedora: its own
+// "fedora" remote is OCI-based, and listing it needs a privileged helper
+// ("GenerateOciSummary not allowed for user"), so the card read Unknown on
+// every Fedora Workstation, which has no Flatpak apps from it. With nothing
+// installed there are no updates, and nothing is asked.
+async function flatpakUpdates(flatpak) {
+  const listed = await runCmdResult(flatpak, ["list", "--columns=origin"], { timeout: 15000 });
+  const remotes = parseFlatpakOrigins(listed);
+  if (remotes == null) return null;
+  if (!remotes.length) return 0;
+  const counts = await Promise.all(remotes.map((remote) =>
+    runCmdResult(flatpak, ["remote-ls", "--updates", "--columns=ref", remote], { timeout: 25000 }).then(parseFlatpakUpdates)));
+  return counts.some((n) => n == null) ? null : counts.reduce((a, b) => a + b, 0);
+}
+
+// `flatpak list --columns=origin` → the remotes installed apps and runtimes
+// came from, each once, or null when the list couldn't be read.
+function parseFlatpakOrigins(result) {
+  if (!result || result.code !== 0) return null;
+  const names = String(result.stdout || "").split("\n").map((l) => l.trim())
+    .filter((l) => l && /^[A-Za-z0-9._:-]+$/.test(l) && !/^origin$/i.test(l));
+  return [...new Set(names)];
 }
 
 // `snap refresh --list` → how many snaps have an update, or null. With none
@@ -1863,6 +1888,7 @@ module.exports = {
   diskIsSsd,
   parseSnapRefreshList,
   parseFlatpakUpdates,
+  parseFlatpakOrigins,
   parsePkconUpdates,
   packageKitMetadataFiles,
   parseWindowsDiskTypes,

@@ -36,6 +36,7 @@ const {
   diskIsSsd,
   parseSnapRefreshList,
   parseFlatpakUpdates,
+  parseFlatpakOrigins,
   parsePkconUpdates,
   packageKitMetadataFiles,
   parseWindowsDiskTypes,
@@ -1386,6 +1387,20 @@ test("packageKitMetadataFiles", async (t) => {
   });
   await t.test("no PackageKit cache is an empty list", () => {
     assert.deepEqual(packageKitMetadataFiles("/nonexistent/PackageKit"), []);
+  });
+});
+
+test("parseFlatpakOrigins", async (t) => {
+  await t.test("each remote once, header ignored", () => {
+    assert.deepEqual(parseFlatpakOrigins({ code: 0, stdout: "Origin\nflathub\nflathub\nfedora\n" }), ["flathub", "fedora"]);
+  });
+  // The Fedora 44 VM: Flatpak installed, nothing installed from it.
+  await t.test("nothing installed is an empty list, so nothing is asked", () => {
+    assert.deepEqual(parseFlatpakOrigins({ code: 0, stdout: "" }), []);
+  });
+  await t.test("a list that can't be read is unknown", () => {
+    assert.equal(parseFlatpakOrigins({ code: 1, stdout: "", stderr: "error" }), null);
+    assert.equal(parseFlatpakOrigins(null), null);
   });
 });
 
