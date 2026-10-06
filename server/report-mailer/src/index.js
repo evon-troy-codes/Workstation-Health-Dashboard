@@ -21,8 +21,8 @@
 
 import { explainScan } from "./explain.js";
 import { spendAiBudget, refundAiBudget } from "./budget.js";
+import { MAX_BODY_BYTES } from "./limits.js";
 
-const MAX_BODY_BYTES = 256 * 1024;
 
 const json = (status, body) =>
   new Response(JSON.stringify(body), {
@@ -143,4 +143,4 @@ export default {
 // main module as Workers requires.
 export { AiBudget } from "./budget.js";
 
-export { handleRequest, MAX_BODY_BYTES };
+export { handleRequest };

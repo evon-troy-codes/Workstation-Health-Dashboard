@@ -3,3 +3,4 @@
 !.claude/agents/
 node_modules/
 dist/
+.wrangler/

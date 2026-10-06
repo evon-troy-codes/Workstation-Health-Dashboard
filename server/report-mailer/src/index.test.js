@@ -2,7 +2,8 @@
 // `npm test`. /explain itself is tested in explain.test.js.
 import test from "node:test";
 import assert from "node:assert/strict";
-import { handleRequest, MAX_BODY_BYTES } from "./index.js";
+import { handleRequest } from "./index.js";
+import { MAX_BODY_BYTES } from "./limits.js";
 
 const post = (path, body, headers = {}) =>
   new Request(`https://mailer.example.workers.dev${path}`, {
