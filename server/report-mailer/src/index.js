@@ -19,7 +19,7 @@
 //   RATE_LIMITER       Workers rate-limiting binding
 //   AI_BUDGET          Durable Object binding (budget.js)
 
-import { explainScan } from "./explain.js";
+import { explainScan, explainScanFree } from "./explain.js";
 import { spendAiBudget, refundAiBudget } from "./budget.js";
 import { MAX_BODY_BYTES } from "./limits.js";
 
@@ -116,7 +116,7 @@ async function handleRequest(request, env, fetchImpl = fetch) {
   } catch (_) {
     return json(503, { ok: false, error: "ai-busy" });
   }
-  if (spent) return json(429, { ok: false, error: `ai-${spent === "day" ? "daily" : "monthly"}-limit` });
+  if (spent) return explainFree(scan, env, ip, spent);
   // The SDK gets the Worker's own fetch only in tests: handed the global
   // fetch, it would call it detached, which the Workers runtime rejects.
   let out;
@@ -132,6 +132,30 @@ async function handleRequest(request, env, fetchImpl = fetch) {
   // A call that never reached Claude costs nothing, so it shouldn't use up
   // the budget: an outage would otherwise spend the day on retries.
   if (out.billed === false) await refundAiBudget(env, ip);
+  return json(out.status, out.body);
+}
+
+// Claude's budget is spent: answer from the free Workers AI model when one
+// is configured, within the free pool's own caps; otherwise, or once those
+// are spent too, the limit Claude hit.
+async function explainFree(scan, env, ip, claudeSpent) {
+  const limit = json(429, { ok: false, error: `ai-${claudeSpent === "day" ? "daily" : "monthly"}-limit` });
+  if (!env.AI || !env.FREE_AI_MODEL) return limit;
+  let spent;
+  try {
+    spent = await spendAiBudget(env, ip, "free");
+  } catch (_) {
+    return json(503, { ok: false, error: "ai-busy" });
+  }
+  if (spent) return json(429, { ok: false, error: "ai-daily-limit" });
+  let out;
+  try {
+    out = await explainScanFree(scan, env);
+  } catch (_) {
+    await refundAiBudget(env, ip, "free");
+    return json(502, { ok: false, error: "ai-failed" });
+  }
+  if (out.billed === false) await refundAiBudget(env, ip, "free");
   return json(out.status, out.body);
 }
 

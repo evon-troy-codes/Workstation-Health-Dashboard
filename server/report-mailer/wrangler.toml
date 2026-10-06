@@ -25,6 +25,19 @@ AI_DAILY_LIMIT = "10"
 # Each caller's share of the day (an IPv4 address, or an IPv6 /64), so one
 # person can't use up everyone's day.
 AI_DAILY_PER_IP_LIMIT = "3"
+# Once Claude's day or month is spent, answers come from this Workers AI
+# model instead, within Cloudflare's free daily allocation (10,000 neurons;
+# a Gemma 4 explanation with thinking off is about 20). Empty turns the
+# fallback off. It has
+# its own caps: FREE_AI_DAILY_LIMIT a day and FREE_AI_DAILY_PER_IP_LIMIT per
+# caller.
+FREE_AI_MODEL = "@cf/google/gemma-4-26b-a4b-it"
+FREE_AI_DAILY_LIMIT = "250"
+FREE_AI_DAILY_PER_IP_LIMIT = "10"
+
+# Workers AI, for the free fallback model.
+[ai]
+binding = "AI"
 
 # About five explanations a minute per client IP.
 [[ratelimits]]

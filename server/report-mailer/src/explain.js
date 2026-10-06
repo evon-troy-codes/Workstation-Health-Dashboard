@@ -9,6 +9,11 @@
 // The Anthropic API key is a Worker secret (ANTHROPIC_API_KEY), never in the
 // public app. AI_MODEL and AI_EFFORT in wrangler.toml choose the model and
 // how hard it thinks.
+//
+// Once Claude's daily or monthly budget is spent, explainScanFree answers
+// from FREE_AI_MODEL on Workers AI (the AI binding) instead, within
+// Cloudflare's free daily allocation: same prompt, same scan, same shape
+// check (owner's call, 2026-10-06).
 
 import Anthropic from "@anthropic-ai/sdk";
 
@@ -177,4 +182,58 @@ async function explainScan(rawScan, env, fetchImpl) {
   return { status: 200, body: { ok: true, ...answer, model: response.model }, billed: true };
 }
 
-export { explainScan, sanitizeScan, shapeAnswer, SYSTEM_PROMPT, ANSWER_SCHEMA, DEFAULT_MODEL };
+// Workers AI's answer → its text or parsed object. Older models return
+// { response }, OpenAI-style ones { choices: [{ message: { content } }] }.
+function workersAiContent(res) {
+  if (!res || typeof res !== "object") return null;
+  if (res.response != null) return res.response;
+  const choice = Array.isArray(res.choices) ? res.choices[0] : null;
+  return choice && choice.message ? choice.message.content : null;
+}
+
+// The text as JSON, allowing for a ```json fence some models add.
+function parseAnswerText(content) {
+  if (content && typeof content === "object") return content;
+  if (typeof content !== "string") return null;
+  const text = content.trim().replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/, "");
+  try {
+    return JSON.parse(text);
+  } catch (_) {
+    return null;
+  }
+}
+
+// The free fallback: the same assessment from FREE_AI_MODEL on Workers AI.
+// Resolves as explainScan does. Workers AI has no separate key; a failure
+// before an answer (the free allocation used up, the model unavailable) is
+// unbilled, so the caller gives the call back to the free pool.
+async function explainScanFree(rawScan, env) {
+  if (!env.AI || !env.FREE_AI_MODEL) return { status: 500, body: { ok: false, error: "not-configured" }, billed: false };
+  const scan = sanitizeScan(rawScan);
+  let res;
+  try {
+    res = await env.AI.run(env.FREE_AI_MODEL, {
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: `Here is the scan:\n\n${JSON.stringify(scan, null, 2)}` },
+      ],
+      response_format: { type: "json_schema", json_schema: ANSWER_SCHEMA },
+      // Gemma 4 thinks before answering unless told not to: 2,000-4,000
+      // hidden tokens, 30-60 s (past the app's 60 s wait) and, out of
+      // tokens mid-thought, no answer at all. Off, it answered in 3-6 s with
+      // the same facts right (measured 2026-10-06).
+      chat_template_kwargs: { enable_thinking: false },
+      max_completion_tokens: 2000,
+    });
+  } catch (err) {
+    // Cloudflare's free daily allocation, used up: for the caller, today's
+    // limit. Anything else: the model couldn't be reached.
+    const spent = /neuron|allocation|quota|limit/i.test(String(err && err.message));
+    return { status: spent ? 429 : 502, body: { ok: false, error: spent ? "ai-daily-limit" : "ai-unreachable" }, billed: false };
+  }
+  const answer = shapeAnswer(parseAnswerText(workersAiContent(res)));
+  if (!answer.summary) return { status: 502, body: { ok: false, error: "ai-bad-answer" }, billed: true };
+  return { status: 200, body: { ok: true, ...answer, model: env.FREE_AI_MODEL }, billed: true };
+}
+
+export { explainScanFree, workersAiContent, parseAnswerText, explainScan, sanitizeScan, shapeAnswer, SYSTEM_PROMPT, ANSWER_SCHEMA, DEFAULT_MODEL };

@@ -9,7 +9,7 @@
 
 import { React } from "./react-globals.js";
 import { Icon, Spinner } from "./icons.jsx";
-import { explainFailure } from "./report-messages.js";
+import { explainFailure, modelLabel } from "./report-messages.js";
 import { trapTab, keepFocusInside } from "./dialog-focus.js";
 
 const { useState, useEffect, useRef } = React;
@@ -109,7 +109,7 @@ function ExplainDialog({ onExplain, onClose }) {
               </ol>
             )}
             <p className="dialog-note">
-              AI assessment{result.model ? ` by ${result.model}` : ""}. It can be wrong;
+              AI assessment{modelLabel(result.model) ? ` by ${modelLabel(result.model)}` : ""}. It can be wrong;
               the dashboard cards show the actual readings.
             </p>
           </div>
