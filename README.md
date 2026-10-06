@@ -251,3 +251,13 @@ speed test on a fake clock, so they need no connection and take under a second.
   open (see [Installing](#installing)). Signing the macOS build with an Apple
   Developer ID and notarizing it, and signing the Windows installer with an
   Authenticode certificate, would remove those warnings.
+
+## Security
+
+Found a security problem? Please report it privately through the
+**Security** tab's **Report a vulnerability** form, not in a public issue.
+See [SECURITY.md](SECURITY.md) for what's in scope.
+
+## License
+
+[ISC](LICENSE) © 2026 Evon Troy Alexander
