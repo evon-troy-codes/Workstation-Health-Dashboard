@@ -68,7 +68,8 @@
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",
-      "app/renderer/dist/**/*"
+      "app/renderer/dist/**/*",
+      "!app/renderer/dist/**/*.map"
     ],
     "win": {
       "target": "nsis",
