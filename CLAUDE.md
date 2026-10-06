@@ -223,6 +223,12 @@ keeps working.
   the Overview tile are hidden; the Firewall tile takes the tile's slot.
   Shared reports and the AI keep "no battery", which tells IT it's a
   desktop.
+- **Installer checksums** (2026-10-06): every packaging run writes
+  `dist/SHA256SUMS-<OS>.txt` (`tools/checksums.js`), naming files as a
+  GitHub release does (spaces become dots), and keeps it with the
+  installers. For a release, join the Linux, Windows and macOS files (not
+  the ubuntu-26.04 duplicate) into one `SHA256SUMS.txt` asset, and check
+  it against the assets' `digest` in the releases API.
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 

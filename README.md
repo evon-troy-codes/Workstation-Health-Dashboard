@@ -50,6 +50,20 @@ your operating system warns that it can't verify it. The steps below get past
 that warning once; after that the app opens normally. Only do this for a copy
 you downloaded from this repository.
 
+### Checking a download (optional)
+
+Because the installers aren't signed, each release also lists their SHA-256
+checksums in `SHA256SUMS.txt`. To check that your download is exactly the
+file that was published, compare its checksum with the one listed:
+
+- **Windows** (PowerShell): `Get-FileHash .\Workstation.Scanner.Setup.<version>.exe`
+- **macOS**: `shasum -a 256 Workstation.Scanner-<version>-arm64.dmg`
+- **Linux**: put `SHA256SUMS.txt` next to the download and run
+  `sha256sum -c --ignore-missing SHA256SUMS.txt`
+
+If the numbers differ, don't open the file; download it again from this
+page.
+
 ### Windows
 
 1. Run `Workstation.Scanner.Setup.<version>.exe`.
