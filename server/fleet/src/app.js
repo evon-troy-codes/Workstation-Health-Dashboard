@@ -71,6 +71,8 @@ async function handleRequest(request, deps) {
     return json(200, organization ? { ok: true, organization } : { ok: true, setUp: false });
   }
 
+  // The public demo is read-only: nothing enrolls, reports or changes setup.
+  if (deps.demo && path !== "/v1/health") return json(403, { ok: false, error: "demo" });
   if (path.startsWith("/v1/admin/")) return handleAdmin(request, deps, path);
   if (path !== "/v1/enroll" && path !== "/v1/reports") return json(404, { ok: false, error: "not-found" });
   if (request.method !== "POST") return json(405, { ok: false, error: "method-not-allowed" });

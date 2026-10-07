@@ -43,14 +43,17 @@ const ago = (date, now) => {
   return `${Math.round(s / 86400)} days ago`;
 };
 
-function page(title, body, { org = null, signedIn = false } = {}) {
+const DEMO_BANNER = `<div class="demo">This is a demo with made-up computers: look around freely, nothing can be changed.
+It's <a href="https://github.com/evon-troy-codes/Workstation-Health-Dashboard">Workstation Scanner for Teams</a>, open source; a company runs its own copy on Cloudflare or Docker.</div>`;
+
+function page(title, body, { org = null, signedIn = false, demo = false } = {}) {
   return `<!DOCTYPE html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>${esc(title)} · Workstation Scanner for Teams</title><link rel="stylesheet" href="/assets/dashboard.css"></head>
 <body><header class="top"><a class="brand" href="/">Workstation Scanner <span>for Teams</span></a>
 ${org ? `<span class="org">${esc(org)}</span>` : ""}
-${signedIn ? `<nav><a href="/">Computers</a><a href="/settings">Settings</a><form method="post" action="/logout"><button class="link">Sign out</button></form></nav>` : ""}
-</header><main>${body}</main></body></html>`;
+${demo ? `<nav><a href="/">Computers</a></nav>` : signedIn ? `<nav><a href="/">Computers</a><a href="/settings">Settings</a><form method="post" action="/logout"><button class="link">Sign out</button></form></nav>` : ""}
+</header>${demo ? DEMO_BANNER : ""}<main>${body}</main></body></html>`;
 }
 
 // ---- pages -----------------------------------------------------------------
@@ -97,7 +100,7 @@ ${check("updates", "Pending updates")}${check("firewall", "Firewall not active")
 <button>Filter</button> <a href="/">Clear</a></form>`;
 }
 
-function listPage(org, rows, f, total, latest, now, query) {
+function listPage(org, rows, f, total, latest, now, query, demo = false) {
   const sortLink = (key, label) => {
     const p = new URLSearchParams(query);
     const dir = f.sort === key && f.dir === "asc" ? "desc" : "asc";
@@ -122,7 +125,7 @@ ${total === 0 ? `<p class="empty">No computers yet. Put the enrollment key in th
 <table><thead><tr><th>${sortLink("name", "Computer")}</th><th>User</th><th>OS</th><th>${sortLink("lastSeen", "Last report")}</th>
 <th>${sortLink("updates", "Updates")}</th><th>Firewall</th><th>Antivirus</th><th>${sortLink("disk", "Disk")}</th><th>${sortLink("app", "App")}</th></tr></thead>
 <tbody>${body || `<tr><td colspan="9" class="empty">No computers match.</td></tr>`}</tbody></table>
-<p><a href="/export.csv?${esc(csv.toString())}">Download this list as CSV</a></p>`}`, { org, signedIn: true });
+<p><a href="/export.csv?${esc(csv.toString())}">Download this list as CSV</a></p>`}`, { org, signedIn: true, demo });
 }
 
 // The latest report's sections, as name: value rows. Every value escaped.
@@ -145,7 +148,7 @@ function reportRows(report) {
   ];
 }
 
-function devicePage(org, device, history, now) {
+function devicePage(org, device, history, now, demo = false) {
   const latest = history[0] ? safeJson(history[0].body) : null;
   const sections = latest ? reportRows(latest).map(([title, rows]) => `<section class="card"><h2>${esc(title)}</h2><dl>${rows.map(([k, v]) =>
     `<dt>${esc(k)}</dt><dd>${esc(v)}</dd>`).join("")}</dl></section>`).join("") : `<p class="empty">This computer hasn't reported yet.</p>`;
@@ -163,7 +166,7 @@ function devicePage(org, device, history, now) {
 <p class="muted">Last report ${esc(ago(device.last_seen ? new Date(device.last_seen) : null, now))} · enrolled ${esc(device.enrolled_at.slice(0, 10))} · device ID ${esc(device.id)}</p>
 <div class="cards">${sections}</div>
 <h2>History</h2>${hist ? `<table><thead><tr><th>Received</th><th>Updates</th><th>Disk</th><th>Download</th><th>App</th></tr></thead><tbody>${hist}</tbody></table>` : `<p class="empty">No reports yet.</p>`}
-<h2>Remove</h2>${action}`, { org, signedIn: true });
+${demo ? "" : `<h2>Remove</h2>${action}`}`, { org, signedIn: true, demo });
 }
 
 function settingsPage(org, origin) {
@@ -228,6 +231,7 @@ async function handleDashboard(request, deps) {
   if (path === "/assets/dashboard.css" && method === "GET") {
     return new Response(CSS, { headers: { "Content-Type": "text/css; charset=utf-8", "Cache-Control": "public, max-age=3600", "X-Content-Type-Options": "nosniff" } });
   }
+  if (deps.demo) return handleDemo(request, deps, url, now);
   if (!adminToken) {
     return html(404, page("Dashboard off", `<section class="narrow"><h1>The dashboard is off</h1><p>Set ADMIN_TOKEN on this server to turn it on.</p></section>`));
   }
@@ -296,6 +300,34 @@ async function handleDashboard(request, deps) {
   return html(404, page("Not found", `<p>Not found. <a href="/">All computers</a></p>`, { org, signedIn: true }));
 }
 
+// The public demo (DEMO=1): the list, a computer's page and the CSV, with no
+// sign-in; anything else, and every POST, is refused or sent to the list.
+async function handleDemo(request, deps, url, now) {
+  const { store } = deps;
+  const path = url.pathname;
+  if (request.method !== "GET") return html(403, page("Demo", `<section class="narrow"><h1>This is a demo</h1><p>Nothing can be changed here. <a href="/">Back to the computers</a></p></section>`, { demo: true }));
+  const org = await store.organization();
+  const all = async () => (await store.listDevices()).map((row) => summarize(row, now));
+  if (path === "/") {
+    const f = parseFilters(url.searchParams);
+    const everything = await all();
+    const { rows, latestVersion } = applyFilters(everything, f);
+    return html(200, listPage(org, rows, f, everything.length, latestVersion, now, url.searchParams, true));
+  }
+  if (path === "/export.csv") {
+    const { rows } = applyFilters(await all(), parseFilters(url.searchParams));
+    return new Response(toCsv(rows), { headers: { "Content-Type": "text/csv; charset=utf-8",
+      "Content-Disposition": `attachment; filename="demo-computers-${now.toISOString().slice(0, 10)}.csv"`, ...SECURITY_HEADERS } });
+  }
+  const m = /^\/computers\/([A-Za-z0-9-]{8,80})$/.exec(path);
+  if (m) {
+    const device = await store.device(m[1]);
+    if (!device) return html(404, page("Not found", `<p>No such computer. <a href="/">All computers</a></p>`, { org, demo: true }));
+    return html(200, devicePage(org, device, await store.history(m[1]), now, true));
+  }
+  return redirect("/");
+}
+
 const CSS = `:root{--bg:#12161c;--card:#1b2129;--line:#2a323d;--text:#e6e9ee;--muted:#8b95a3;--accent:#7d6bee;--ok:#5ec98f;--warn:#f0b44c;--bad:#ef6b6b}
 *{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--text);font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif}
 a{color:#b3a8ff}main{padding:20px 24px;max-width:1300px;margin:0 auto}
@@ -316,6 +348,7 @@ tr.removed td{opacity:.55}.ok{color:var(--ok)}.warn{color:var(--warn)}.muted{col
 .cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px}.card{background:var(--card);border:1px solid var(--line);border-radius:8px;padding:12px 16px}
 .card h2{margin:0 0 8px}dl{display:grid;grid-template-columns:max-content 1fr;gap:4px 16px;margin:0}dt{color:var(--muted)}dd{margin:0;word-break:break-word}
 pre{background:var(--card);border:1px solid var(--line);border-radius:6px;padding:12px;overflow:auto}pre.key{font-size:16px;color:var(--warn)}code{color:#cfc8ff}
+.demo{background:#2a2350;border-bottom:1px solid var(--accent);padding:10px 24px;font-size:14px}
 @media (max-width:800px){main{padding:16px}table{display:block;overflow-x:auto}}`;
 
-export { handleDashboard, esc, sameOrigin, publicOrigin, reportRows, CSS };
+export { handleDemo, handleDashboard, esc, sameOrigin, publicOrigin, reportRows, CSS };

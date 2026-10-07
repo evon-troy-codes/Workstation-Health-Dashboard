@@ -1,0 +1,21 @@
+# The public demo of Workstation Scanner for Teams: made-up computers,
+# read-only, no sign-in. Not for a company's own use (that's wrangler.toml).
+#   npx wrangler d1 create workstation-scanner-teams-demo   (then paste its id below)
+#   npx wrangler deploy -c wrangler.demo.toml
+name = "workstation-scanner-teams-demo"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
+
+[vars]
+DEMO = "1"
+
+[[d1_databases]]
+binding = "DB"
+database_name = "workstation-scanner-teams-demo"
+database_id = "REPLACE_WITH_THE_DEMO_D1_DATABASE_ID"
+
+# Rebuild the made-up computers daily, so "last report" stays current.
+[triggers]
+crons = ["5 0 * * *"]
