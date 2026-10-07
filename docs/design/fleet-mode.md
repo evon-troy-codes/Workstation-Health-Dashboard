@@ -30,7 +30,7 @@ only companies install, either on Cloudflare or as a Docker container.
 12. [Deployment and the public demo](#deployment-and-the-public-demo)
 13. [Phases](#phases)
 14. [Testing](#testing)
-15. [Open questions](#open-questions)
+15. [Decisions](#decisions)
 
 ## Goals and non-goals
 
