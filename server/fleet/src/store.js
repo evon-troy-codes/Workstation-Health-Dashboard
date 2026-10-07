@@ -77,6 +77,18 @@ function createStore(sql) {
       return sql.first("SELECT id, name, revoked FROM devices WHERE token_hash = ?", [await sha256(token)]);
     },
 
+    // Deletes reports older than the retention period, always keeping each
+    // computer's latest. → how many were deleted.
+    async prune(now) {
+      const days = Number(await setting("retention_days")) || DEFAULT_RETENTION_DAYS;
+      const cutoff = new Date(now.getTime() - days * 86400000).toISOString();
+      const before = await sql.first("SELECT COUNT(*) AS n FROM reports");
+      await sql.run(`DELETE FROM reports WHERE received_at < ? AND id NOT IN
+        (SELECT MAX(id) FROM reports GROUP BY device_id)`, [cutoff]);
+      const after = await sql.first("SELECT COUNT(*) AS n FROM reports");
+      return before.n - after.n;
+    },
+
     // Keeps a report, and updates the computer's name, version and last seen.
     async addReport({ deviceId, schema, appVersion, name, body, now }) {
       const at = now.toISOString();

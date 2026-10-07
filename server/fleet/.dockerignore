@@ -1,0 +1,4 @@
+*
+!package.json
+!src/
+src/*.test.js
