@@ -3,11 +3,13 @@
 // Bindings (wrangler.toml): DB (D1), RATE_LIMITER (Workers rate limiting,
 // optional). Secret: ADMIN_TOKEN (`npx wrangler secret put ADMIN_TOKEN`), for
 // the admin routes; without it they're off. A daily cron trigger prunes old
-// reports.
+// reports. With DEMO = "1" (wrangler.demo.toml) it's the public demo instead:
+// made-up computers, refreshed daily, read-only, no sign-in (demo.js).
 
 import { handleRequest } from "./app.js";
 import { createStore } from "./store.js";
 import { d1Sql } from "./sql.js";
+import { ensureDemo, seedDemo } from "./demo.js";
 
 // The tables are created on the first request each Worker instance serves,
 // once per database binding; every statement is safe to repeat.
@@ -29,11 +31,16 @@ const rateLimiter = (env) => async (key) => {
   return success;
 };
 
+const isDemo = (env) => env.DEMO === "1";
+
 export default {
   async fetch(request, env) {
     try {
+      const store = await storeFor(env);
+      if (isDemo(env)) await ensureDemo(d1Sql(env.DB), store, new Date());
       return await handleRequest(request, {
-        store: await storeFor(env),
+        store,
+        demo: isDemo(env),
         rateLimit: rateLimiter(env),
         ip: request.headers.get("CF-Connecting-IP") || "unknown",
         adminToken: env.ADMIN_TOKEN || "",
@@ -49,7 +56,9 @@ export default {
   },
 
   async scheduled(_event, env) {
-    await (await storeFor(env)).prune(new Date());
+    const store = await storeFor(env);
+    if (isDemo(env)) await seedDemo(d1Sql(env.DB), store, new Date());
+    else await store.prune(new Date());
   },
 };
 
