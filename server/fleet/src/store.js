@@ -77,6 +77,33 @@ function createStore(sql) {
       return sql.first("SELECT id, name, revoked FROM devices WHERE token_hash = ?", [await sha256(token)]);
     },
 
+    // Every computer with its latest report (body is null until it reports),
+    // for the dashboard's list.
+    async listDevices() {
+      return sql.all(`SELECT d.id, d.name, d.grp, d.app_version, d.enrolled_at, d.last_seen, d.revoked,
+          r.body, r.received_at AS report_at
+        FROM devices d
+        LEFT JOIN reports r ON r.id = (SELECT MAX(id) FROM reports WHERE device_id = d.id)
+        ORDER BY d.name COLLATE NOCASE, d.id`);
+    },
+
+    async device(id) {
+      return sql.first("SELECT id, name, grp, app_version, enrolled_at, last_seen, revoked FROM devices WHERE id = ?", [id]);
+    },
+
+    // A computer's reports, newest first.
+    async history(id, limit = 30) {
+      return sql.all("SELECT received_at, app_version, body FROM reports WHERE device_id = ? ORDER BY id DESC LIMIT ?", [id, limit]);
+    },
+
+    // Removes a computer from reporting (its token stops working), or lets it
+    // back in. → whether the computer exists.
+    async setRevoked(id, revoked) {
+      if (!(await sql.first("SELECT id FROM devices WHERE id = ?", [id]))) return false;
+      await sql.run("UPDATE devices SET revoked = ? WHERE id = ?", [revoked ? 1 : 0, id]);
+      return true;
+    },
+
     // Deletes reports older than the retention period, always keeping each
     // computer's latest. → how many were deleted.
     async prune(now) {
