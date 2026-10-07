@@ -19,6 +19,7 @@ const { selfTestResult, RENDERED_CHECK } = require("./app/main/selftest");
 const { attachZoom } = require("./app/main/zoom");
 const { reportText, reportHtml, reportFileName, mailtoLink } = require("./app/main/share");
 const { fromApp } = require("./app/main/ipc-guard");
+const { parseCliArgs, buildEnvelope } = require("./app/main/fleet");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -112,10 +113,39 @@ function createWindow() {
   return win;
 }
 
+// `--report-json[=<path>]`: one scan, as JSON, with no window, for IT's
+// device-management and RMM tools (docs/design/fleet-mode.md, phase 1). It
+// skips the single-instance lock, so it runs while the app is open too.
+// Exits 0 on success, 1 if the scan or the write fails, 2 for a bad flag.
+async function runReportJson(out) {
+  try {
+    const [facts, deferred] = await Promise.all([collectFacts(), detectDeferred()]);
+    const envelope = buildEnvelope(buildReport(facts, deferred, {}), { appVersion: app.getVersion(), trigger: "cli" });
+    const json = `${JSON.stringify(envelope, null, 2)}\n`;
+    if (out) {
+      fs.writeFileSync(out, json);
+      app.exit(0);
+    } else {
+      process.stdout.write(json, () => app.exit(0));
+    }
+  } catch (err) {
+    process.stderr.write(`workstation-scanner: --report-json failed: ${err && err.message ? err.message : err}\n`);
+    app.exit(1);
+  }
+}
+
+const cli = parseCliArgs(process.argv);
+
 // A second launch should surface the window that already exists rather than
 // starting a duplicate scan.
-const gotLock = app.requestSingleInstanceLock();
-if (!gotLock) {
+const gotLock = cli.reportJson || cli.error ? true : app.requestSingleInstanceLock();
+if (cli.error) {
+  process.stderr.write(`workstation-scanner: ${cli.error}\n`);
+  app.exit(2);
+} else if (cli.reportJson) {
+  if (app.dock) app.dock.hide(); // no Dock icon on macOS for a scan with no window
+  app.whenReady().then(() => runReportJson(cli.out));
+} else if (!gotLock) {
   app.quit();
 } else {
   app.on("second-instance", () => {

@@ -156,6 +156,15 @@ month, of which one caller gets at most 3 a day), `unsupported-media-type`
 back to the budget. The answer is labelled as an AI assessment; the cards stay
 the source of truth.
 
+## Command-line report (`--report-json`)
+
+`--report-json[=<file>]` runs one scan with no window and writes
+`{ schema, appVersion, sentAt, trigger, report }` (`app/main/fleet.js`):
+`schema` is 1, `trigger` is `"cli"`, and `report` is `buildReport`'s output
+with no speed test (the `bandwidth` numbers are `null`). It skips the
+single-instance lock, so it runs while the app is open. A fleet server
+(docs/design/fleet-mode.md) will receive the same envelope.
+
 ## Report format changes
 
 Anyone reading the reports should key on `appVersion`, which every report

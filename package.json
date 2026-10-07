@@ -65,6 +65,7 @@
       "app/main/zoom.js",
       "app/main/share.js",
       "app/main/ipc-guard.js",
+      "app/main/fleet.js",
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",

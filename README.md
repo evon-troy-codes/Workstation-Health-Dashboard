@@ -155,6 +155,30 @@ its effort are Worker settings (`AI_MODEL`, `AI_EFFORT` in `wrangler.toml`).
 
 ---
 
+## For IT teams: command-line report
+
+The installed app can scan once without opening a window and write the
+result as JSON, so device-management and RMM tools (Intune, Jamf, NinjaOne
+and others) can collect it from every computer:
+
+| System | Command |
+| --- | --- |
+| Windows | `& "$env:LOCALAPPDATA\Programs\workstation-scanner\Workstation Scanner.exe" --report-json=C:\IT\scan.json` |
+| macOS | `"/Applications/Workstation Scanner.app/Contents/MacOS/Workstation Scanner" --report-json=/tmp/scan.json` |
+| Linux (.deb) | `workstation-scanner --report-json=/tmp/scan.json` |
+
+`--report-json` without `=<file>` prints to standard output instead (on
+Windows, only when redirected to a file). It exits 0 on success, 1 if the
+scan or the write fails, and 2 for a bad option, and it works while the app
+is open. No speed test runs. The report holds the same readings as a shared
+report, including the computer name, user name and IP address, but not the
+MAC address or Wi-Fi name; its format is in
+[`app/INTEGRATION.md`](app/INTEGRATION.md).
+
+This is the first part of **Workstation Scanner for Teams**, a dashboard of
+every computer's readings that a company runs in its own Cloudflare account
+or Docker; see [the design](docs/design/fleet-mode.md).
+
 ## Running from source
 
 ```bash
