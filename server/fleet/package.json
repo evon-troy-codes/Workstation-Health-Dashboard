@@ -1,0 +1,6 @@
+{
+  "name": "workstation-scanner-teams",
+  "private": true,
+  "description": "Workstation Scanner for Teams: the fleet server computers report to (Cloudflare Worker or Docker).",
+  "type": "module"
+}
