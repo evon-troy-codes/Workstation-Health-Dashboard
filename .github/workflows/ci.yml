@@ -184,6 +184,8 @@ jobs:
             echo "::error::the installed app wasn't running 5 s after its self-test"
             exit 1
           fi
+          # One command-line scan, as IT's tools would run it.
+          xvfb-run --auto-servernum node tools/check-report-json.js workstation-scanner "$RUNNER_TEMP/report.json"
           if grep -q "FATAL" running.log; then
             echo "::error::the installed app logged a FATAL error"
             exit 1
@@ -230,6 +232,9 @@ jobs:
           $ok = $LASTEXITCODE
           Get-Process -Name 'Workstation Scanner' -ErrorAction SilentlyContinue | Stop-Process -Force
           if ($ok -ne 0) { exit $ok }
+          # One command-line scan, as IT's tools would run it.
+          node tools/check-report-json.js $exe (Join-Path $env:RUNNER_TEMP 'report.json')
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
           # The uninstaller copies itself to a temp folder and returns at once,
           # so wait for the app to go.
           $quiet = if ($entry.QuietUninstallString) { $entry.QuietUninstallString } else { "$($entry.UninstallString) /S" }
@@ -262,7 +267,9 @@ jobs:
           set -e
           kill "$pid" 2>/dev/null || true
           cat app.log
-          exit $ok
+          if [ "$ok" -ne 0 ]; then exit "$ok"; fi
+          # One command-line scan, as IT's tools would run it.
+          node tools/check-report-json.js "$app/Contents/MacOS/Workstation Scanner" "$RUNNER_TEMP/report.json"
 
       - name: Keep the installer
         if: github.event_name != 'pull_request'
