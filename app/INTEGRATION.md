@@ -161,6 +161,21 @@ the source of truth.
 Anyone reading the reports should key on `appVersion`, which every report
 carries.
 
+**1.4.1**
+
+No new fields. Two readings change on Fedora (and other dnf systems whose
+updates are checked through GNOME Software):
+
+- `os.pendingUpdates` and `os.lastUpdateCheck` come from PackageKit's cache
+  (`pkcon -c -1 get-updates`) when dnf has no cache of its own, instead of
+  being `null` / "Unknown".
+- `os.appUpdates.flatpak` counts updates only from the remotes something is
+  installed from, so it is `0` rather than `null` on a system with Flatpak
+  but no Flatpak apps (Fedora Workstation's default).
+
+Explain answers are also re-shaped in the app (at most five findings of a
+known severity, with capped strings), whatever the server returns.
+
 **1.4.0**
 
 - New `firewall`: `{ checked, products: [{ name, active, detail }] }`,
