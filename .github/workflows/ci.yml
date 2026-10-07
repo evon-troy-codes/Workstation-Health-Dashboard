@@ -138,6 +138,14 @@ jobs:
           # unauthenticated requests share the runner's rate limit.
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      # The installers are unsigned, so publish their SHA-256 checksums next
+      # to them, named as a GitHub release names them (tools/checksums.js).
+      # bash on every OS: PowerShell's > can change the file's encoding.
+      - name: Checksums
+        if: github.event_name != 'pull_request'
+        shell: bash
+        run: node tools/checksums.js dist > "dist/SHA256SUMS-${{ runner.os }}.txt" && cat "dist/SHA256SUMS-${{ runner.os }}.txt"
+
       # The .deb as a user on Ubuntu 24.04 gets it: restriction on, installed
       # with apt, launched from /usr/bin. Its install script's AppArmor profile
       # is the only thing that lets the sandbox start, so an app that renders,
@@ -266,5 +274,6 @@ jobs:
             dist/*.dmg
             dist/*.AppImage
             dist/*.deb
+            dist/SHA256SUMS-*.txt
           if-no-files-found: error
           retention-days: 14
