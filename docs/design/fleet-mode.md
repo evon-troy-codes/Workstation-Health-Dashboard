@@ -1,14 +1,18 @@
-# Fleet mode: design
+# Workstation Scanner for Teams: design
 
-**Status:** proposal, not built. **Last updated:** 2026-10-07.
+**Status:** agreed 2026-10-07; phase 1 in progress. **Last updated:** 2026-10-07.
 
-Fleet mode lets a company's IT team see every enrolled computer's latest
+Workstation Scanner for Teams ("fleet mode" in the code) lets a company's IT team see every enrolled computer's latest
 Workstation Scanner reading in one web dashboard. Each company runs its own
 copy of the dashboard in its own Cloudflare account, so no computer's data
 passes through anyone else's servers.
 
-Without fleet mode, nothing changes: the app sends nothing unless the person
-using it shares a report or asks for an AI explanation.
+There is **one app**: the same installer from the same Releases page, for
+individuals and companies. A computer becomes part of a team only when IT
+installs a `managed.json` file on it. Without that file, nothing changes: the
+app sends nothing unless the person using it shares a report or asks for an
+AI explanation. The only separate piece is the server and dashboard, which
+only companies install, either on Cloudflare or as a Docker container.
 
 ## Contents
 
@@ -37,8 +41,8 @@ using it shares a report or asks for an AI explanation.
   network, speed test, and when it last reported.
 - They can filter the list by what needs attention, for example "pending
   updates", "firewall not active", or "disk over 90% full".
-- A company deploys it to its own Cloudflare account in a few minutes, and
-  its data stays there.
+- A company deploys it to its own Cloudflare account, or runs it as a Docker
+  container on its own server, in a few minutes, and its data stays there.
 - The person using a managed computer can always see that it is managed and
   what is sent.
 - The consumer app keeps working exactly as it does today.
@@ -105,6 +109,8 @@ without IT.
   "fleetUrl": "https://fleet.acme.example/",
   "enrollmentKey": "ek_2f9c…",
   "scanEveryHours": 6,
+  "speedTest": "open",
+  "explain": true,
   "include": { "macAddress": false, "wifiName": false }
 }
 ```
@@ -115,6 +121,13 @@ without IT.
 - `enrollmentKey` is shared by every computer in the company; see
   [enrollment](#enrollment-and-authentication).
 - `scanEveryHours` applies once background scanning exists (phase 4).
+- `speedTest` is `"open"` (the default: a speed test runs when someone
+  opens the app, never in the background) or `"daily"` (also once a day in
+  the background). Each run uses up to 350 MB, so `"daily"` can reach about
+  10 GB a month per computer.
+- `explain` shows or hides the "Explain my results" button (default `true`,
+  as in the consumer app). Some companies won't want scans sent to an AI
+  service, even with identifying details removed.
 - `include` switches on identifiers that ordinary shared reports leave out.
   Both are off unless IT turns them on.
 
@@ -161,7 +174,7 @@ plus a small envelope:
 - The MAC address and Wi-Fi network name stay out unless `include` turns them
   on, as in shared reports today.
 - The speed test numbers are included when one has run. A scheduled scan in
-  the background does not run a speed test, since that can use up to 350 MB.
+  the background runs one only when `speedTest` is `"daily"`.
 
 ## Enrollment and authentication
 
@@ -182,6 +195,11 @@ touching the others.
 5. **Rotate the enrollment key** in the dashboard. Already enrolled computers
    keep working; new ones need the new key in their `managed.json`.
 
+There is one enrollment key per company to start with. The `devices` table
+has a `group` column, so per-group keys ("Sales", "London office") can be
+added later, letting the dashboard filter by group, without changing
+anything on the computers.
+
 The enrollment key alone can't read anything. At worst, someone who has it
 can add fake computers, which shows up as unknown names in the dashboard and
 is fixed by rotating the key.
@@ -195,7 +213,7 @@ A Cloudflare Worker in its own folder, `server/fleet/`, deployed with
 
 | Table | Holds |
 | --- | --- |
-| `devices` | device ID, token hash, computer name, first and last seen, revoked |
+| `devices` | device ID, token hash, computer name, group (empty for now), first and last seen, revoked |
 | `reports` | device ID, received at, schema, app version, report JSON |
 | `settings` | enrollment key hash, organization name, retention days |
 
@@ -218,6 +236,20 @@ key.
 
 **Retention:** reports older than `retentionDays` (default 90) are deleted by
 a daily scheduled Worker run. The latest report per device is always kept.
+
+### Two ways to run it
+
+The server's code is written once, against a small storage interface, and
+packaged two ways:
+
+| | Cloudflare | Docker |
+| --- | --- | --- |
+| Runs on | a Cloudflare Worker | a Node 24 container on the company's server |
+| Database | D1 | SQLite in a mounted volume (Node's built-in `node:sqlite`) |
+| Sign-in | Cloudflare Access | the company's reverse proxy or SSO gateway in front (e.g. oauth2-proxy), as the README will describe |
+| Deploy | "Deploy to Cloudflare" button | `docker compose up -d` |
+
+Both run the same tests. The routes, checks and dashboard are identical.
 
 ## The dashboard
 
@@ -307,7 +339,10 @@ notice to staff; the README for fleet mode will say so.
 
 ## Deployment and the public demo
 
-**For companies:** a "Deploy to Cloudflare" button in `server/fleet/README.md`
+**On Docker:** `docker compose up -d` with a published image and a volume
+for the database, behind the company's own HTTPS and sign-in.
+
+**On Cloudflare:** a "Deploy to Cloudflare" button in `server/fleet/README.md`
 creates the Worker and D1 database in the company's own account. Then:
 
 1. Turn on Cloudflare Access for the dashboard's address.
@@ -327,7 +362,7 @@ post links to.
 | --- | --- | --- |
 | 1 | `--report-json` | RMM and device-management tools can collect scans straight away |
 | 2 | Managed mode in the app: `managed.json`, the notice, enrollment, sending on launch and Re-scan | Companies can start collecting scans |
-| 3 | Fleet server and dashboard, Cloudflare Access, the public demo | The full story, and the showcase |
+| 3 | Fleet server and dashboard (Cloudflare and Docker), the public demo | The full story, and the showcase |
 | 4 | Background scanning, tray icon, start at login | Keeps the dashboard current without anyone opening the app |
 | 5 | Optional: email or webhook alerts for chosen filters | IT hears about problems instead of checking |
 
@@ -348,17 +383,17 @@ Following the repo's conventions (`CLAUDE.md`):
 - **The VMs:** a `managed.json` placed in each of the Windows, Ubuntu and
   Fedora VMs, reporting to a test deployment.
 
-## Open questions
+## Decisions
 
-1. **Hosting for companies that won't use Cloudflare.** The Worker could be
-   packaged as a small Node server and a Docker image later. Is that worth it
-   before anyone asks?
-2. **One enrollment key or several?** Per-department keys would let the
-   dashboard group computers. Start with one?
-3. **Speed tests in managed mode.** Never in the background, as above, or
-   once a day at a quiet time? It uses up to 350 MB each run.
-4. **The Explain button on managed computers.** Keep it as is, hide it, or
-   let `managed.json` decide? Some companies won't want scans going to an AI
-   service.
-5. **Name.** "Fleet mode", "Workstation Scanner for Teams", or something
-   else for the showcase?
+Agreed 2026-10-07:
+
+1. **A Docker version** of the server for companies that don't use
+   Cloudflare, alongside the Cloudflare one.
+2. **One enrollment key per company** to start, with room for per-group keys
+   later.
+3. **Speed tests:** IT's choice in `managed.json` (`speedTest`), defaulting
+   to only when someone opens the app.
+4. **The Explain button:** IT's choice in `managed.json` (`explain`).
+5. **The name:** Workstation Scanner for Teams.
+6. **One app** for individuals and companies; managed mode comes from
+   `managed.json`.
