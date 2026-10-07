@@ -13,10 +13,11 @@
 //
 // The same handler runs in the Cloudflare Worker and in the Docker server;
 // each passes in its own store (store.js over D1 or node:sqlite) and rate
-// limiter. The dashboard's routes come in a later step.
+// limiter. Every path outside /v1/ is the IT dashboard (dashboard.js).
 
 import { json, readJsonObject, bearer } from "./http.js";
 import { sha256 } from "./crypto.js";
+import { handleDashboard } from "./dashboard.js";
 
 const SCHEMA = 1; // the report envelope version this server reads (app/main/fleet.js)
 const DEVICE_ID = /^[A-Za-z0-9-]{8,64}$/; // the app sends a random UUID
@@ -62,6 +63,7 @@ async function handleRequest(request, deps) {
   const now = deps.now ? deps.now() : new Date();
   const allow = deps.rateLimit || (async () => true);
   const path = new URL(request.url).pathname;
+  if (!path.startsWith("/v1/")) return handleDashboard(request, deps);
 
   if (path === "/v1/health") {
     if (request.method !== "GET") return json(405, { ok: false, error: "method-not-allowed" });

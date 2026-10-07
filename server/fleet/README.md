@@ -4,9 +4,9 @@ The server a company's computers report to, so its IT team can see every
 computer's readings in one dashboard. The design, and why it works this way,
 is in [docs/design/fleet-mode.md](../../docs/design/fleet-mode.md).
 
-**Status:** in progress. The server runs on Cloudflare or in Docker, and
-computers can enroll and report. The dashboard comes next, and until then
-setup is done with the admin routes below.
+**Status:** in progress. The server runs on Cloudflare or in Docker,
+computers can enroll and report, and IT sees them in the dashboard. The app
+side (managed mode) comes next.
 
 ## What's here
 
@@ -18,6 +18,9 @@ setup is done with the admin routes below.
 | `src/schema.js` | The tables (`settings`, `devices`, `reports`) |
 | `src/http.js` | JSON-only bodies, the size cap, bearer tokens |
 | `src/crypto.js` | Random keys and tokens, SHA-256 |
+| `src/dashboard.js` | The IT dashboard: sign-in, setup, the computers list, a page per computer, settings |
+| `src/summary.js` | A report as the list's columns, its filters, and the CSV export |
+| `src/session.js` | The dashboard's signed session cookie |
 | `src/worker.js` | The Cloudflare Worker's entry: D1, the rate limiter binding, the daily cron |
 | `src/node-server.js` | The plain Node server, for Docker: SQLite file, in-memory rate limits |
 | `wrangler.toml` | The Cloudflare configuration |
@@ -75,8 +78,11 @@ From this folder:
 
 ### Setting it up
 
-Once it's running, set your organization's name and get the enrollment key
-(replace the address and token):
+Open the server's address in a browser, sign in with the admin token, and
+name your organization. The dashboard shows the enrollment key once, with a
+ready-made `managed.json` for your device-management tool.
+
+Or, from a script (replace the address and token):
 
 ```
 curl -X POST https://teams.example.com/v1/admin/setup \
@@ -91,6 +97,32 @@ header.
 
 Reports older than 90 days are deleted daily; each computer's latest is
 always kept.
+
+## The dashboard
+
+Every page needs signing in with the admin token, so the data is never
+public even if nothing is in front of the server. A session lasts 12 hours,
+in a cookie that scripts can't read, that is only sent over HTTPS (or to
+localhost), and never on a request from another site. Changing ADMIN_TOKEN
+signs everyone out. For your staff's own sign-in on top, put **Cloudflare
+Access** in front (Cloudflare) or an SSO proxy such as **oauth2-proxy**
+(Docker).
+
+- **Computers:** one row per computer with its user, OS, last report,
+  pending updates (including snap and Flatpak), firewall, antivirus, disk
+  and app version. Search, sort, and filter by pending updates, firewall or
+  antivirus not active, disk over a percentage, silent for some days, or an
+  older app version. Unknown readings show under those filters too, since
+  they can't be confirmed. **Download this list as CSV** exports what's on
+  screen.
+- **A computer:** its latest readings, its recent history, and **Remove**,
+  which stops its token working (its history stays), or **Restore**.
+- **Settings:** where `managed.json` goes on each OS, and a new enrollment
+  key when the old one is lost or leaked.
+
+The pages have no JavaScript: their Content Security Policy allows no
+scripts at all. Every value from a report is escaped, and the CSV export
+defuses anything a spreadsheet would run as a formula.
 
 ## Tests
 

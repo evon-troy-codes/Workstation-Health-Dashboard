@@ -253,9 +253,13 @@ Both run the same tests. The routes, checks and dashboard are identical.
 
 ## The dashboard
 
-Served by the same Worker, behind Cloudflare Access, so IT signs in with the
-company's existing login (Microsoft, Google, Okta, or one-time email codes).
-Nothing about sign-in is built into the app.
+Served by the same server. Every page needs signing in with the company's
+admin token (a signed, HttpOnly, Secure, SameSite=Strict session cookie), so
+the data is never public even if a company forgets to put SSO in front.
+Cloudflare Access (Cloudflare) or an SSO proxy such as oauth2-proxy (Docker)
+in front adds the company's own staff login as a second layer. (Changed
+2026-10-07 from "Access only": built-in sign-in makes the safe setup the
+default.)
 
 **Computers list:** one row per computer, with name, user, OS, last report,
 pending updates, firewall, antivirus, disk used, and app version. Each column
@@ -332,7 +336,8 @@ notice to staff; the README for fleet mode will say so.
 | The enrollment key leaks | It can only enroll, not read; IT rotates it and revokes unknown devices |
 | A device token is stolen | Stored with `safeStorage` (OS keychain); revocable per device |
 | A malicious computer name or reading attacks the dashboard | Every value escaped; strict CSP; reports validated against the schema on arrival |
-| Someone outside IT opens the dashboard | Cloudflare Access in front of every dashboard route |
+| Someone outside IT opens the dashboard | Built-in sign-in with the admin token on every page, plus Cloudflare Access or an SSO proxy in front |
+| Another site posts a form as a signed-in IT person | SameSite=Strict cookie, and every form POST must carry this server's Origin |
 | Flooding the server | JSON-only, body size cap, per-device rate limit, as `/explain` does |
 | The app sends to the wrong place | `fleetUrl` only from the admin-only `managed.json`, https only, no redirects |
 | A user switches fleet mode off or on | `managed.json` lives where only an administrator can write |
