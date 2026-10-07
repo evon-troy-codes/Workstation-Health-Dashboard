@@ -6,11 +6,17 @@
 //   POST /v1/reports  Authorization: Bearer <deviceToken>,
 //                     { schema, appVersion, sentAt, trigger, report } → 202
 //
+// And, with the company's admin token (ADMIN_TOKEN), until the dashboard
+// exists:
+//   POST /v1/admin/setup       { organization } → { ok, enrollmentKey }
+//   POST /v1/admin/rotate-key  → { ok, enrollmentKey }
+//
 // The same handler runs in the Cloudflare Worker and in the Docker server;
 // each passes in its own store (store.js over D1 or node:sqlite) and rate
 // limiter. The dashboard's routes come in a later step.
 
 import { json, readJsonObject, bearer } from "./http.js";
+import { sha256 } from "./crypto.js";
 
 const SCHEMA = 1; // the report envelope version this server reads (app/main/fleet.js)
 const DEVICE_ID = /^[A-Za-z0-9-]{8,64}$/; // the app sends a random UUID
@@ -19,7 +25,38 @@ const MAX_VERSION = 32;
 
 const text = (v, max) => (typeof v === "string" && v.trim() ? v.trim().slice(0, max) : null);
 
-// deps: { store, now: () => Date, rateLimit: async (key) => boolean, ip }
+// Whether the request carries the admin token. Compared by hash, so the
+// comparison takes the same time however much of it matches. No token
+// configured means the admin routes are off.
+async function isAdmin(request, adminToken) {
+  const given = bearer(request);
+  if (!adminToken || !given) return false;
+  return (await sha256(given)) === (await sha256(adminToken));
+}
+
+async function handleAdmin(request, deps, path) {
+  if (request.method !== "POST") return json(405, { ok: false, error: "method-not-allowed" });
+  if (!deps.adminToken) return json(404, { ok: false, error: "not-found" });
+  const allow = deps.rateLimit || (async () => true);
+  if (!(await allow(`admin:${deps.ip || "unknown"}`))) return json(429, { ok: false, error: "rate-limited" });
+  if (!(await isAdmin(request, deps.adminToken))) return json(401, { ok: false, error: "not-admin" });
+  if (path === "/v1/admin/setup") {
+    const { body, error } = await readJsonObject(request);
+    if (error) return error;
+    const result = await deps.store.setUp({ organization: body.organization });
+    if (result.error) return json(result.error === "already-set-up" ? 409 : 400, { ok: false, error: result.error });
+    return json(200, { ok: true, enrollmentKey: result.enrollmentKey });
+  }
+  if (path === "/v1/admin/rotate-key") {
+    const result = await deps.store.rotateEnrollmentKey();
+    if (result.error) return json(409, { ok: false, error: result.error });
+    return json(200, { ok: true, enrollmentKey: result.enrollmentKey });
+  }
+  return json(404, { ok: false, error: "not-found" });
+}
+
+// deps: { store, now: () => Date, rateLimit: async (key) => boolean, ip,
+//         adminToken }
 async function handleRequest(request, deps) {
   const { store } = deps;
   const now = deps.now ? deps.now() : new Date();
@@ -32,6 +69,7 @@ async function handleRequest(request, deps) {
     return json(200, organization ? { ok: true, organization } : { ok: true, setUp: false });
   }
 
+  if (path.startsWith("/v1/admin/")) return handleAdmin(request, deps, path);
   if (path !== "/v1/enroll" && path !== "/v1/reports") return json(404, { ok: false, error: "not-found" });
   if (request.method !== "POST") return json(405, { ok: false, error: "method-not-allowed" });
 

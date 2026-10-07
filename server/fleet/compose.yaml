@@ -1,0 +1,22 @@
+# Workstation Scanner for Teams: `docker compose up -d`.
+#
+# Put HTTPS and your company's sign-in in front of it (a reverse proxy such
+# as Caddy, Traefik or nginx, with an SSO gateway such as oauth2-proxy for
+# the dashboard). See README.md.
+services:
+  fleet:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"   # only the reverse proxy on this host reaches it
+    environment:
+      # Enables the admin routes (setup, key rotation). Set it in a .env file
+      # next to this one, never in the file itself.
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-}
+      # "1" only when a reverse proxy you control is in front.
+      TRUST_PROXY: "1"
+    volumes:
+      - fleet-data:/data
+
+volumes:
+  fleet-data:

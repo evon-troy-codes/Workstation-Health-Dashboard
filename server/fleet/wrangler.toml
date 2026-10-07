@@ -1,0 +1,25 @@
+# Workstation Scanner for Teams on Cloudflare. See README.md for the steps:
+#   npx wrangler d1 create workstation-scanner-teams   (then paste its id below)
+#   npx wrangler secret put ADMIN_TOKEN
+#   npx wrangler deploy
+name = "workstation-scanner-teams"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "workstation-scanner-teams"
+database_id = "REPLACE_WITH_YOUR_D1_DATABASE_ID"
+
+# About 30 requests a minute per computer, or per address for enrollment and
+# admin calls.
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "2001"
+simple = { limit = 30, period = 60 }
+
+# Daily, to delete reports older than the retention period.
+[triggers]
+crons = ["17 3 * * *"]
