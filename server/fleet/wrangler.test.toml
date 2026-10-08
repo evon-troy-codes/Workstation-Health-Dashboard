@@ -1,0 +1,23 @@
+# The project's own test deployment, for checking managed mode on real
+# computers (the VMs) against real HTTPS. Not a demo and not for companies
+# (they use wrangler.toml). Its admin token is the owner's:
+#   npx wrangler secret put ADMIN_TOKEN -c wrangler.test.toml
+#   npx wrangler deploy -c wrangler.test.toml
+name = "workstation-scanner-teams-test"
+main = "src/worker.js"
+compatibility_date = "2026-09-01"
+workers_dev = true
+preview_urls = false
+
+[[d1_databases]]
+binding = "DB"
+database_name = "workstation-scanner-teams-test"
+database_id = "ea101db3-d79e-4e7d-8f3e-2ed4df8fecfa"
+
+[[ratelimits]]
+name = "RATE_LIMITER"
+namespace_id = "2002"
+simple = { limit = 30, period = 60 }
+
+[triggers]
+crons = ["17 3 * * *"]
