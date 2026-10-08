@@ -119,8 +119,25 @@ test("first-time setup from the dashboard", async () => {
   assert.equal(res.status, 200);
   const key = /<pre class="key">(ek_[A-Za-z0-9_-]+)<\/pre>/.exec(res.text)[1];
   assert.equal(await store.isEnrollmentKey(key), true);
-  // The managed.json example, escaped for HTML like everything else.
+  // The managed settings for each OS, escaped for HTML like everything else.
   assert.match(res.text, /&quot;fleetUrl&quot;: &quot;https:\/\/teams.acme.example\/&quot;/);
+  assert.ok(res.text.includes("[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\WorkstationScanner]"));
+  assert.ok(res.text.includes(`&quot;enrollmentKey&quot;=&quot;${key}&quot;`));
+  assert.ok(res.text.includes(`&lt;key&gt;enrollmentKey&lt;/key&gt;&lt;string&gt;${key}&lt;/string&gt;`));
+  assert.ok(!res.text.includes("ProgramData"));
+});
+
+test("the managed settings examples quote an awkward organization name correctly", async () => {
+  const db = new DatabaseSync(":memory:");
+  const store = createStore(nodeSql(db));
+  await store.migrate();
+  const cookie = await signIn(store);
+  const res = await page(await handleRequest(form("/setup", { organization: 'R&D "Lab" \\ <One>' }, { cookie }), deps(store)));
+  assert.equal(res.status, 200);
+  // .reg: backslash and quote escaped; plist: XML-escaped; all HTML-escaped.
+  assert.ok(res.text.includes("&quot;organization&quot;=&quot;R&amp;D \\&quot;Lab\\&quot; \\\\ &lt;One&gt;&quot;"), "reg");
+  assert.ok(res.text.includes("&lt;string&gt;R&amp;amp;D &quot;Lab&quot; \\ &amp;lt;One&amp;gt;&lt;/string&gt;"), "plist");
+  assert.ok(!res.text.includes("<One>"));
 });
 
 test("the computers list", async (t) => {

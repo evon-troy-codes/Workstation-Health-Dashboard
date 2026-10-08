@@ -73,17 +73,46 @@ function setupPage() {
 <button>Set up</button></form></section>`, { signedIn: true });
 }
 
-function managedJson(origin, key) {
-  return JSON.stringify({ version: 1, organization: "…", fleetUrl: `${origin}/`, enrollmentKey: key, scanEveryHours: 6, speedTest: "open", explain: true,
-    include: { macAddress: false, wifiName: false } }, null, 2);
+// The managed settings a computer needs, for each OS's admin-only place
+// (docs/design/fleet-mode.md, "The managed settings"), as text to copy.
+function managedSettings(org, origin, key) {
+  const v = { organization: org || "Your organization", fleetUrl: `${origin}/`, enrollmentKey: key };
+  const json = JSON.stringify({ version: 1, ...v, speedTest: "open", explain: true }, null, 2);
+  const regStr = (x) => `"${String(x).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+  const reg = ["Windows Registry Editor Version 5.00", "",
+    "[HKEY_LOCAL_MACHINE\\SOFTWARE\\Policies\\WorkstationScanner]",
+    '"version"=dword:00000001',
+    `"organization"=${regStr(v.organization)}`,
+    `"fleetUrl"=${regStr(v.fleetUrl)}`,
+    `"enrollmentKey"=${regStr(v.enrollmentKey)}`,
+    '"speedTest"="open"',
+    '"explain"=dword:00000001', ""].join("\r\n");
+  const xml = (x) => String(x).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  const plist = ["<dict>",
+    "  <key>version</key><integer>1</integer>",
+    `  <key>organization</key><string>${xml(v.organization)}</string>`,
+    `  <key>fleetUrl</key><string>${xml(v.fleetUrl)}</string>`,
+    `  <key>enrollmentKey</key><string>${xml(v.enrollmentKey)}</string>`,
+    "  <key>speedTest</key><string>open</string>",
+    "  <key>explain</key><true/>",
+    "</dict>"].join("\n");
+  return `<h3>Windows</h3>
+<p>Registry values under <code>HKLM\\SOFTWARE\\Policies\\WorkstationScanner</code>, set with Group Policy, Intune, or this <code>.reg</code> file:</p>
+<pre>${esc(reg)}</pre>
+<h3>macOS</h3>
+<p>A configuration profile from your MDM (Jamf, Intune, Kandji…), with custom settings for the preference domain <code>com.evontroy.workstation-scanner</code>, installed for the computer, not a user:</p>
+<pre>${esc(plist)}</pre>
+<h3>Linux</h3>
+<p>The file <code>/etc/workstation-scanner/managed.json</code>, owned by root and writable only by root (the app ignores it otherwise):</p>
+<pre>${esc(json)}</pre>`;
 }
 
 function keyPage(org, key, origin, heading) {
   return page(heading, `<section class="narrow"><h1>${esc(heading)}</h1>
 <p><strong>Copy this enrollment key now.</strong> It's shown only once; the server keeps only a hash of it.</p>
 <pre class="key">${esc(key)}</pre>
-<p>Put it in each computer's <code>managed.json</code>, with your device-management tool:</p>
-<pre>${esc(managedJson(origin, key).replace('"…"', JSON.stringify(org)))}</pre>
+<p>Put it in each computer's managed settings, with your device-management tool:</p>
+${managedSettings(org, origin, key)}
 <p><a class="button" href="/">Go to the computers</a></p></section>`, { org, signedIn: true });
 }
 
@@ -121,7 +150,7 @@ function listPage(org, rows, f, total, latest, now, query, demo = false) {
 <td class="${latest && r.appVersion && compareVersions(r.appVersion, latest) < 0 ? "warn" : ""}">${esc(r.appVersion || "—")}</td></tr>`).join("");
   return page("Computers", `<h1>Computers <span class="count">${rows.length} of ${total}</span></h1>
 ${filtersForm(f)}
-${total === 0 ? `<p class="empty">No computers yet. Put the enrollment key in their <code>managed.json</code>; see <a href="/settings">Settings</a>.</p>` : `
+${total === 0 ? `<p class="empty">No computers yet. Put the enrollment key in their managed settings; see <a href="/settings">Settings</a>.</p>` : `
 <table><thead><tr><th>${sortLink("name", "Computer")}</th><th>User</th><th>OS</th><th>${sortLink("lastSeen", "Last report")}</th>
 <th>${sortLink("updates", "Updates")}</th><th>Firewall</th><th>Antivirus</th><th>${sortLink("disk", "Disk")}</th><th>${sortLink("app", "App")}</th></tr></thead>
 <tbody>${body || `<tr><td colspan="9" class="empty">No computers match.</td></tr>`}</tbody></table>
@@ -172,11 +201,8 @@ ${demo ? "" : `<h2>Remove</h2>${action}`}`, { org, signedIn: true, demo });
 function settingsPage(org, origin) {
   return page("Settings", `<section class="narrow"><h1>Settings</h1>
 <h2>Enrolling computers</h2>
-<p>Each computer needs a <code>managed.json</code> holding this server's address and the enrollment key, in:</p>
-<ul><li>Windows: <code>%ProgramData%\\WorkstationScanner\\managed.json</code></li>
-<li>macOS: <code>/Library/Application Support/WorkstationScanner/managed.json</code></li>
-<li>Linux: <code>/etc/workstation-scanner/managed.json</code></li></ul>
-<pre>${esc(managedJson(origin, "ek_…").replace('"…"', JSON.stringify(org)))}</pre>
+<p>Each computer needs managed settings holding this server's address and the enrollment key, in the place its OS keeps settings only an administrator can set. Users can't change them, and the app shows each person that their computer is managed, and what is sent.</p>
+${managedSettings(org, origin, "ek_…")}
 <p>The current key was shown once, when it was made. If it's lost, or may have leaked, make a new one. Computers already enrolled keep working; new ones need the new key.</p>
 <form method="post" action="/settings/rotate-key"><button class="danger">Make a new enrollment key</button></form></section>`, { org, signedIn: true });
 }
@@ -212,7 +238,7 @@ function sameOrigin(request) {
   }
 }
 
-// The origin computers should use, for managed.json examples.
+// The origin computers should use, for the managed settings examples.
 function publicOrigin(request) {
   const url = new URL(request.url);
   const proto = request.headers.get("X-Forwarded-Proto") || url.protocol.replace(":", "");

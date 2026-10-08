@@ -79,8 +79,9 @@ From this folder:
 ### Setting it up
 
 Open the server's address in a browser, sign in with the admin token, and
-name your organization. The dashboard shows the enrollment key once, with a
-ready-made `managed.json` for your device-management tool.
+name your organization. The dashboard shows the enrollment key once, with
+the managed settings ready to copy for each OS: a `.reg` file for Windows,
+a configuration profile's settings for macOS, and a JSON file for Linux.
 
 Or, from a script (replace the address and token):
 
@@ -91,12 +92,50 @@ curl -X POST https://teams.example.com/v1/admin/setup \
 ```
 
 The answer holds the enrollment key, shown this once. It goes in each
-computer's `managed.json`. To replace it later (old computers keep working,
+computer's managed settings (below). To replace it later (old computers keep working,
 new ones need the new key): `POST /v1/admin/rotate-key` with the same
 header.
 
 Reports older than 90 days are deleted daily; each computer's latest is
 always kept.
+
+### Pointing computers at it
+
+Each computer needs managed settings, in the place its OS keeps settings
+only an administrator or your device management can set, so users can't
+switch it off or point it elsewhere:
+
+| OS | Where | Deploy with |
+| --- | --- | --- |
+| Windows | registry values under `HKLM\SOFTWARE\Policies\WorkstationScanner` | Group Policy, Intune, a `.reg` file |
+| macOS | a configuration profile, computer scope, with custom settings for the preference domain `com.evontroy.workstation-scanner` | Jamf, Intune, Kandji, any MDM |
+| Linux | `/etc/workstation-scanner/managed.json`, owned by root and writable only by root (the app ignores it otherwise) | Ansible, Puppet, a package, a script |
+
+The settings, as the Linux file:
+
+```json
+{
+  "version": 1,
+  "organization": "Acme IT",
+  "fleetUrl": "https://teams.example.com/",
+  "enrollmentKey": "ek_…",
+  "speedTest": "open",
+  "explain": true
+}
+```
+
+On Windows they are values of the same names: strings, except `version`
+and `explain`, which are DWORDs (`explain` 0 or 1). `fleetUrl` must be
+https. `explain: false` hides the app's "Explain my results" button.
+`speedTest` is `"open"`; `"daily"` is accepted, and acts as `"open"` until
+the app scans in the background.
+
+The app then shows a permanent "Managed by Acme IT" line, with a "What's
+sent" link that lists, in plain words, what goes to your server. It enrolls
+once and sends a report each time it's opened or re-scanned. Your staff
+should be told: collecting data from employees' computers needs notice in
+many places (GDPR in Europe, some US states), and that notice is yours to
+give.
 
 ## The dashboard
 
@@ -117,8 +156,8 @@ Access** in front (Cloudflare) or an SSO proxy such as **oauth2-proxy**
   screen.
 - **A computer:** its latest readings, its recent history, and **Remove**,
   which stops its token working (its history stays), or **Restore**.
-- **Settings:** where `managed.json` goes on each OS, and a new enrollment
-  key when the old one is lost or leaked.
+- **Settings:** the managed settings for each OS, and a new enrollment key
+  when the old one is lost or leaked.
 
 The pages have no JavaScript: their Content Security Policy allows no
 scripts at all. Every value from a report is escaped, and the CSV export
