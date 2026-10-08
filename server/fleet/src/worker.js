@@ -33,6 +33,11 @@ const rateLimiter = (env) => async (key) => {
 
 const isDemo = (env) => env.DEMO === "1";
 
+// Spaces and line breaks around a secret are never meant: `openssl rand |
+// wrangler secret put` stores a trailing newline nobody can type at the
+// sign-in page.
+const adminToken = (v) => (typeof v === "string" ? v.trim() : "");
+
 export default {
   async fetch(request, env) {
     try {
@@ -43,7 +48,7 @@ export default {
         demo: isDemo(env),
         rateLimit: rateLimiter(env),
         ip: request.headers.get("CF-Connecting-IP") || "unknown",
-        adminToken: env.ADMIN_TOKEN || "",
+        adminToken: adminToken(env.ADMIN_TOKEN),
       });
     } catch (err) {
       // Logged for `wrangler tail`; JSON rather than Cloudflare's error page,

@@ -103,7 +103,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
   const port = Number(process.env.PORT || 8080);
   const { server, store, close } = await createServer({
     dbPath: process.env.FLEET_DB || "/data/fleet.db",
-    adminToken: process.env.ADMIN_TOKEN || "",
+    adminToken: (process.env.ADMIN_TOKEN || "").trim(), // a stray newline is never meant
     trustProxy: process.env.TRUST_PROXY === "1",
     demo: process.env.DEMO === "1",
   });

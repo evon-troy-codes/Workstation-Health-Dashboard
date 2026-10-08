@@ -268,7 +268,9 @@ async function handleDashboard(request, deps) {
     if (!(await allow(`login:${deps.ip || "unknown"}`))) return html(429, loginPage("Too many attempts. Wait a minute and try again."));
     if (!sameOrigin(request)) return html(403, loginPage("Sign in from this page."));
     const form = await readForm(request);
-    const token = form ? form.get("token") || "" : "";
+    // Trimmed, as the stored token is: a password manager or a paste can
+    // bring a space along.
+    const token = form ? (form.get("token") || "").trim() : "";
     if (!token || (await sha256(token)) !== (await sha256(adminToken))) return html(401, loginPage("That isn't the admin token."));
     return redirect("/", { "Set-Cookie": sessionCookie(await createSession(adminToken, now)) });
   }

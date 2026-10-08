@@ -120,6 +120,22 @@ test("the Cloudflare Worker", async (t) => {
     assert.equal(logged.mock.callCount(), 1, "logged for wrangler tail");
   });
 
+  await t.test("a stray newline or space around the admin token doesn't lock IT out", async () => {
+    const env = { DB: d1Over(new DatabaseSync(":memory:")), ADMIN_TOKEN: `${ADMIN}\n` };
+    const login = (token) => worker.fetch(new Request("https://t.example/login", {
+      method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded", Origin: "https://t.example" },
+      body: new URLSearchParams({ token }) }), env);
+    for (const typed of [ADMIN, ` ${ADMIN} `]) {
+      const res = await login(typed);
+      assert.equal(res.status, 303, JSON.stringify(typed));
+      assert.match(res.headers.get("Set-Cookie"), /^wst_session=/);
+    }
+    assert.equal((await login("wrong")).status, 401);
+    assert.equal((await login(" ")).status, 401, "blank is never the token");
+    const api = await worker.fetch(post("https://t.example/v1/admin/setup", { organization: "Acme" }, { Authorization: `Bearer ${ADMIN}` }), env);
+    assert.equal(api.status, 200);
+  });
+
   await t.test("the daily cron prunes", async () => {
     const db = new DatabaseSync(":memory:");
     await worker.scheduled({}, { DB: d1Over(db) });
