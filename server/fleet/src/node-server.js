@@ -75,7 +75,7 @@ async function createServer({ dbPath = ":memory:", adminToken = "", trustProxy =
   await store.migrate();
   const server = http.createServer(async (req, res) => {
     try {
-      if (demo) await ensureDemo(sql, store, new Date());
+      if (demo) await ensureDemo(sql, new Date());
       await send(res, await handleRequest(toRequest(req), { store, rateLimit, ip: clientIp(req, trustProxy), adminToken, demo }));
     } catch (_) {
       if (!res.headersSent) res.writeHead(500, { "Content-Type": "application/json", "Cache-Control": "no-store" });

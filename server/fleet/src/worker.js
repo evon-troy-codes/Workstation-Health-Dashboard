@@ -37,7 +37,7 @@ export default {
   async fetch(request, env) {
     try {
       const store = await storeFor(env);
-      if (isDemo(env)) await ensureDemo(d1Sql(env.DB), store, new Date());
+      if (isDemo(env)) await ensureDemo(d1Sql(env.DB), new Date());
       return await handleRequest(request, {
         store,
         demo: isDemo(env),
@@ -45,9 +45,10 @@ export default {
         ip: request.headers.get("CF-Connecting-IP") || "unknown",
         adminToken: env.ADMIN_TOKEN || "",
       });
-    } catch (_) {
-      // JSON rather than Cloudflare's error page, so the app can say what
-      // happened.
+    } catch (err) {
+      // Logged for `wrangler tail`; JSON rather than Cloudflare's error page,
+      // so the app can say what happened.
+      console.error(err);
       return new Response(JSON.stringify({ ok: false, error: "server-error" }), {
         status: 500,
         headers: { "Content-Type": "application/json", "Cache-Control": "no-store" },
@@ -57,7 +58,7 @@ export default {
 
   async scheduled(_event, env) {
     const store = await storeFor(env);
-    if (isDemo(env)) await seedDemo(d1Sql(env.DB), store, new Date());
+    if (isDemo(env)) await seedDemo(d1Sql(env.DB), new Date());
     else await store.prune(new Date());
   },
 };
