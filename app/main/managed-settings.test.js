@@ -24,6 +24,13 @@ test("normalizeSettings", async (t) => {
     assert.equal(normalizeSettings({ ...GOOD, fleetUrl: "https://a.example/fleet?x=1#y" }).fleetUrl, "https://a.example/fleet/");
   });
 
+  await t.test("string values still validate, as device-management tools often produce them", () => {
+    assert.equal(normalizeSettings({ ...GOOD, version: "1" }).status, "on");
+    assert.equal(normalizeSettings({ ...GOOD, explain: "0" }).explain, false);
+    assert.equal(normalizeSettings({ ...GOOD, fleetUrl: " https://a.example/fleet?x=1#y " }).fleetUrl, "https://a.example/fleet/");
+    assert.equal(normalizeSettings({ ...GOOD, speedTest: "DAILY" }).speedTest, "daily");
+  });
+
   await t.test("refuses what can't be used, with a reason", () => {
     const reason = (raw) => normalizeSettings(raw).reason;
     assert.equal(reason("text"), "not-an-object");

@@ -6,7 +6,9 @@ is in [docs/design/fleet-mode.md](../../docs/design/fleet-mode.md).
 
 **Status:** in progress. The server runs on Cloudflare or in Docker,
 computers can enroll and report, and IT sees them in the dashboard. The app
-side (managed mode) comes next.
+supports managed mode, with automated validation covering the config parser
+and fleet enrollment flow; live VM validation against a private test
+deployment remains.
 
 ## What's here
 

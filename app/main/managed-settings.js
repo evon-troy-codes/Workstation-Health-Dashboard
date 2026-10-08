@@ -40,11 +40,14 @@ const MAX_ORGANIZATION = 100;
 function normalizeSettings(raw) {
   if (raw == null) return { status: "off" };
   if (typeof raw !== "object" || Array.isArray(raw)) return { status: "invalid", reason: "not-an-object" };
-  if (raw.version != null && raw.version !== SETTINGS_VERSION) return { status: "invalid", reason: "unknown-version" };
 
+  const version = raw.version;
+  if (version != null && Number(version) !== SETTINGS_VERSION) return { status: "invalid", reason: "unknown-version" };
+
+  const fleetUrl = typeof raw.fleetUrl === "string" ? raw.fleetUrl.trim() : String(raw.fleetUrl || "").trim();
   let url;
   try {
-    url = new URL(String(raw.fleetUrl || ""));
+    url = new URL(fleetUrl);
   } catch (_) {
     return { status: "invalid", reason: "no-fleet-url" };
   }
@@ -60,6 +63,8 @@ function normalizeSettings(raw) {
 
   const org = typeof raw.organization === "string" ? raw.organization.trim().slice(0, MAX_ORGANIZATION) : "";
   const hours = Number(raw.scanEveryHours);
+  const speedTest = typeof raw.speedTest === "string" ? raw.speedTest.trim().toLowerCase() : raw.speedTest;
+  const explain = raw.explain;
   return {
     status: "on",
     // The notice needs a name; the server's host is the honest fallback.
@@ -68,8 +73,8 @@ function normalizeSettings(raw) {
     enrollmentKey,
     // "daily" is accepted now and acts as "open" until background scanning
     // (phase 4), so settings IT writes today keep working.
-    speedTest: raw.speedTest === "daily" ? "daily" : "open",
-    explain: raw.explain !== false && raw.explain !== 0,
+    speedTest: speedTest === "daily" ? "daily" : "open",
+    explain: explain !== false && explain !== 0 && explain !== "0",
     scanEveryHours: Number.isInteger(hours) && hours >= 1 && hours <= 168 ? hours : 6,
   };
 }
