@@ -1,6 +1,6 @@
 # Workstation Scanner for Teams: design
 
-**Status:** agreed 2026-10-07; phase 1 in progress. **Last updated:** 2026-10-07.
+**Status:** agreed 2026-10-07; phases 1 and 3 done, phase 2 in progress. **Last updated:** 2026-10-08.
 
 Workstation Scanner for Teams ("fleet mode" in the code) lets a company's IT team see every enrolled computer's latest
 Workstation Scanner reading in one web dashboard. Each company runs its own
@@ -9,7 +9,7 @@ passes through anyone else's servers.
 
 There is **one app**: the same installer from the same Releases page, for
 individuals and companies. A computer becomes part of a team only when IT
-installs a `managed.json` file on it. Without that file, nothing changes: the
+sets managed settings on it. Without them, nothing changes: the
 app sends nothing unless the person using it shares a report or asks for an
 AI explanation. The only separate piece is the server and dashboard, which
 only companies install, either on Cloudflare or as a Docker container.
@@ -64,8 +64,8 @@ only companies install, either on Cloudflare or as a Docker container.
  Company computers                         Company's Cloudflare account
 ┌───────────────────────┐   HTTPS POST   ┌──────────────────────────────┐
 │ Workstation Scanner   │  /v1/reports   │ Fleet Worker                 │
-│  managed.json (from   │ ─────────────► │  checks the device token,    │
-│  Intune, Jamf, GPO…)  │                │  validates, stores           │
+│  managed settings     │ ─────────────► │  checks the device token,    │
+│  (Intune, Jamf, GPO…) │                │  validates, stores           │
 │  "Managed by Acme IT" │                │        │                     │
 └───────────────────────┘                │        ▼                     │
                                          │ D1 database: devices,        │
@@ -78,10 +78,10 @@ only companies install, either on Cloudflare or as a Docker container.
 
 1. IT deploys the fleet server (a Cloudflare Worker with a D1 database) to
    its own account, behind Cloudflare Access for its staff's sign-in.
-2. IT pushes a small `managed.json` file to its computers with the tools it
-   already uses. The file holds the fleet server's address and an enrollment
-   key.
-3. On each computer, the app sees the file, shows that it is managed, enrolls
+2. IT pushes the managed settings to its computers with the tools it already
+   uses (a registry policy, a configuration profile, or a file in `/etc`).
+   They hold the fleet server's address and an enrollment key.
+3. On each computer, the app sees them, shows that it is managed, enrolls
    once, and from then on sends each scan to the fleet server.
 4. IT opens the dashboard and sees every computer.
 
@@ -90,17 +90,23 @@ to the computers.
 
 ## Managed mode in the app
 
-### The managed config file
+### The managed settings
 
-The app looks for one file, in a place only an administrator can write. A
-user can't create or change it, so managed mode can't be switched on or off
-without IT.
+The app reads its managed settings from the place each OS sets aside for
+settings only an administrator or the company's device management can set,
+as browsers, Zoom and Slack do. A user can't create or change them, so
+managed mode can't be switched on or off without IT. (Changed 2026-10-08
+from a `managed.json` on every OS: on Windows, ordinary users can create
+files in a new folder under `%ProgramData%` by default, so a user could have
+written the file before IT did.)
 
-| OS | Path |
-| --- | --- |
-| Windows | `%ProgramData%\WorkstationScanner\managed.json` |
-| macOS | `/Library/Application Support/WorkstationScanner/managed.json` |
-| Linux | `/etc/workstation-scanner/managed.json` |
+| OS | Where | Deployed with |
+| --- | --- | --- |
+| Windows | registry key `HKLM\SOFTWARE\Policies\WorkstationScanner` (64-bit view) | Group Policy, Intune (registry settings or a script) |
+| macOS | a configuration profile for `com.evontroy.workstation-scanner`, device scope, read from `/Library/Managed Preferences/com.evontroy.workstation-scanner.plist` | Jamf, Intune, Kandji, any MDM |
+| Linux | `/etc/workstation-scanner/managed.json` | Ansible, Puppet, a package, a script |
+
+The same settings everywhere, as JSON on Linux:
 
 ```json
 {
@@ -110,10 +116,13 @@ without IT.
   "enrollmentKey": "ek_2f9c…",
   "scanEveryHours": 6,
   "speedTest": "open",
-  "explain": true,
-  "include": { "macAddress": false, "wifiName": false }
+  "explain": true
 }
 ```
+
+On Windows they are registry values of the same names: strings
+(`REG_SZ`), except `version`, `scanEveryHours` and `explain` (`REG_DWORD`,
+`explain` 0 or 1). In a profile they are plist keys of the same names.
 
 - `organization` is shown to the user in the notice below.
 - `fleetUrl` must be `https://`. Redirects are refused, as the AI request
@@ -124,19 +133,24 @@ without IT.
 - `speedTest` is `"open"` (the default: a speed test runs when someone
   opens the app, never in the background) or `"daily"` (also once a day in
   the background). Each run uses up to 350 MB, so `"daily"` can reach about
-  10 GB a month per computer.
+  10 GB a month per computer. Until phase 4, `"daily"` is accepted and acts
+  as `"open"`, so the settings IT writes now keep working.
 - `explain` shows or hides the "Explain my results" button (default `true`,
   as in the consumer app). Some companies won't want scans sent to an AI
   service, even with identifying details removed.
-- `include` switches on identifiers that ordinary shared reports leave out.
-  Both are off unless IT turns them on.
+- An `include` setting, to send the MAC address and Wi-Fi name, is left out
+  of phase 2 (2026-10-08): nobody has asked for it, and it is the one piece
+  that adds identifying data. It can come later.
 
-A missing file means fleet mode is off. A file that can't be parsed, or has a
-non-https `fleetUrl`, also means off, and the app says so in the notice
-("Managed settings couldn't be read") instead of failing silently.
+No settings means fleet mode is off. Settings that can't be read, are
+missing `fleetUrl` or `enrollmentKey`, or have a non-https `fleetUrl` also
+mean off, and the app says so in the notice ("Managed settings couldn't be
+read") instead of failing silently. On Linux the file is also ignored, with
+the same notice, unless root owns it and only root can write it (and the
+same for its folder), as `sshd` checks its own files.
 
-The file is read in the main process only. The renderer is told whether the
-computer is managed and by whom, never the key.
+The settings are read in the main process only. The renderer is told whether
+the computer is managed and by whom, never the key.
 
 ### What the user sees
 
@@ -146,9 +160,9 @@ source":
 > **Managed by Acme IT.** Scans from this computer are sent to Acme IT.
 > [What's sent]
 
-"What's sent" opens a dialog listing the fields, last sent time, and the
-fleet server's address. It is the same plain-language approach as the
-Explain dialog.
+"What's sent" opens a dialog listing, in plain words, what is sent, when it
+was last sent, and the fleet server's address. No JSON: as with the Explain
+dialog, the people reading it aren't technical.
 
 ## What a computer sends
 
@@ -175,6 +189,12 @@ plus a small envelope:
   on, as in shared reports today.
 - The speed test numbers are included when one has run. A scheduled scan in
   the background runs one only when `speedTest` is `"daily"`.
+- **One report per launch or Re-scan.** The app sends once the slow scans
+  and the speed test have finished (or the speed test failed), so each
+  report has everything; sending twice would double the dashboard's rows.
+  If the window closes first, it sends what it has.
+- **Offline:** only the latest unsent report is kept, and sent on the next
+  launch or Re-scan. Old readings aren't worth a queue.
 
 ## Enrollment and authentication
 
@@ -188,12 +208,18 @@ touching the others.
    `Authorization: Bearer <device token>`.
 3. **Store the token** with Electron's `safeStorage`, which uses the OS
    keychain (Windows DPAPI, macOS Keychain, Linux libsecret), in the app's
-   user data folder.
+   user data folder. On a Linux desktop with no keychain (`safeStorage`
+   reports `basic_text`, which only disguises), the token is stored in a
+   file only that user can read (mode 0600) instead of refusing to enroll:
+   it can only send reports for this computer, and IT can revoke it.
+   The token and device ID are per OS user, so two people on one computer
+   show as two rows, each with its user name. Accepted for now: one ID per
+   computer would need an administrator at install time.
 4. **Revoke.** IT can revoke a device in the dashboard; its next report gets
    `401` and the app shows "This computer was removed from Acme IT's
-   dashboard" until IT re-enrolls it.
+   dashboard" and stops sending, until IT lets it back in.
 5. **Rotate the enrollment key** in the dashboard. Already enrolled computers
-   keep working; new ones need the new key in their `managed.json`.
+   keep working; new ones need the new key in their managed settings.
 
 There is one enrollment key per company to start with. The `devices` table
 has a `group` column, so per-group keys ("Sales", "London office") can be
@@ -308,8 +334,7 @@ device-management tool can run it as a script on every computer and collect
 the output in the tool they already use, with no fleet server at all. It
 needs nothing but the installed app, so it ships first (phase 1).
 
-The MAC address and Wi-Fi name stay out here too, unless a `managed.json`
-`include` turns them on.
+The MAC address and Wi-Fi name stay out here too.
 
 ## Privacy and consent
 
@@ -339,8 +364,8 @@ notice to staff; the README for fleet mode will say so.
 | Someone outside IT opens the dashboard | Built-in sign-in with the admin token on every page, plus Cloudflare Access or an SSO proxy in front |
 | Another site posts a form as a signed-in IT person | SameSite=Strict cookie, and every form POST must carry this server's Origin |
 | Flooding the server | JSON-only, body size cap, per-device rate limit, as `/explain` does |
-| The app sends to the wrong place | `fleetUrl` only from the admin-only `managed.json`, https only, no redirects |
-| A user switches fleet mode off or on | `managed.json` lives where only an administrator can write |
+| The app sends to the wrong place | `fleetUrl` only from the admin-only managed settings, https only, no redirects |
+| A user switches fleet mode off or on | The settings live where only an administrator or MDM can write: a `Policies` registry key, a configuration profile, or a root-owned file in `/etc` that the app checks |
 
 ## Deployment and the public demo
 
@@ -353,7 +378,7 @@ creates the Worker and D1 database in the company's own account. Then:
 1. Turn on Cloudflare Access for the dashboard's address.
 2. Open the dashboard once to set the organization name and get the
    enrollment key.
-3. Push `managed.json` with Intune, Jamf, Group Policy, or a script.
+3. Push the managed settings with Group Policy, Intune, Jamf, or a script.
 
 **Public demo:** a separate deployment filled with made-up computers (about
 40, a few with pending updates, one with its firewall off, one nearly full),
@@ -366,7 +391,7 @@ post links to.
 | Phase | What | Useful on its own because |
 | --- | --- | --- |
 | 1 | `--report-json` | RMM and device-management tools can collect scans straight away |
-| 2 | Managed mode in the app: `managed.json`, the notice, enrollment, sending on launch and Re-scan | Companies can start collecting scans |
+| 2 | Managed mode in the app: the managed settings, the notice, enrollment, sending on launch and Re-scan | Companies can start collecting scans |
 | 3 | Fleet server and dashboard (Cloudflare and Docker), the public demo | The full story, and the showcase |
 | 4 | Background scanning, tray icon, start at login | Keeps the dashboard current without anyone opening the app |
 | 5 | Optional: email or webhook alerts for chosen filters | IT hears about problems instead of checking |
@@ -377,16 +402,20 @@ Each phase ends with a release.
 
 Following the repo's conventions (`CLAUDE.md`):
 
-- **Pure functions with sample input:** reading and validating `managed.json`
-  (missing, malformed, non-https, unknown fields), building the envelope,
-  deciding what `include` adds.
+- **Pure functions with sample input:** validating the managed settings
+  (missing, malformed, non-https, unknown fields), parsing `reg query`'s
+  output and a profile converted with `plutil -convert json`, the Linux
+  ownership check from `stat` values, building the envelope.
 - **Worker tests** in Node with a stubbed D1, as `server/report-mailer`'s
   are: enrollment, bad and revoked tokens, oversized and non-JSON bodies,
   rate limits, retention, and escaping in the dashboard's HTML.
 - **CI:** the packaged app run with `--report-json` on each OS, checking the
   output parses and matches the schema, alongside the existing self-test.
-- **The VMs:** a `managed.json` placed in each of the Windows, Ubuntu and
-  Fedora VMs, reporting to a test deployment.
+- **The VMs:** managed settings put on each of the Windows (registry),
+  Ubuntu and Fedora (`/etc`) VMs, reporting to a private test deployment,
+  `workstation-scanner-teams-test` on Cloudflare: real https, set up as a
+  company would. Its admin token is set by the owner with
+  `npx wrangler secret put ADMIN_TOKEN`.
 
 ## Decisions
 
@@ -396,9 +425,24 @@ Agreed 2026-10-07:
    Cloudflare, alongside the Cloudflare one.
 2. **One enrollment key per company** to start, with room for per-group keys
    later.
-3. **Speed tests:** IT's choice in `managed.json` (`speedTest`), defaulting
+3. **Speed tests:** IT's choice in the managed settings (`speedTest`), defaulting
    to only when someone opens the app.
-4. **The Explain button:** IT's choice in `managed.json` (`explain`).
+4. **The Explain button:** IT's choice in the managed settings (`explain`).
 5. **The name:** Workstation Scanner for Teams.
 6. **One app** for individuals and companies; managed mode comes from
-   `managed.json`.
+   the managed settings.
+
+Agreed 2026-10-08, for phase 2:
+
+7. **Where the settings live:** each OS's standard place for admin-only
+   settings (a `Policies` registry key, a configuration profile, a root-owned
+   file in `/etc` that the app checks), not a JSON file on every OS.
+8. **No keychain on Linux:** a file only the user can read, rather than
+   refusing to enroll.
+9. **One report per launch or Re-scan**, after the speed test.
+10. **Offline:** keep only the latest unsent report.
+11. **Shared computers:** one row per OS user, for now.
+12. **`include`:** not in phase 2.
+13. **"What's sent":** plain words, no JSON.
+14. **`speedTest: "daily"`** accepted now, acting as `"open"` until phase 4.
+15. **VM tests** against a private test deployment on Cloudflare.
