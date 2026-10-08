@@ -112,10 +112,12 @@ test("the Cloudflare Worker", async (t) => {
     assert.deepEqual(keys, ["enroll:203.0.113.9"]);
   });
 
-  await t.test("answers JSON, not Cloudflare's error page, if storage fails", async () => {
+  await t.test("answers JSON, not Cloudflare's error page, if storage fails", async (t) => {
+    const logged = t.mock.method(console, "error", () => {});
     const broken = { prepare: () => ({ bind: () => ({ run: async () => { throw new Error("D1 down"); }, first: async () => { throw new Error("D1 down"); }, all: async () => { throw new Error("D1 down"); } }) }) };
     const res = await answer(await worker.fetch(new Request("https://t.example/v1/health"), { DB: broken }));
     assert.deepEqual(res, { status: 500, body: { ok: false, error: "server-error" } });
+    assert.equal(logged.mock.callCount(), 1, "logged for wrangler tail");
   });
 
   await t.test("the daily cron prunes", async () => {

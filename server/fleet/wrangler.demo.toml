@@ -14,7 +14,7 @@ DEMO = "1"
 [[d1_databases]]
 binding = "DB"
 database_name = "workstation-scanner-teams-demo"
-database_id = "REPLACE_WITH_THE_DEMO_D1_DATABASE_ID"
+database_id = "8d4f9883-9ae1-4d54-902d-813408aa3732"
 
 # Rebuild the made-up computers daily, so "last report" stays current.
 [triggers]

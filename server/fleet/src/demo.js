@@ -128,29 +128,47 @@ function demoComputers() {
   return list;
 }
 
-// Replaces everything in the store with the demo computers, timed relative
-// to `now`. Only ever called with DEMO=1.
-async function seedDemo(sql, store, now) {
-  await sql.run("DELETE FROM reports");
-  await sql.run("DELETE FROM devices");
-  await sql.run("DELETE FROM settings");
-  await store.setUp({ organization: DEMO_ORGANIZATION });
+// Replaces everything with the demo computers, timed relative to `now`.
+// Only ever called with DEMO=1. One batch, so it's all or nothing, and two
+// requests seeding at once can't interleave; and few statements (rows come
+// in as JSON through json_each), well inside D1's queries per request. No
+// enrollment key or device token works: the stored "hashes" aren't SHA-256
+// hex, so nothing hashes to them.
+const PER_STATEMENT = 10; // computers' reports per INSERT, ~180 KB of JSON
+
+async function seedDemo(sql, now) {
+  const devices = [];
+  const reports = [];
   for (const c of demoComputers()) {
-    const enrolled = new Date(now.getTime() - (HISTORY_DAYS + 30) * DAY_MS);
-    await store.enroll({ deviceId: c.id, name: c.name, now: enrolled });
-    for (const { daysAgo, report } of c.reports) {
-      const at = new Date(now.getTime() - daysAgo * DAY_MS - (c.name.charCodeAt(c.name.length - 1) % 6) * HOUR_MS);
-      await store.addReport({ deviceId: c.id, schema: 1, appVersion: c.appVersion, name: c.name, body: JSON.stringify(report), now: at });
-    }
+    const offset = (c.name.charCodeAt(c.name.length - 1) % 6) * HOUR_MS;
+    const at = (daysAgo) => new Date(now.getTime() - daysAgo * DAY_MS - offset).toISOString();
+    const rows = c.reports.map(({ daysAgo, report }) => ({ device: c.id, at: at(daysAgo), app: c.appVersion, body: JSON.stringify(report) }));
+    devices.push({ id: c.id, name: c.name, app: c.appVersion, enrolled: at(HISTORY_DAYS + 30), seen: rows[rows.length - 1].at });
+    reports.push(rows);
   }
-  await sql.run("INSERT INTO settings (key, value) VALUES ('demo_seeded_at', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value", [now.toISOString()]);
+  const statements = [
+    ["DELETE FROM reports"],
+    ["DELETE FROM devices"],
+    ["DELETE FROM settings"],
+    ["INSERT INTO settings (key, value) VALUES ('organization', ?), ('enrollment_key_hash', 'demo'), ('retention_days', '90'), ('demo_seeded_at', ?)",
+      [DEMO_ORGANIZATION, now.toISOString()]],
+    [`INSERT INTO devices (id, token_hash, name, grp, app_version, enrolled_at, last_seen)
+      SELECT value ->> '$.id', 'demo:' || (value ->> '$.id'), value ->> '$.name', '', value ->> '$.app', value ->> '$.enrolled', value ->> '$.seen'
+      FROM json_each(?)`, [JSON.stringify(devices)]],
+  ];
+  for (let i = 0; i < reports.length; i += PER_STATEMENT) {
+    statements.push([`INSERT INTO reports (device_id, received_at, schema, app_version, body)
+      SELECT value ->> '$.device', value ->> '$.at', 1, value ->> '$.app', value ->> '$.body'
+      FROM json_each(?) ORDER BY key`, [JSON.stringify(reports.slice(i, i + PER_STATEMENT).flat())]]);
+  }
+  await sql.batch(statements);
 }
 
 // Seeds the demo if it never was, or more than a day ago.
-async function ensureDemo(sql, store, now) {
+async function ensureDemo(sql, now) {
   const row = await sql.first("SELECT value FROM settings WHERE key = 'demo_seeded_at'");
   if (row && now.getTime() - new Date(row.value).getTime() < DAY_MS) return false;
-  await seedDemo(sql, store, now);
+  await seedDemo(sql, now);
   return true;
 }
 

@@ -16,7 +16,7 @@ async function demoStore() {
   const sql = nodeSql(db);
   const store = createStore(sql);
   await store.migrate();
-  await seedDemo(sql, store, NOW);
+  await seedDemo(sql, NOW);
   return { db, sql, store };
 }
 const deps = (store) => ({ store, demo: true, now: () => NOW });
@@ -55,9 +55,48 @@ test("the made-up computers", async (t) => {
 
 test("ensureDemo refreshes once a day", async () => {
   const { db, sql, store } = await demoStore();
-  assert.equal(await ensureDemo(sql, store, new Date(NOW.getTime() + 3600000)), false);
-  assert.equal(await ensureDemo(sql, store, new Date(NOW.getTime() + DAY + 1)), true);
+  assert.equal(await ensureDemo(sql, new Date(NOW.getTime() + 3600000)), false);
+  assert.equal(await ensureDemo(sql, new Date(NOW.getTime() + DAY + 1)), true);
   assert.equal(db.prepare("SELECT COUNT(*) n FROM devices").get().n, COMPUTERS);
+});
+
+test("seeding", async (t) => {
+  // D1 limits the queries one request may make, and the first request after
+  // a deploy seeds: about 1,200 one-row queries failed there.
+  await t.test("takes one batch of a few statements", async () => {
+    const db = new DatabaseSync(":memory:");
+    const sql = nodeSql(db);
+    await createStore(sql).migrate();
+    const calls = [];
+    const counting = { ...sql, run: async (...a) => { calls.push("run"); return sql.run(...a); }, batch: async (s) => { calls.push(s.length); return sql.batch(s); } };
+    await seedDemo(counting, NOW);
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0] <= 20, `${calls[0]} statements`);
+  });
+
+  await t.test("replaces the data, with foreign keys enforced, as on D1", async () => {
+    const { db, sql, store } = await demoStore();
+    await seedDemo(sql, new Date(NOW.getTime() + DAY));
+    assert.equal(db.prepare("PRAGMA foreign_keys").get().foreign_keys, 1);
+    assert.equal(db.prepare("SELECT COUNT(*) n FROM reports").get().n, demoComputers().reduce((a, c) => a + c.reports.length, 0));
+    const [first] = await store.listDevices();
+    const history = await store.history(first.id);
+    assert.equal(first.report_at, history[0].received_at, "the latest report is the newest");
+    assert.ok(history[0].received_at > history[1].received_at);
+    assert.equal(first.last_seen, history[0].received_at);
+  });
+
+  await t.test("leaves no enrollment key or device token that works", async () => {
+    const { store } = await demoStore();
+    assert.equal(await store.isEnrollmentKey("demo"), false);
+    assert.equal(await store.deviceForToken("demo"), null);
+  });
+});
+
+test("a failed batch changes nothing", async () => {
+  const { db, sql } = await demoStore();
+  await assert.rejects(sql.batch([["DELETE FROM reports"], ["INSERT INTO nowhere VALUES (1)"]]));
+  assert.ok(db.prepare("SELECT COUNT(*) n FROM reports").get().n > 0);
 });
 
 test("the demo is read-only", async (t) => {
