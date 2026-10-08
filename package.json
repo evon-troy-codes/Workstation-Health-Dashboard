@@ -66,6 +66,8 @@
       "app/main/share.js",
       "app/main/ipc-guard.js",
       "app/main/fleet.js",
+      "app/main/fleet-client.js",
+      "app/main/managed-settings.js",
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",

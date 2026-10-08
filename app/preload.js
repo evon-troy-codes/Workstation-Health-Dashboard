@@ -22,4 +22,11 @@ contextBridge.exposeInMainWorld("whd", {
   // sent from its own scan (identifying details removed) and takes only
   // facts.bandwidth from here.
   explain: (facts) => ipcRenderer.invoke("whd:explain", facts),
+  // Workstation Scanner for Teams: whether IT manages this computer, and by
+  // whom (never the enrollment key); sending the latest scan to the
+  // company's fleet server once it's complete (main builds the report and
+  // takes only facts.bandwidth from here); and how the last send went.
+  managed: () => ipcRenderer.invoke("whd:managed"),
+  fleetReport: (facts) => ipcRenderer.invoke("whd:fleet-report", facts),
+  fleetStatus: () => ipcRenderer.invoke("whd:fleet-status"),
 });

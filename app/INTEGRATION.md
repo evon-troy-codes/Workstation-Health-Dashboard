@@ -8,8 +8,11 @@ app/
 │   ├── system-facts.js     ← MAIN process: collects real OS facts → FACTS shape
 │   ├── report.js           ← MAIN process: builds the report and the AI scan;
 │   │                          POSTs the scan to be explained
-│   └── share.js            ← MAIN process: the report as text, a page, an email link
-├── preload.js               ← contextBridge → window.whd (getFacts, share…, explain…)
+│   ├── share.js            ← MAIN process: the report as text, a page, an email link
+│   ├── fleet.js            ← MAIN process: the report envelope, --report-json
+│   ├── managed-settings.js ← MAIN process: reads IT's managed settings (Teams)
+│   └── fleet-client.js     ← MAIN process: enrolls and sends reports (Teams)
+├── preload.js               ← contextBridge → window.whd (getFacts, share…, explain…, managed…)
 └── renderer/
     ├── index.html            ← window entry (loads the vendored React + bundle)
     ├── helper-app.jsx        ← bundle entry: the 3-screen UI + app state
@@ -20,6 +23,7 @@ app/
     ├── speedtest.js          ← real Cloudflare-based speed test
     ├── share-dialog.jsx      ← "Share this report" dialog
     ├── explain-dialog.jsx    ← "Explain my results" (AI) dialog
+    ├── fleet-dialog.jsx      ← "What's sent", on a computer IT manages
     ├── hints.js              ← the "?" explanations, one sentence each
     ├── dialog-focus.js       ← keeps Tab inside an open dialog
     ├── report-messages.js    ← text for a share or explanation that failed
@@ -163,7 +167,40 @@ the source of truth.
 `schema` is 1, `trigger` is `"cli"`, and `report` is `buildReport`'s output
 with no speed test (the `bandwidth` numbers are `null`). It skips the
 single-instance lock, so it runs while the app is open. A fleet server
-(docs/design/fleet-mode.md) will receive the same envelope.
+(docs/design/fleet-mode.md) receives the same envelope.
+
+## Managed mode (Workstation Scanner for Teams)
+
+A computer IT manages sends each scan to the company's own fleet server
+(`server/fleet`). The full design is `docs/design/fleet-mode.md`.
+
+```
+main: readManagedSettings()             [managed-settings.js, at startup]
+  ├─ Windows  reg query HKLM\SOFTWARE\Policies\WorkstationScanner /reg:64
+  ├─ macOS    plutil -convert json "/Library/Managed Preferences/com.evontroy.workstation-scanner.plist"
+  └─ Linux    /etc/workstation-scanner/managed.json (root's, writable by root alone)
+
+renderer: window.whd.managed()          → { managed, organization, server } or { managed: false, problem }
+          ...slow scans back and the speed test finished...
+          window.whd.fleetReport(facts) → main builds the report (only bandwidth from here)
+            └─ fleet-client.js: POST /v1/enroll once, then POST /v1/reports
+          window.whd.fleetStatus()      → { result, lastSentAt } for "What's sent"
+```
+
+- The renderer is told the organization and the server's host, never the
+  enrollment key or the device token.
+- Each scan is sent once (`reportedScan` in `main.js`): the first scan's
+  trigger is `"launch"`, later ones `"rescan"`. Quitting sends a scan not
+  yet sent, and lets a send in flight finish, for up to 5 seconds.
+- The token is in `fleet.json` in the user data folder (mode 0600),
+  encrypted with `safeStorage` unless Linux has no keychain (`basic_text`).
+- Results: `sent`, `removed` (IT revoked the computer), `key-refused`,
+  `not-set-up`, `failed`. Nothing is queued: the next launch or Re-scan
+  sends a fresh report. `report-messages.js` (`fleetResult`) words them.
+- `explain: false` hides "Explain my results" and refuses `whd:explain`.
+- The footer's "Managed by …" line replaces "Data source" while managed,
+  since "nothing leaves this machine" is no longer true. Settings that are
+  there but can't be used add "Managed settings couldn't be read".
 
 ## Report format changes
 

@@ -56,3 +56,16 @@ export function modelLabel(id) {
   }
   return id;
 }
+
+// How the last report to the company's fleet server went, in words, for the
+// "What's sent" dialog. Results come from app/main/fleet-client.js; null
+// (not tried yet this session) and "sent" need no explanation.
+export function fleetResult(result, org) {
+  switch (result) {
+    case "removed":     return `${org} removed this computer from its dashboard, so its scans aren't being sent. Ask ${org} if that's a mistake.`;
+    case "key-refused": return `${org}'s server refused this computer. Let ${org} know: the managed settings may hold an old enrollment key.`;
+    case "not-set-up":  return `${org}'s server isn't set up yet. Scans will be sent once it is.`;
+    case "failed":      return `The last scan couldn't be sent to ${org}. The next one goes when you open the app or re-scan.`;
+    default:            return null;
+  }
+}

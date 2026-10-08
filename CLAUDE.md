@@ -229,6 +229,15 @@ keeps working.
   installers. For a release, join the Linux, Windows and macOS files (not
   the ubuntu-26.04 duplicate) into one `SHA256SUMS.txt` asset, and check
   it against the assets' `digest` in the releases API.
+- **Managed settings (Teams) live in each OS's admin-only place**
+  (2026-10-08), as browsers read theirs: `HKLM\SOFTWARE\Policies\WorkstationScanner`
+  on Windows, a configuration profile (`/Library/Managed Preferences/`) on
+  macOS, a root-owned `/etc/workstation-scanner/managed.json` on Linux
+  that the app checks as sshd does (`app/main/managed-settings.js`). Not
+  `%ProgramData%`: ordinary users can create files in a new folder there.
+  Managed mode replaces the footer's "nothing leaves this machine" with
+  "Managed by …" and a plain-words "What's sent"; keep both. The renderer
+  never gets the enrollment key or the device token.
 - **The installers are unsigned.** The README's Installing section walks users
   past SmartScreen, Gatekeeper and AppImage permissions.
 

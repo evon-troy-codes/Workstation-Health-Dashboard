@@ -60,3 +60,13 @@ test("modelLabel", async (t) => {
     assert.equal(modelLabel(""), null);
   });
 });
+
+test("fleetResult", async () => {
+  const { fleetResult } = await load();
+  assert.equal(fleetResult(null, "Acme IT"), null);
+  assert.equal(fleetResult("sent", "Acme IT"), null);
+  for (const r of ["removed", "key-refused", "not-set-up", "failed"]) {
+    assert.match(fleetResult(r, "Acme IT"), /Acme IT/, r);
+  }
+  assert.match(fleetResult("removed", "Acme IT"), /removed this computer/);
+});

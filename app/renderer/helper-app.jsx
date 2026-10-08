@@ -8,6 +8,7 @@ import { Toast } from "./toast.jsx";
 import * as speedtest from "./speedtest.js";
 import { ShareDialog } from "./share-dialog.jsx";
 import { ExplainDialog } from "./explain-dialog.jsx";
+import { FleetDialog } from "./fleet-dialog.jsx";
 import { HINTS } from "./hints.js";
 
 const {
@@ -52,6 +53,9 @@ function Ago({ ts }) {
 function useSpeedTest(onResult) {
   const [testing, setTesting] = useState(false);
   const [progress, setProgress] = useState(0);
+  // Finished runs, passed or failed: a managed computer's report waits for
+  // the first.
+  const [runs, setRuns] = useState(0);
   const running = useRef(false);
   const abort = useRef(null);
 
@@ -74,13 +78,14 @@ function useSpeedTest(onResult) {
       running.current = false;
       abort.current = null;
       setTesting(false);
+      setRuns((n) => n + 1);
     }
   }, [onResult]);
 
   // A run still in flight when the app closes should not keep sockets open.
   useEffect(() => () => abort.current && abort.current.abort(), []);
 
-  return { testing, progress, run };
+  return { testing, progress, runs, run };
 }
 
 // ---- UI --------------------------------------------------------------------
@@ -173,7 +178,7 @@ function useFocusOnClose(open, button) {
 
 function HelperApp() {
   const [screen, setScreen] = useState("overview"); // overview | system | network
-  const { facts, rescan, rescanning } = useApp();
+  const { facts, rescan, rescanning, managed, fleet } = useApp();
   // "Share report": the person picks how (share-dialog.jsx); main builds the
   // report from its own scan and takes only the speed test from here.
   const [shareOpen, setShareOpen] = useState(false);
@@ -202,6 +207,12 @@ function HelperApp() {
   useFocusOnClose(explainOpen, explainButton);
   const explain = useCallback(() => window.whd.explain(facts), [facts]);
 
+  // "What's sent", on a computer IT manages.
+  const [fleetOpen, setFleetOpen] = useState(false);
+  const fleetButton = useRef(null);
+  const closeFleet = useCallback(() => setFleetOpen(false), []);
+  useFocusOnClose(fleetOpen, fleetButton);
+
   return (
     <div className="helper-shell">
       <Sidebar active={screen} onChange={setScreen} />
@@ -213,13 +224,30 @@ function HelperApp() {
           {screen === "network"  && <NetworkScreen />}
         </div>
         <div className="helper-foot">
-          <div>
-            <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Data source</div>
-            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
-              Collected locally via native OS APIs. Nothing leaves this machine
-              unless you share a report or ask for an AI explanation.
+          {managed && managed.managed ? (
+            // Always shown on a managed computer: the person using it can see
+            // that scans go to their company, and what.
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Managed by {managed.organization}</div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                {fleet.result === "removed"
+                  ? <>This computer was removed from {managed.organization}&apos;s dashboard. </>
+                  : <>Scans from this computer are sent to {managed.organization}. </>}
+                <button ref={fleetButton} type="button" className="link-btn" onClick={() => setFleetOpen(true)} disabled={fleetOpen}>
+                  What&apos;s sent
+                </button>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div>
+              <div style={{ fontWeight: 700, fontSize: 13, color: "var(--text-strong)" }}>Data source</div>
+              <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>
+                Collected locally via native OS APIs. Nothing leaves this machine
+                unless you share a report or ask for an AI explanation.
+                {managed && managed.problem && <> Managed settings couldn&apos;t be read, so nothing is sent to your organization.</>}
+              </div>
+            </div>
+          )}
           <div className="foot-actions">
             {explainEnabled && (
               <button ref={explainButton} className="foot-btn foot-btn-primary" onClick={() => setExplainOpen(true)} disabled={explainOpen}>
@@ -242,6 +270,9 @@ function HelperApp() {
       )}
       {explainOpen && (
         <ExplainDialog onExplain={explain} onClose={closeExplain} />
+      )}
+      {fleetOpen && managed && managed.managed && (
+        <FleetDialog managed={managed} status={fleet} lastSent={<Ago ts={Date.parse(fleet.lastSentAt)} />} onClose={closeFleet} />
       )}
     </div>
   );
@@ -758,6 +789,14 @@ function App() {
   // landing last would overwrite a newer one.
   const deferredSeq = useRef(0);
 
+  // Workstation Scanner for Teams: whether IT manages this computer, and how
+  // the last report to the company's server went.
+  const [managed, setManaged] = useState(null);
+  const [fleet, setFleet] = useState({ result: null, lastSentAt: null });
+  useEffect(() => {
+    window.whd.managed().then(setManaged, () => setManaged(null));
+  }, []);
+
   const onSpeedResult = useCallback((res) => {
     setFacts((f) => (f ? { ...f, bandwidth: { ...f.bandwidth, ...res } } : f));
   }, []);
@@ -838,6 +877,21 @@ function App() {
     });
   }, [scan, speedRun]);
 
+  // A managed computer sends each scan once it's complete: the slow scans
+  // back (or failed) and the speed test finished (passed or failed). Re-scans
+  // don't re-run the speed test, so they send once their slow scans land.
+  // Main sends a scan only once, whoever asks.
+  const reported = useRef(null);
+  useEffect(() => {
+    if (!managed || !managed.managed || !facts || scannedAt == null) return;
+    if (!(deferredDone || deferredFailed) || speed.testing || speed.runs === 0) return;
+    if (reported.current === scannedAt) return;
+    reported.current = scannedAt;
+    window.whd.fleetReport(facts)
+      .then(() => window.whd.fleetStatus())
+      .then(setFleet, () => {});
+  }, [managed, facts, scannedAt, deferredDone, deferredFailed, speed.testing, speed.runs]);
+
   const started = useRef(false);
   useEffect(() => {
     if (started.current) return; // guard against a double effect invocation
@@ -849,7 +903,7 @@ function App() {
   if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
 
   return (
-    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone }}>
+    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone, managed, fleet }}>
       <Frame><RenderGuard onRetry={rescan}><HelperApp /></RenderGuard></Frame>
     </AppContext.Provider>
   );

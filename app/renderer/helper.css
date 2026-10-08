@@ -231,6 +231,21 @@ body { margin: 0; background: var(--surface-page); font-family: var(--font-sans)
 .dialog-primary:hover:not(:disabled) { background: var(--accent-hover); }
 .dialog-primary:disabled, .foot-btn:disabled { opacity: 0.6; cursor: default; }
 
+/* ---- "What's sent", on a managed computer (fleet-dialog.jsx) ---- */
+.link-btn {
+  padding: 0; border: none; background: none; cursor: pointer;
+  font: inherit; font-weight: 600; color: var(--accent); text-decoration: underline; text-underline-offset: 2px;
+}
+.link-btn:hover:not(:disabled) { color: var(--accent-hover); }
+.link-btn:disabled { opacity: 0.6; cursor: default; }
+.dialog-list { margin: 10px 0 0; padding-left: 20px; font-size: 13px; line-height: 1.6; color: var(--text-body); }
+.dialog-facts {
+  display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; margin: 14px 0 0;
+  font-size: 13px; color: var(--text-body);
+}
+.dialog-facts dt { color: var(--text-muted); }
+.dialog-facts dd { margin: 0; overflow-wrap: anywhere; }
+
 /* ---- "Explain my results" dialog (explain-dialog.jsx) ---- */
 .dialog-wide { max-width: 560px; max-height: calc(100vh - 32px); overflow-y: auto; }
 .ai-tag {

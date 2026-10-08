@@ -6,10 +6,12 @@
 //  facts via systeminformation and exposes them to the
 //  renderer over the `window.whd` bridge (see app/preload.js).
 // ═══════════════════════════════════════════════════════
-const { app, BrowserWindow, ipcMain, session, shell, clipboard, dialog } = require("electron");
+const { app, BrowserWindow, ipcMain, session, shell, clipboard, dialog, safeStorage } = require("electron");
 const path = require("path");
 const { pathToFileURL } = require("url");
 const fs = require("fs");
+const os = require("os");
+const crypto = require("crypto");
 const { collectFacts, detectDeferred } = require("./app/main/system-facts");
 const {
   buildReport, reportEndpoint,
@@ -20,6 +22,8 @@ const { attachZoom } = require("./app/main/zoom");
 const { reportText, reportHtml, reportFileName, mailtoLink } = require("./app/main/share");
 const { fromApp } = require("./app/main/ipc-guard");
 const { parseCliArgs, buildEnvelope } = require("./app/main/fleet");
+const { readManagedSettings } = require("./app/main/managed-settings");
+const { createFleetClient } = require("./app/main/fleet-client");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -68,6 +72,78 @@ async function writeSelfTest(facts, deferred) {
 // my results": WHD_REPORT_URL, else package.json's workstationScanner.reportUrl.
 // Unset in a build without one, and the Explain button is hidden.
 const REPORT_ENDPOINT = reportEndpoint(process.env, require("./package.json"));
+
+// Workstation Scanner for Teams (docs/design/fleet-mode.md): when IT has set
+// managed settings, each scan is sent to the company's fleet server, once
+// per launch or Re-scan. Read once at startup; null until then.
+let managed = null; // readManagedSettings's result
+let fleetClient = null;
+let reportedScan = 0; // the scanCount last sent, so a scan is sent once
+let sending = null; // the send in flight, which quitting waits for
+
+// The device token's state file, in the user data folder: readable by this
+// user alone, and written whole (to a temporary file, then renamed) so a
+// crash can't leave half of it.
+const fleetStateFile = () => path.join(app.getPath("userData"), "fleet.json");
+function readFleetState() {
+  try {
+    return JSON.parse(fs.readFileSync(fleetStateFile(), "utf8"));
+  } catch (_) {
+    return null;
+  }
+}
+function writeFleetState(state) {
+  const file = fleetStateFile();
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+
+// The OS keychain, through safeStorage. On Linux with no keychain service,
+// safeStorage falls back to "basic_text", which only disguises: then the
+// token goes in the 0600 file as it is (fleet-client.js).
+function keychain() {
+  let available = false;
+  try {
+    available = safeStorage.isEncryptionAvailable()
+      && !(process.platform === "linux" && ["basic_text", "unknown"].includes(safeStorage.getSelectedStorageBackend()));
+  } catch (_) {
+    available = false;
+  }
+  return {
+    available,
+    encrypt: (text) => safeStorage.encryptString(text).toString("base64"),
+    decrypt: (b64) => safeStorage.decryptString(Buffer.from(b64, "base64")),
+  };
+}
+
+async function loadManaged() {
+  managed = await readManagedSettings();
+  if (managed.status === "on") {
+    fleetClient = createFleetClient({
+      settings: managed,
+      readState: readFleetState,
+      writeState: writeFleetState,
+      keychain: keychain(),
+      randomUUID: () => crypto.randomUUID(),
+      hostname: () => os.hostname(),
+    });
+  }
+  return managed;
+}
+
+// Sends the latest scan, if it hasn't been sent. The first scan is the
+// launch's; later ones are Re-scans.
+function sendScan(fromRenderer) {
+  if (!fleetClient || !lastFacts || reportedScan === scanCount) return null;
+  reportedScan = scanCount;
+  const envelope = buildEnvelope(buildReport(lastFacts, lastDeferred, fromRenderer || {}),
+    { appVersion: app.getVersion(), trigger: scanCount === 1 ? "launch" : "rescan" });
+  const p = fleetClient.send(envelope);
+  sending = p;
+  p.finally(() => { if (sending === p) sending = null; });
+  return p;
+}
 
 function createWindow() {
   const win = new BrowserWindow({
@@ -156,7 +232,25 @@ if (cli.error) {
     }
   });
 
+  // Started before the window opens; the handlers that need it wait for it.
+  let managedReady = null;
+
+  // On quit, a scan not yet sent (the window closed before the speed test
+  // finished) is sent with what there is, and a send in flight is let
+  // finish: up to 5 seconds either way.
+  let quitting = false;
+  app.on("before-quit", (event) => {
+    const unsent = fleetClient && lastFacts && reportedScan !== scanCount;
+    if (quitting || !(unsent || sending)) return;
+    event.preventDefault();
+    quitting = true;
+    const done = unsent ? sendScan({}) : sending;
+    Promise.race([done, new Promise((resolve) => setTimeout(resolve, 5000))]).finally(() => app.quit());
+  });
+
   app.whenReady().then(() => {
+    managedReady = loadManaged();
+
     // The dashboard needs no camera, microphone, location or notifications,
     // and Electron grants those requests by default.
     session.defaultSession.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
@@ -181,7 +275,35 @@ if (cli.error) {
     });
 
     // Whether this build has the report service, which Explain needs.
-    handle("whd:explain-enabled", () => Boolean(REPORT_ENDPOINT));
+    // IT can switch Explain off in the managed settings (`explain: false`).
+    const explainAllowed = () => Boolean(REPORT_ENDPOINT) && !(managed && managed.status === "on" && !managed.explain);
+    handle("whd:explain-enabled", async () => {
+      await managedReady;
+      return explainAllowed();
+    });
+
+    // Whether this computer is managed, and by whom, for the footer's notice.
+    // Never the enrollment key.
+    handle("whd:managed", async () => {
+      const m = await managedReady;
+      if (m.status === "invalid") return { managed: false, problem: true };
+      if (m.status !== "on") return { managed: false, problem: false };
+      return { managed: true, organization: m.organization, server: new URL(m.fleetUrl).host };
+    });
+
+    // The renderer asks once the slow scans and the speed test have finished,
+    // so the report has everything. Main builds it from its own scan; only
+    // the speed test comes from the renderer, as with every report.
+    handle("whd:fleet-report", async (fromRenderer) => {
+      await managedReady;
+      const sent = sendScan(fromRenderer);
+      return sent ? { result: await sent } : { result: null };
+    });
+
+    handle("whd:fleet-status", async () => {
+      await managedReady;
+      return fleetClient ? fleetClient.status() : { result: null, lastSentAt: null };
+    });
 
     // "Share report": the report built from main's own scan (only the speed
     // test from the renderer, as with every report), shared the way the
@@ -233,6 +355,8 @@ if (cli.error) {
     // "Explain my results": the AI assessment. Sends buildAiScan's copy of
     // the scan (identifying details removed) to the report mailer's /explain.
     handle("whd:explain", async (fromRenderer) => {
+      await managedReady;
+      if (!explainAllowed()) return { ok: false, reason: "no-endpoint" };
       if (!lastFacts) return { ok: false, reason: "no-scan" };
       const scan = buildAiScan(buildReport(lastFacts, lastDeferred, fromRenderer));
       return requestExplanation(explainEndpoint(REPORT_ENDPOINT), scan);
