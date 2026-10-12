@@ -1790,19 +1790,26 @@ function isVirtualInterface(iface) {
   return VPN_RE.test(ifaceNames(iface));
 }
 
-// Heuristic VPN detection: look for an *active* tunnel interface (up + has an
-// IPv4) whose name matches a known VPN client / tunnel driver. Requiring an
-// active IPv4 avoids the always-present-but-idle WAN Miniport adapters on
-// Windows and the idle utun interfaces on macOS.
-function detectVpn(net) {
+// Heuristic VPN detection: look for an active tunnel interface whose name
+// matches a known VPN client / tunnel driver. systeminformation omits IPv4
+// from Windows WireGuard adapters, so their active state is enough there.
+// Other platforms require IPv4 to avoid idle tunnel interfaces.
+function detectVpn(net, platform = process.platform) {
   const list = Array.isArray(net) ? net : [net];
   const active = list.find((n) => {
     const state = (n.operstate || "").toLowerCase();
-    const up = state === "up" || state === "";
-    return up && !!n.ip4 && VPN_RE.test(ifaceNames(n));
+    const hasIp4 = !!n.ip4;
+    const up = state === "up" || (state === "" && hasIp4);
+    return up && (hasIp4 || (platform === "win32" && state === "up")) && VPN_RE.test(ifaceNames(n));
   });
   if (active) {
-    return { detected: true, name: active.ifaceName || active.iface };
+    const name = active.ifaceName || active.iface;
+    const adapter = active.iface || "";
+    const genericTunnelName = /^(?:wireguard(?: tunnel)?|(?:tun|tap|wg|utun)\d*)$/i;
+    return {
+      detected: true,
+      name: genericTunnelName.test(name) && adapter && !/^\{[^}]+\}$/.test(adapter) ? adapter : name,
+    };
   }
   return { detected: false, name: null };
 }

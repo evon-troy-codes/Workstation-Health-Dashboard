@@ -605,9 +605,28 @@ test("detectVpn", async (t) => {
     assert.deepEqual(detectVpn(net), { detected: true, name: "Tailscale" });
   });
 
+  await t.test("detects an active Windows WireGuard adapter without an IPv4 reading", () => {
+    const net = [
+      { iface: "ProtonVPN", ifaceName: "ProtonVPN", operstate: "down", ip4: "10.2.0.2" },
+      { iface: "ProtonVPN", ifaceName: "WireGuard Tunnel", operstate: "up", ip4: null },
+    ];
+    assert.deepEqual(detectVpn(net, "win32"), { detected: true, name: "ProtonVPN" });
+  });
+
+  await t.test("keeps a generic WireGuard label when Windows provides no adapter alias", () => {
+    const net = [{ iface: "{GUID}", ifaceName: "WireGuard Tunnel", operstate: "up", ip4: null }];
+    assert.deepEqual(detectVpn(net, "win32"), { detected: true, name: "WireGuard Tunnel" });
+  });
+
+  await t.test("does not treat an unreported Windows interface state as active", () => {
+    const net = [{ iface: "ProtonVPN", ifaceName: "WireGuard Tunnel", ip4: null }];
+    assert.deepEqual(detectVpn(net, "win32"), { detected: false, name: null });
+  });
+
   await t.test("ignores an idle tunnel interface with no IPv4", () => {
     const net = [{ iface: "utun0", ifaceName: "utun0", operstate: "up", ip4: null }];
-    assert.deepEqual(detectVpn(net), { detected: false, name: null });
+    assert.deepEqual(detectVpn(net, "darwin"), { detected: false, name: null });
+    assert.deepEqual(detectVpn(net, "linux"), { detected: false, name: null });
   });
 
   await t.test("returns not-detected when nothing matches", () => {
