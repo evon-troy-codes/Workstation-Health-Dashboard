@@ -114,6 +114,12 @@ function run(cmd, args, timeout = 10000) {
   });
 }
 
+function windowsRegExecutable(env = process.env) {
+  // A bare `reg` could resolve to an executable in the current directory.
+  const root = env.SystemRoot || env.windir || "C:\\Windows";
+  return path.win32.join(root, "System32", "reg.exe");
+}
+
 // macOS and Linux: whether the file is there and only root can change it.
 // → { raw: null } (no file), { invalid } or { ok: true }.
 function checkRootFile(file, statImpl = fs.statSync) {
@@ -134,11 +140,11 @@ function checkRootFile(file, statImpl = fs.statSync) {
 }
 
 // → { raw } (null when there are no settings) or { invalid: reason }.
-async function readRaw(platform) {
+async function readRaw(platform, runCommand = run) {
   if (platform === "win32") {
     // /reg:64: the 64-bit view, where Group Policy and Intune write. An
     // error (exit code 1) means the key isn't there: not managed.
-    const { err, stdout } = await run("reg", ["query", REG_KEY, "/reg:64"]);
+    const { err, stdout } = await runCommand(windowsRegExecutable(), ["query", REG_KEY, "/reg:64"]);
     if (err) return { raw: null };
     const values = parseRegQuery(stdout);
     return { raw: Object.keys(values).length ? values : null };
@@ -146,7 +152,7 @@ async function readRaw(platform) {
   if (platform === "darwin") {
     const check = checkRootFile(MAC_FILE);
     if (!check.ok) return check;
-    const { err, stdout } = await run("plutil", ["-convert", "json", "-o", "-", MAC_FILE]);
+    const { err, stdout } = await runCommand("plutil", ["-convert", "json", "-o", "-", MAC_FILE]);
     return err ? { invalid: "unreadable" } : parseJsonSettings(stdout);
   }
   if (platform === "linux") {
@@ -162,9 +168,9 @@ async function readRaw(platform) {
 }
 
 // This computer's managed settings (normalizeSettings's shape). Never throws.
-async function readManagedSettings(platform = process.platform) {
+async function readManagedSettings(platform = process.platform, { runCommand = run } = {}) {
   try {
-    const found = await readRaw(platform);
+    const found = await readRaw(platform, runCommand);
     return found.invalid ? { status: "invalid", reason: found.invalid } : normalizeSettings(found.raw);
   } catch (_) {
     return { status: "invalid", reason: "unreadable" };
@@ -173,5 +179,5 @@ async function readManagedSettings(platform = process.platform) {
 
 module.exports = {
   normalizeSettings, parseJsonSettings, parseRegQuery, ownedByRootOnly, checkRootFile,
-  readManagedSettings, REG_KEY, MAC_FILE, LINUX_FILE,
+  readManagedSettings, windowsRegExecutable, REG_KEY, MAC_FILE, LINUX_FILE,
 };

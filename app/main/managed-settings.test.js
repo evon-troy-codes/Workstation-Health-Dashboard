@@ -4,6 +4,7 @@ const test = require("node:test");
 const assert = require("node:assert/strict");
 const {
   normalizeSettings, parseJsonSettings, parseRegQuery, ownedByRootOnly, checkRootFile, readManagedSettings,
+  windowsRegExecutable, REG_KEY,
 } = require("./managed-settings");
 
 const GOOD = { version: 1, organization: "Acme IT", fleetUrl: "https://fleet.acme.example", enrollmentKey: "ek_abc" };
@@ -128,4 +129,27 @@ test("only root may own and change the settings file", async (t) => {
 
 test("readManagedSettings never throws, and is off where there's nothing", async () => {
   assert.deepEqual(await readManagedSettings("aix"), { status: "off" });
+});
+
+test("Windows managed settings run reg.exe from System32", async () => {
+  const calls = [];
+  const result = await readManagedSettings("win32", {
+    runCommand: async (...args) => {
+      calls.push(args);
+      return {
+        err: null,
+        stdout: `    fleetUrl    REG_SZ    ${GOOD.fleetUrl}\n    enrollmentKey    REG_SZ    ${GOOD.enrollmentKey}`,
+      };
+    },
+  });
+
+  assert.deepEqual(calls, [[windowsRegExecutable(), ["query", REG_KEY, "/reg:64"]]]);
+  assert.equal(result.status, "on");
+  assert.equal(result.fleetUrl, `${GOOD.fleetUrl}/`);
+});
+
+test("windowsRegExecutable uses the Windows system directory", () => {
+  assert.equal(windowsRegExecutable({ SystemRoot: "D:\\WIN" }), "D:\\WIN\\System32\\reg.exe");
+  assert.equal(windowsRegExecutable({ windir: "E:\\Windows" }), "E:\\Windows\\System32\\reg.exe");
+  assert.equal(windowsRegExecutable({}), "C:\\Windows\\System32\\reg.exe");
 });

@@ -49,13 +49,13 @@ function probeTimings() {
 // or runs long: every caller treats that as "this machine can't tell me", not
 // as an error. `okExitCodes` covers tools that report findings through their
 // exit status (dnf answers 100 when updates are pending).
-function runCmd(cmd, args, { timeout = 10000, okExitCodes = [] } = {}) {
+function runCmd(cmd, args, { timeout = 10000, okExitCodes = [], execFileImpl = execFile } = {}) {
   return new Promise((resolve) => {
     // 4 MB: the default 1 MB is enough for a normal listing but not for a
     // machine hundreds of updates behind, where truncation would read as
     // "this machine can't tell me" instead of a large number.
     const opts = { timeout, windowsHide: true, env: toolEnv(), maxBuffer: 4 * 1024 * 1024 };
-    execFile(cmd, args, opts, (err, stdout) => {
+    execFileImpl(cmd, args, opts, (err, stdout) => {
       if (err && !okExitCodes.includes(err.code)) return resolve(null);
       resolve(stdout || "");
     });
@@ -65,10 +65,10 @@ function runCmd(cmd, args, { timeout = 10000, okExitCodes = [] } = {}) {
 // Like runCmd, for a tool whose exit code alone can't tell success from
 // failure: resolves { code, stdout, stderr } whatever it exits with, or null
 // when it can't be started or runs past the timeout.
-function runCmdResult(cmd, args, { timeout = 10000 } = {}) {
+function runCmdResult(cmd, args, { timeout = 10000, execFileImpl = execFile } = {}) {
   return new Promise((resolve) => {
     const opts = { timeout, windowsHide: true, env: toolEnv(), maxBuffer: 4 * 1024 * 1024 };
-    execFile(cmd, args, opts, (err, stdout, stderr) => {
+    execFileImpl(cmd, args, opts, (err, stdout, stderr) => {
       if (err && typeof err.code !== "number") return resolve(null); // not started, killed or timed out
       resolve({ code: err ? err.code : 0, stdout: stdout || "", stderr: stderr || "" });
     });
@@ -1898,6 +1898,8 @@ module.exports = {
   toolEnv,
   findTool,
   windowsPowerShell,
+  runCmd,
+  runCmdResult,
   ageOf,
   runningProcessNames,
   parseWindowsUpdates,

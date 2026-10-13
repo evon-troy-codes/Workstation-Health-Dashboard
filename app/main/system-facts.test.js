@@ -1,6 +1,4 @@
-// Unit tests for the pure/parsing helpers in system-facts.js. Detection
-// functions that shell out to OS-specific tools (PowerShell, si.*) are left
-// untested here — they need a live workstation, not a unit test.
+// Unit tests for the pure/parsing helpers and injectable OS command runners.
 const test = require("node:test");
 const assert = require("node:assert/strict");
 
@@ -27,6 +25,8 @@ const {
   toolEnv,
   findTool,
   windowsPowerShell,
+  runCmd,
+  runCmdResult,
   ageOf,
   parsePactlInfo,
   pactlDescription,
@@ -75,6 +75,48 @@ const {
   osNameVersion,
 } = require("./system-facts");
 const { execFileSync } = require("child_process");
+
+test("runCmd uses an injectable OS command runner", async (t) => {
+  const calls = [];
+  const runner = (cmd, args, options, callback) => {
+    calls.push({ cmd, args, options });
+    callback(null, "output", "");
+  };
+
+  assert.equal(await runCmd("tool", ["--check"], { timeout: 1234, execFileImpl: runner }), "output");
+  assert.equal(calls[0].cmd, "tool");
+  assert.deepEqual(calls[0].args, ["--check"]);
+  assert.equal(calls[0].options.timeout, 1234);
+  assert.equal(calls[0].options.windowsHide, true);
+  assert.equal(calls[0].options.maxBuffer, 4 * 1024 * 1024);
+
+  await t.test("nonzero exit codes fail unless explicitly accepted", async () => {
+    const failedRunner = (_cmd, _args, _options, callback) => {
+      callback(Object.assign(new Error("exit 100"), { code: 100 }), "pending");
+    };
+    assert.equal(await runCmd("tool", [], { execFileImpl: failedRunner }), null);
+    assert.equal(await runCmd("tool", [], { okExitCodes: [100], execFileImpl: failedRunner }), "pending");
+  });
+});
+
+test("runCmdResult exposes command output and rejects launch/timeout failures", async () => {
+  const success = (_cmd, _args, _options, callback) => callback(null, "stdout", "stderr");
+  assert.deepEqual(await runCmdResult("tool", [], { execFileImpl: success }), {
+    code: 0, stdout: "stdout", stderr: "stderr",
+  });
+
+  const exited = (_cmd, _args, _options, callback) => {
+    callback(Object.assign(new Error("exit 2"), { code: 2 }), "partial", "problem");
+  };
+  assert.deepEqual(await runCmdResult("tool", [], { execFileImpl: exited }), {
+    code: 2, stdout: "partial", stderr: "problem",
+  });
+
+  const timedOut = (_cmd, _args, _options, callback) => {
+    callback(Object.assign(new Error("timed out"), { code: "ETIMEDOUT" }));
+  };
+  assert.equal(await runCmdResult("tool", [], { execFileImpl: timedOut }), null);
+});
 
 test("parseWindowsAvResult", async (t) => {
   const defender = { name: "Windows Defender", enabled: true, updated: true, timestamp: null };
