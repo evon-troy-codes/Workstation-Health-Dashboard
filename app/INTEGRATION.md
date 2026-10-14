@@ -184,7 +184,7 @@ renderer: window.whd.managed()          → { managed, organization, server } or
           ...slow scans back and the speed test finished...
           window.whd.fleetReport(facts) → main builds the report (only bandwidth from here)
             └─ fleet-client.js: POST /v1/enroll once, then POST /v1/reports
-          window.whd.fleetStatus()      → { result, lastSentAt } for "What's sent"
+          window.whd.fleetStatus()      → { result, lastSentAt, pending } for "What's sent"
 ```
 
 - The renderer is told the organization and the server's host, never the
@@ -195,8 +195,10 @@ renderer: window.whd.managed()          → { managed, organization, server } or
 - The token is in `fleet.json` in the user data folder (mode 0600),
   encrypted with `safeStorage` unless Linux has no keychain (`basic_text`).
 - Results: `sent`, `removed` (IT revoked the computer), `key-refused`,
-  `not-set-up`, `failed`. Nothing is queued: the next launch or Re-scan
-  sends a fresh report. `report-messages.js` (`fleetResult`) words them.
+  `not-set-up`, `failed`, `expired`. The latest unsent report is saved in
+  `fleet.json` for up to 24 hours; a newer scan replaces it, and the next
+  launch or Re-scan retries it. "What's sent" shows its pending state.
+  `report-messages.js` (`fleetResult`) words the results.
 - `explain: false` hides "Explain my results" and refuses `whd:explain`.
 - The footer's "Managed by …" line replaces "Data source" while managed,
   since "nothing leaves this machine" is no longer true. Settings that are

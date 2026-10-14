@@ -792,7 +792,7 @@ function App() {
   // Workstation Scanner for Teams: whether IT manages this computer, and how
   // the last report to the company's server went.
   const [managed, setManaged] = useState(null);
-  const [fleet, setFleet] = useState({ result: null, lastSentAt: null });
+  const [fleet, setFleet] = useState({ result: null, lastSentAt: null, pending: false });
   useEffect(() => {
     window.whd.managed().then(setManaged, () => setManaged(null));
   }, []);
@@ -889,7 +889,7 @@ function App() {
     reported.current = scannedAt;
     window.whd.fleetReport(facts)
       .then(() => window.whd.fleetStatus())
-      .then(setFleet, () => {});
+      .then(setFleet, () => setFleet({ result: "failed", lastSentAt: null, pending: false }));
   }, [managed, facts, scannedAt, deferredDone, deferredFailed, speed.testing, speed.runs]);
 
   const started = useRef(false);

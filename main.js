@@ -75,7 +75,8 @@ const REPORT_ENDPOINT = reportEndpoint(process.env, require("./package.json"));
 
 // Workstation Scanner for Teams (docs/design/fleet-mode.md): when IT has set
 // managed settings, each scan is sent to the company's fleet server, once
-// per launch or Re-scan. Read once at startup; null until then.
+// per launch or Re-scan. A failed send keeps only the latest report for
+// up to 24 hours. Read once at startup; null until then.
 let managed = null; // readManagedSettings's result
 let fleetClient = null;
 let reportedScan = 0; // the scanCount last sent, so a scan is sent once
@@ -302,7 +303,7 @@ if (cli.error) {
 
     handle("whd:fleet-status", async () => {
       await managedReady;
-      return fleetClient ? fleetClient.status() : { result: null, lastSentAt: null };
+      return fleetClient ? fleetClient.status() : { result: null, lastSentAt: null, pending: false };
     });
 
     // "Share report": the report built from main's own scan (only the speed

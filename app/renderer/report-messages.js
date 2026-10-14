@@ -60,12 +60,15 @@ export function modelLabel(id) {
 // How the last report to the company's fleet server went, in words, for the
 // "What's sent" dialog. Results come from app/main/fleet-client.js; null
 // (not tried yet this session) and "sent" need no explanation.
-export function fleetResult(result, org) {
+export function fleetResult(result, org, pending = false) {
   switch (result) {
     case "removed":     return `${org} removed this computer from its dashboard, so its scans aren't being sent. Ask ${org} if that's a mistake.`;
     case "key-refused": return `${org}'s server refused this computer. Let ${org} know: the managed settings may hold an old enrollment key.`;
     case "not-set-up":  return `${org}'s server isn't set up yet. Scans will be sent once it is.`;
-    case "failed":      return `The last scan couldn't be sent to ${org}. The next one goes when you open the app or re-scan.`;
+    case "failed":      return pending
+      ? `The last scan couldn't be sent to ${org}. The latest report is saved for up to 24 hours and will be retried when you open the app or re-scan.`
+      : `The last scan couldn't be sent or saved for retry to ${org}. Re-scan to try again.`;
+    case "expired":     return `A saved scan could not be sent within 24 hours, so it was discarded. The next scan will be sent to ${org}.`;
     default:            return null;
   }
 }

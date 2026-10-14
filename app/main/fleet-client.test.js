@@ -18,13 +18,15 @@ async function server() {
   await store.migrate();
   const { enrollmentKey } = await store.setUp({ organization: "Acme IT" });
   const calls = [];
+  const reports = [];
   let down = false;
   const fetchImpl = async (url, init) => {
     calls.push({ url, auth: init.headers.Authorization || null, redirect: init.redirect });
     if (down) throw new TypeError("fetch failed");
+    if (url.endsWith("/v1/reports")) reports.push(JSON.parse(init.body));
     return handleRequest(new Request(url, init), { store, now: () => NOW });
   };
-  return { db, store, enrollmentKey, calls, fetchImpl, setDown: (v) => { down = v; } };
+  return { db, store, enrollmentKey, calls, reports, fetchImpl, setDown: (v) => { down = v; } };
 }
 
 // A keychain that "encrypts" visibly, so a test can tell where the token went.
@@ -38,17 +40,17 @@ const keychain = (available = true) => ({
   },
 });
 
-function client(srv, { state = { value: null }, kc = keychain(), settings = {} } = {}) {
+function client(srv, { state = { value: null }, kc = keychain(), settings = {}, now = () => NOW, fetchImpl = srv.fetchImpl } = {}) {
   let n = 0;
   return createFleetClient({
     settings: { status: "on", organization: "Acme IT", fleetUrl: FLEET, enrollmentKey: srv.enrollmentKey, ...settings },
     readState: () => state.value,
     writeState: (s) => { state.value = JSON.parse(JSON.stringify(s)); },
     keychain: kc,
-    fetchImpl: srv.fetchImpl,
+    fetchImpl,
     randomUUID: () => `6f1c2a9e-3b4d-4e5f-8a7b-9c0d1e2f3a4${n++}`,
     hostname: () => "PC-01",
-    now: () => NOW,
+    now,
   });
 }
 
@@ -65,7 +67,8 @@ test("the first send enrolls, then reports", async () => {
   assert.equal(srv.db.prepare("SELECT name FROM devices").get().name, "PC-01");
   assert.equal(state.value.token.kind, "keychain");
   assert.equal(state.value.lastSentAt, NOW.toISOString());
-  assert.deepEqual(c.status(), { result: "sent", lastSentAt: NOW.toISOString() });
+  assert.equal(state.value.pendingReport, null);
+  assert.deepEqual(c.status(), { result: "sent", lastSentAt: NOW.toISOString(), pending: false });
 });
 
 test("later sends reuse the token and the device ID", async () => {
@@ -142,16 +145,34 @@ test("a refused enrollment key, and a server not set up yet", async () => {
   assert.equal(await client(fresh).send(envelope()), "not-set-up");
 });
 
-test("offline: 'failed', nothing queued, and the next send goes fresh", async () => {
+test("offline: keeps the latest report and retries it on the next send", async () => {
   const srv = await server();
   const state = { value: null };
   const c = client(srv, { state });
   srv.setDown(true);
   assert.equal(await c.send(envelope()), "failed");
-  assert.deepEqual(c.status(), { result: "failed", lastSentAt: null });
+  assert.deepEqual(c.status(), { result: "failed", lastSentAt: null, pending: true });
+  assert.equal(state.value.pendingReport.envelope.trigger, "launch");
+  assert.equal(await c.send(envelope("rescan")), "failed");
+  assert.equal(state.value.pendingReport.envelope.trigger, "rescan", "a newer scan replaces the old one");
   srv.setDown(false);
-  assert.equal(await c.send(envelope("rescan")), "sent");
-  assert.equal(srv.db.prepare("SELECT COUNT(*) n FROM reports").get().n, 1, "only the new one");
+  assert.equal(await client(srv, { state }).send(envelope("rescan")), "sent");
+  assert.equal(srv.db.prepare("SELECT COUNT(*) n FROM reports").get().n, 1);
+  assert.equal(srv.reports[0].trigger, "rescan");
+  assert.equal(state.value.pendingReport, null);
+  assert.equal(client(srv, { state }).status().pending, false);
+});
+
+test("discards a pending report after 24 hours", async () => {
+  const srv = await server();
+  const state = { value: null };
+  let now = NOW;
+  const c = client(srv, { state, now: () => now });
+  srv.setDown(true);
+  assert.equal(await c.send(envelope()), "failed");
+  now = new Date(NOW.getTime() + 24 * 60 * 60 * 1000 + 1);
+  assert.deepEqual(c.status(), { result: "expired", lastSentAt: null, pending: false });
+  assert.equal(state.value.pendingReport, null);
 });
 
 test("sends run one at a time", async () => {
@@ -160,6 +181,53 @@ test("sends run one at a time", async () => {
   const results = await Promise.all([c.send(envelope()), c.send(envelope("rescan"))]);
   assert.deepEqual(results, ["sent", "sent"]);
   assert.equal(srv.calls.filter((x) => x.url.endsWith("/v1/enroll")).length, 1, "the second waited for the first's token");
+  assert.equal(srv.db.prepare("SELECT COUNT(*) n FROM reports").get().n, 1, "only the latest queued report is sent");
+  assert.equal(srv.reports[0].trigger, "rescan");
+});
+
+test("a newer report queued during a send is not cleared by the earlier success", async () => {
+  const srv = await server();
+  const state = { value: null };
+  let releaseReport;
+  let reportStarted;
+  const started = new Promise((resolve) => { reportStarted = resolve; });
+  const gate = new Promise((resolve) => { releaseReport = resolve; });
+  let delayed = false;
+  const fetchImpl = async (url, init) => {
+    if (url.endsWith("/v1/reports") && !delayed) {
+      delayed = true;
+      reportStarted();
+      await gate;
+    }
+    return srv.fetchImpl(url, init);
+  };
+  const c = client(srv, { state, fetchImpl });
+  const first = c.send(envelope());
+  await started;
+  const second = c.send(envelope("rescan"));
+  assert.equal(state.value.pendingReport.envelope.trigger, "rescan");
+  releaseReport();
+  assert.deepEqual(await Promise.all([first, second]), ["sent", "sent"]);
+  assert.deepEqual(srv.reports.map((report) => report.trigger), ["launch", "rescan"]);
+  assert.equal(state.value.pendingReport, null);
+});
+
+test("a report is not sent when it cannot be saved for retry", async () => {
+  const srv = await server();
+  const state = { value: null };
+  const c = createFleetClient({
+    settings: { status: "on", organization: "Acme IT", fleetUrl: FLEET, enrollmentKey: srv.enrollmentKey },
+    readState: () => state.value,
+    writeState: () => { throw new Error("disk full"); },
+    keychain: keychain(),
+    fetchImpl: srv.fetchImpl,
+    randomUUID: () => "6f1c2a9e-3b4d-4e5f-8a7b-9c0d1e2f3a4",
+    hostname: () => "PC-01",
+    now: () => NOW,
+  });
+  assert.equal(await c.send(envelope()), "failed");
+  assert.deepEqual(srv.calls, [], "do not send a report that cannot be retried");
+  assert.deepEqual(c.status(), { result: "failed", lastSentAt: null, pending: false });
 });
 
 test("a state file that's damaged is replaced", async () => {

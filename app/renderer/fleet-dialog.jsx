@@ -22,7 +22,7 @@ const SENT = [
 
 const NOT_SENT = "Not sent: the network card's MAC address, the Wi-Fi network's name, and anything in your files, browsing, screen or keystrokes. The app can't collect those.";
 
-// managed: { organization, server }; status: { result, lastSentAt };
+// managed: { organization, server }; status: { result, lastSentAt, pending };
 // lastSent: how long ago, as a node (the caller's live "ago" label).
 function FleetDialog({ managed, status, lastSent, onClose }) {
   const dialog = useRef(null);
@@ -41,7 +41,7 @@ function FleetDialog({ managed, status, lastSent, onClose }) {
     keepFocusInside(dialog.current, dialog.current && dialog.current.querySelector(".foot-btn"));
   }, []);
 
-  const problem = fleetResult(status && status.result, org);
+  const problem = fleetResult(status && status.result, org, status && status.pending);
 
   return (
     <div className="dialog-backdrop" onMouseDown={(e) => { if (e.target === e.currentTarget) onClose(); }}>
@@ -62,6 +62,7 @@ function FleetDialog({ managed, status, lastSent, onClose }) {
         <dl className="dialog-facts">
           <dt>Sent to</dt><dd>{managed.server}</dd>
           <dt>Last sent</dt><dd>{status && status.lastSentAt ? lastSent : "Not yet"}</dd>
+          <dt>Pending report</dt><dd>{status && status.pending ? "Saved for retry (up to 24 hours)" : "None"}</dd>
         </dl>
         {problem && <div className="dialog-error" role="status">{problem}</div>}
         <div className="dialog-actions">

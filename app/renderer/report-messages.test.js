@@ -65,8 +65,10 @@ test("fleetResult", async () => {
   const { fleetResult } = await load();
   assert.equal(fleetResult(null, "Acme IT"), null);
   assert.equal(fleetResult("sent", "Acme IT"), null);
-  for (const r of ["removed", "key-refused", "not-set-up", "failed"]) {
+  for (const r of ["removed", "key-refused", "not-set-up", "failed", "expired"]) {
     assert.match(fleetResult(r, "Acme IT"), /Acme IT/, r);
   }
   assert.match(fleetResult("removed", "Acme IT"), /removed this computer/);
+  assert.match(fleetResult("failed", "Acme IT", true), /saved for up to 24 hours/);
+  assert.match(fleetResult("failed", "Acme IT", false), /couldn't be sent or saved/);
 });

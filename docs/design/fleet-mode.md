@@ -193,8 +193,9 @@ plus a small envelope:
   and the speed test have finished (or the speed test failed), so each
   report has everything; sending twice would double the dashboard's rows.
   If the window closes first, it sends what it has.
-- **Offline:** only the latest unsent report is kept, and sent on the next
-  launch or Re-scan. Old readings aren't worth a queue.
+- **Offline:** only the latest unsent report is kept in the private fleet
+  state file for up to 24 hours. A newer scan replaces it, and the app retries
+  it on the next launch or Re-scan. Older readings aren't worth a longer queue.
 
 ## Enrollment and authentication
 
@@ -440,7 +441,8 @@ Agreed 2026-10-08, for phase 2:
 8. **No keychain on Linux:** a file only the user can read, rather than
    refusing to enroll.
 9. **One report per launch or Re-scan**, after the speed test.
-10. **Offline:** keep only the latest unsent report.
+10. **Offline:** keep only the latest unsent report, retry it on the next
+    launch or Re-scan, and discard it after 24 hours.
 11. **Shared computers:** one row per OS user, for now.
 12. **`include`:** not in phase 2.
 13. **"What's sent":** plain words, no JSON.
