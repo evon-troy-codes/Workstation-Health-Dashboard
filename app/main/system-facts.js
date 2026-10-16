@@ -871,12 +871,12 @@ async function detectDisplays() {
   if (fromMutter && fromMutter.length) return fromMutter;
   const fromHyprland = await hyprlandMonitors().catch(() => null);
   if (fromHyprland && fromHyprland.length) return fromHyprland;
-  const [graphics, windowsRates] = await Promise.all([
+  const [graphics, windowsModes] = await Promise.all([
     si.graphics().catch(() => ({})),
     process.platform === "win32" ? windowsDisplayRefreshRates() : null,
   ]);
   const monitors = withoutXwaylandModes(monitorsFromGraphics(graphics));
-  return windowsRates ? applyWindowsDisplayRefreshRates(monitors, windowsRates) : monitors;
+  return windowsModes ? applyWindowsDisplayRefreshRates(monitors, windowsModes) : monitors;
 }
 
 const PS_DISPLAY_REFRESH = [
@@ -920,8 +920,8 @@ const PS_DISPLAY_REFRESH = [
   "      if (!EnumDisplayDevices(null, i, ref d, 0)) break;",
   "      if ((d.StateFlags & 1) == 0) continue;",
   "      var m = new DevMode(); m.dmSize = (short)Marshal.SizeOf(typeof(DevMode));",
-  "      if (EnumDisplaySettings(d.DeviceName, -1, ref m) && m.dmDisplayFrequency > 1)",
-  "        rates.Add(d.DeviceName + \"|\" + m.dmDisplayFrequency.ToString(CultureInfo.InvariantCulture));",
+  "        if (EnumDisplaySettings(d.DeviceName, -1, ref m) && m.dmPelsWidth > 0 && m.dmPelsHeight > 0)",
+  "        rates.Add(d.DeviceName + \"|\" + m.dmPelsWidth.ToString(CultureInfo.InvariantCulture) + \"|\" + m.dmPelsHeight.ToString(CultureInfo.InvariantCulture) + \"|\" + m.dmDisplayFrequency.ToString(CultureInfo.InvariantCulture));",
   "    }",
   "    return rates.ToArray();",
   "  }",
@@ -940,20 +940,29 @@ async function windowsDisplayRefreshRates() {
 function parseWindowsDisplayRefreshRates(output) {
   const rates = {};
   for (const line of String(output || "").split(/\r?\n/)) {
-    const split = line.lastIndexOf("|");
-    if (split < 0) continue;
-    const device = line.slice(0, split).trim().toLowerCase();
-    const rate = Number(line.slice(split + 1).trim());
-    if (device && Number.isFinite(rate) && rate > 1) rates[device] = rate;
+    const [rawDevice, rawWidth, rawHeight, rawRate] = line.split("|");
+    const device = (rawDevice || "").trim().toLowerCase();
+    const width = Number(rawWidth);
+    const height = Number(rawHeight);
+    const refreshHz = Number(rawRate);
+    if (device && Number.isInteger(width) && width > 0
+      && Number.isInteger(height) && height > 0) {
+      rates[device] = { width, height, refreshHz: Number.isFinite(refreshHz) && refreshHz > 1 ? refreshHz : null };
+    }
   }
   return rates;
 }
 
 function applyWindowsDisplayRefreshRates(monitors, rates) {
   return monitors.map((monitor) => {
-    const rate = rates[String(monitor.displayId || "").toLowerCase()];
-    if (!rate) return monitor;
-    return { ...monitor, refreshHz: rate };
+    const mode = rates[String(monitor.displayId || "").toLowerCase()];
+    if (!mode) return monitor;
+    return {
+      ...monitor,
+      width: mode.width,
+      height: mode.height,
+      refreshHz: mode.refreshHz || monitor.refreshHz,
+    };
   });
 }
 

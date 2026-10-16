@@ -756,32 +756,34 @@ test("summarizeDisplays", async (t) => {
 
   test("Windows display refresh rates", async (t) => {
     await t.test("parses the active rate by display device name", () => {
-      assert.deepEqual(parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|240\r\n\\\\.\\DISPLAY2|144\r\n"), {
-        "\\\\.\\display1": 240,
-        "\\\\.\\display2": 144,
+      assert.deepEqual(parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|5120|1440|240\r\n\\\\.\\DISPLAY2|2560|1440|144\r\n"), {
+        "\\\\.\\display1": { width: 5120, height: 1440, refreshHz: 240 },
+        "\\\\.\\display2": { width: 2560, height: 1440, refreshHz: 144 },
       });
     });
 
-    await t.test("ignores invalid rates and retains systeminformation values when unmatched", () => {
-      const rates = parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|0\nbad\n\\\\.\\DISPLAY2|NaN\n");
+    await t.test("ignores invalid dimensions and retains systeminformation rate when Windows says default", () => {
+      const rates = parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|0|800|60\nbad\n\\\\.\\DISPLAY2|1920|1200|1\n");
       const monitors = applyWindowsDisplayRefreshRates([
-        { displayId: "\\\\.\\DISPLAY1", refreshHz: 60 },
-        { displayId: "\\\\.\\DISPLAY3", refreshHz: 59 },
+        { displayId: "\\\\.\\DISPLAY1", width: 1280, height: 800, refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1280, height: 800, refreshHz: 59 },
+        { displayId: "\\\\.\\DISPLAY3", width: 1024, height: 768, refreshHz: 59 },
       ], rates);
       assert.deepEqual(monitors, [
-        { displayId: "\\\\.\\DISPLAY1", refreshHz: 60 },
-        { displayId: "\\\\.\\DISPLAY3", refreshHz: 59 },
+        { displayId: "\\\\.\\DISPLAY1", width: 1280, height: 800, refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1920, height: 1200, refreshHz: 59 },
+        { displayId: "\\\\.\\DISPLAY3", width: 1024, height: 768, refreshHz: 59 },
       ]);
     });
 
-    await t.test("replaces stale values only for the matching display", () => {
-      const rates = parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|240\n");
+    await t.test("replaces stale modes only for the matching display", () => {
+      const rates = parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|1920|1200|240\n");
       assert.deepEqual(applyWindowsDisplayRefreshRates([
-        { displayId: "\\\\.\\DISPLAY1", refreshHz: 60 },
-        { displayId: "\\\\.\\DISPLAY2", refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY1", width: 1280, height: 800, refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1920, height: 1080, refreshHz: 60 },
       ], rates), [
-        { displayId: "\\\\.\\DISPLAY1", refreshHz: 240 },
-        { displayId: "\\\\.\\DISPLAY2", refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY1", width: 1920, height: 1200, refreshHz: 240 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1920, height: 1080, refreshHz: 60 },
       ]);
     });
   });
