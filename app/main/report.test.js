@@ -88,11 +88,13 @@ test("buildReport", async (t) => {
   await t.test("merges the deferred results when they have landed", () => {
     const deferred = {
       pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked",
+      cpu: { model: "Intel Core Ultra 5 236V", cores: 8, threads: 8 },
       ssd: true, backgroundApps: { browserExtensions: 1, runningApps: ["Zoom"] },
       display: { count: 1, resolution: "1920 × 1080" },
       firewall: { checked: true, products: [{ name: "Windows Firewall", active: true, detail: null }] },
     };
     const r = buildReport(scanned, deferred, {});
+    assert.deepEqual(r.cpu, deferred.cpu);
     assert.deepEqual(r.firewall, deferred.firewall);
     assert.deepEqual(r.display, deferred.display);
     assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked", appUpdates: {} });

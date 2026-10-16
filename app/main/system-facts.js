@@ -128,14 +128,14 @@ const exists = (p) => {
 
 async function collectFacts() {
   // Everything fast runs in one parallel batch. Deliberately excluded and
-  // resolved lazily instead (see detectDeferred): si.diskLayout() (SSD flag,
-  // ~7s Windows storage provider), the OS update check, si.processes(),
-  // which is among the slowest calls on Windows, and si.graphics(), whose WMI
+  // resolved lazily instead (see detectDeferred): si.cpu() and si.diskLayout()
+  // (both slow Windows providers), the OS update check, si.processes(), which
+  // is among the slowest calls on Windows, and si.graphics(), whose WMI
   // queries held up the first paint on Windows.
-  const [cpu, mem, memLayout, osInfo, system, fsSize, net, gateway,
+  const [mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, defIfaceName,
          antivirus, audio, dnsServers] = await Promise.all([
-    probe(si.cpu(), {}, "cpu"), probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
+    probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
     probe(si.osInfo(), {}, "osInfo"), probe(si.system(), {}, "system"), probe(si.fsSize(), [], "fsSize"),
     probe(si.networkInterfaces(), [], "networkInterfaces"),
     probe(si.networkGatewayDefault(), "", "networkGatewayDefault"),
@@ -177,18 +177,7 @@ async function collectFacts() {
     uptime: humanUptime(os.uptime()),
     appVersion: APP_VERSION,
 
-    cpu: {
-      model: [cpu.manufacturer, cpu.brand].filter(Boolean).join(" ") || "Unknown",
-      // systeminformation's `cores` counts logical processors (threads).
-      cores: cpu.physicalCores || cpu.cores || 0,
-      threads: cpu.cores || 0,
-      perfCores: cpu.performanceCores || cpu.physicalCores || cpu.cores || 0,
-      effCores: cpu.efficiencyCores || 0,
-      ...cpuSpeed(cpu),
-      family: cpu.manufacturer || "Unknown",
-      arch: os.arch(),
-      series: cpu.brand || "Unknown",
-    },
+    cpu: cpuFacts({}),
     machineType: `${system.manufacturer || ""} ${system.model || os.platform()}`.trim(),
     ram: {
       totalGB: Math.round((mem.total || 0) / GB),
@@ -849,21 +838,22 @@ function linuxFirewallFrom({ ufwInstalled, firewalldInstalled, ufwEnabled, servi
   return { products, checked: services != null || products.length > 0 };
 }
 
-// Slow detections, fetched lazily after first paint: OS update status, the SSD
-// flag (both hit slow Windows providers), the running-process scan and the
-// firewall (a PowerShell on Windows). Returned
-// together so the renderer merges them in a single re-render. Each is wrapped
-// so one slow provider cannot strand the others.
+// Slow detections, fetched lazily after first paint: CPU and disk details (slow
+// Windows providers), OS update status, the running-process scan and the
+// firewall (a PowerShell on Windows). Returned together so the renderer merges
+// them in a single re-render. Each is wrapped so one slow provider cannot
+// strand the others.
 async function detectDeferred() {
-  const [updates, ssd, backgroundApps, graphics, firewall, appUpdates] = await Promise.all([
+  const [updates, ssd, backgroundApps, graphics, firewall, appUpdates, cpu] = await Promise.all([
     probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
     probe(detectSsd(), null, "deferred:ssd"),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
     probe(detectDisplays(), [], "deferred:graphics"),
     probe(detectFirewall(), { products: [], checked: false }, "deferred:firewall"),
     probe(detectAppUpdates(), {}, "deferred:appUpdates"),
+    probe(si.cpu(), {}, "deferred:cpu"),
   ]);
-  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall, appUpdates };
+  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall, appUpdates, cpu: cpuFacts(cpu) };
 }
 
 // The monitors, one entry each: { name, connection, builtin, main, width,
@@ -881,7 +871,90 @@ async function detectDisplays() {
   if (fromMutter && fromMutter.length) return fromMutter;
   const fromHyprland = await hyprlandMonitors().catch(() => null);
   if (fromHyprland && fromHyprland.length) return fromHyprland;
-  return withoutXwaylandModes(monitorsFromGraphics(await si.graphics().catch(() => ({}))));
+  const [graphics, windowsRates] = await Promise.all([
+    si.graphics().catch(() => ({})),
+    process.platform === "win32" ? windowsDisplayRefreshRates() : null,
+  ]);
+  const monitors = withoutXwaylandModes(monitorsFromGraphics(graphics));
+  return windowsRates ? applyWindowsDisplayRefreshRates(monitors, windowsRates) : monitors;
+}
+
+const PS_DISPLAY_REFRESH = [
+  "$ErrorActionPreference='Stop';",
+  "Add-Type -TypeDefinition @'",
+  "using System;",
+  "using System.Collections.Generic;",
+  "using System.Globalization;",
+  "using System.Runtime.InteropServices;",
+  "public static class WhdDisplay {",
+  "  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]",
+  "  public struct DisplayDevice {",
+  "    public int cb;",
+  "    [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string DeviceName;",
+  "    [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceString;",
+  "    public int StateFlags;",
+  "    [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceID;",
+  "    [MarshalAs(UnmanagedType.ByValTStr, SizeConst=128)] public string DeviceKey;",
+  "  }",
+  "  [StructLayout(LayoutKind.Sequential, CharSet=CharSet.Unicode)]",
+  "  public struct DevMode {",
+  "    [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string dmDeviceName;",
+  "    public short dmSpecVersion, dmDriverVersion, dmSize, dmDriverExtra;",
+  "    public int dmFields, dmPositionX, dmPositionY, dmDisplayOrientation, dmDisplayFixedOutput;",
+  "    public short dmColor, dmDuplex, dmYResolution, dmTTOption, dmCollate;",
+  "    [MarshalAs(UnmanagedType.ByValTStr, SizeConst=32)] public string dmFormName;",
+  "    public short dmLogPixels;",
+  "    public int dmBitsPerPel, dmPelsWidth, dmPelsHeight, dmDisplayFlags, dmDisplayFrequency;",
+  "    public int dmICMMethod, dmICMIntent, dmMediaType, dmDitherType, dmReserved1, dmReserved2, dmPanningWidth, dmPanningHeight;",
+  "  }",
+  "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)]",
+  "  [return: MarshalAs(UnmanagedType.Bool)]",
+  "  static extern bool EnumDisplayDevices(string device, uint index, ref DisplayDevice output, uint flags);",
+  "  [DllImport(\"user32.dll\", CharSet=CharSet.Unicode)]",
+  "  [return: MarshalAs(UnmanagedType.Bool)]",
+  "  static extern bool EnumDisplaySettings(string device, int mode, ref DevMode output);",
+  "  public static string[] CurrentRates() {",
+  "    var rates = new List<string>();",
+  "    for (uint i=0; i<32; i++) {",
+  "      var d = new DisplayDevice(); d.cb = Marshal.SizeOf(typeof(DisplayDevice));",
+  "      if (!EnumDisplayDevices(null, i, ref d, 0)) break;",
+  "      if ((d.StateFlags & 1) == 0) continue;",
+  "      var m = new DevMode(); m.dmSize = (short)Marshal.SizeOf(typeof(DevMode));",
+  "      if (EnumDisplaySettings(d.DeviceName, -1, ref m) && m.dmDisplayFrequency > 1)",
+  "        rates.Add(d.DeviceName + \"|\" + m.dmDisplayFrequency.ToString(CultureInfo.InvariantCulture));",
+  "    }",
+  "    return rates.ToArray();",
+  "  }",
+  "}",
+  "'@;",
+  "[WhdDisplay]::CurrentRates()",
+].join("\n");
+
+async function windowsDisplayRefreshRates() {
+  const output = await runCmd(windowsPowerShell(), [
+    "-NoProfile", "-ExecutionPolicy", "Bypass", "-Command", PS_DISPLAY_REFRESH,
+  ], { timeout: 10000 });
+  return parseWindowsDisplayRefreshRates(output);
+}
+
+function parseWindowsDisplayRefreshRates(output) {
+  const rates = {};
+  for (const line of String(output || "").split(/\r?\n/)) {
+    const split = line.lastIndexOf("|");
+    if (split < 0) continue;
+    const device = line.slice(0, split).trim().toLowerCase();
+    const rate = Number(line.slice(split + 1).trim());
+    if (device && Number.isFinite(rate) && rate > 1) rates[device] = rate;
+  }
+  return rates;
+}
+
+function applyWindowsDisplayRefreshRates(monitors, rates) {
+  return monitors.map((monitor) => {
+    const rate = rates[String(monitor.displayId || "").toLowerCase()];
+    if (!rate) return monitor;
+    return { ...monitor, refreshHz: rate };
+  });
 }
 
 // `hyprctl monitors -j` in a Hyprland session. Resolves null anywhere else
@@ -1031,6 +1104,7 @@ function monitorsFromGraphics(graphics) {
     return {
       name: named ? named.trim() : builtin ? "Built-in display" : d.connection ? `External display (${d.connection})` : `Display ${i + 1}`,
       connection: d.connection || null,
+      displayId: d.deviceName || null,
       builtin,
       main: Boolean(d.main),
       width: d.currentResX || d.resolutionX || null,
@@ -1257,6 +1331,21 @@ function cpuSpeed(cpu) {
   if (c.speedMax > 0) return { ghz: round1(c.speedMax), ghzKind: "max" };
   if (c.speed > 0) return { ghz: round1(c.speed), ghzKind: "base" };
   return { ghz: 0, ghzKind: null };
+}
+
+function cpuFacts(cpu = {}) {
+  return {
+    model: [cpu.manufacturer, cpu.brand].filter(Boolean).join(" ") || "Unknown",
+    // systeminformation's `cores` counts logical processors (threads).
+    cores: cpu.physicalCores || cpu.cores || 0,
+    threads: cpu.cores || 0,
+    perfCores: cpu.performanceCores || cpu.physicalCores || cpu.cores || 0,
+    effCores: cpu.efficiencyCores || 0,
+    ...cpuSpeed(cpu),
+    family: cpu.manufacturer || "Unknown",
+    arch: os.arch(),
+    series: cpu.brand || "Unknown",
+  };
 }
 
 // The OS card's name, version and build. On Linux they come from os-release
@@ -1919,6 +2008,8 @@ module.exports = {
   summarizeDisplays,
   summarizeMonitors,
   monitorsFromGraphics,
+  parseWindowsDisplayRefreshRates,
+  applyWindowsDisplayRefreshRates,
   parseMutterState,
   parseHyprlandMonitors,
   withoutXwaylandModes,

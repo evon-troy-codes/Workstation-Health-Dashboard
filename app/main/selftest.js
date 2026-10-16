@@ -9,8 +9,8 @@ const known = (v) => typeof v === "string" && v !== "" && v !== "Unknown";
 
 function selfTestResult({ facts, deferred, rendered, version, packaged }) {
   const f = facts || {};
-  const os = f.os || {}, cpu = f.cpu || {}, ram = f.ram || {}, disk = f.disk || {}, net = f.network || {};
   const d = deferred || {};
+  const os = f.os || {}, cpu = d.cpu || f.cpu || {}, ram = f.ram || {}, disk = f.disk || {}, net = f.network || {};
   return {
     version,
     packaged: Boolean(packaged),

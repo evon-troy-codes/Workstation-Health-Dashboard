@@ -171,7 +171,7 @@ async function summarise() {
   const rows = {
     platform: `${process.platform} ${process.arch}`,
     "os name": has(facts.os && facts.os.name),
-    "cpu model": has(facts.cpu && facts.cpu.model),
+    "cpu model": has(deferred.cpu && deferred.cpu.model),
     "ram total": has(facts.ram && facts.ram.totalGB),
     "disk total": has(facts.disk && facts.disk.totalGB),
     "network interface": has(facts.network && facts.network.interface),

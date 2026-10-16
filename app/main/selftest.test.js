@@ -5,7 +5,7 @@ const { selfTestResult, RENDERED_CHECK } = require("./selftest");
 
 const facts = { os: { name: "Omarchy" }, cpu: { model: "Intel Core Ultra 5 236V" }, ram: { totalGB: 15 }, disk: { totalGB: 475 },
   network: { interface: "wlan0", mac: "aa:bb:cc:dd:ee:ff", ipv4: "192.168.1.9" }, hostname: "devops", user: "evon" };
-const deferred = { lastUpdateCheck: "1 hour ago", display: { count: 2 } };
+const deferred = { cpu: { model: "Intel Core Ultra 5 236V" }, lastUpdateCheck: "1 hour ago", display: { count: 2 } };
 
 test("selfTestResult", async (t) => {
   await t.test("every reading that came back is true", () => {
