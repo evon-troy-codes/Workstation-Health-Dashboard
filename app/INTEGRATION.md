@@ -45,7 +45,9 @@ re-exports so source files can `import` it normally.
         └─ ipcRenderer.invoke("whd:get-facts")
              └─ collectFacts()      [main/system-facts.js]  ← REAL OS data
         ← facts object  → React state, published on AppContext
-   ├─ window.whd.getDeferred()     → merges OS updates, SSD flag, process scan
+   ├─ window.whd.getDeferred()     → merges slower checks, including machine
+   │                                type, audio, antivirus, OS updates, SSD
+   │                                and processes
    └─ speedtest.run()              → merges facts.bandwidth
 ```
 
@@ -53,7 +55,9 @@ Facts live in `<App>`'s React state and reach every screen through
 `AppContext` (`useApp()`), so a re-scan or a finished speed test re-renders
 the tree normally. Slow work never blocks first paint: the dashboard renders
 as soon as `collectFacts()` returns, and `getDeferred()` and the speed test
-merge their results in when they land.
+merge their results in when they land. Machine type and audio use checking placeholders until `getDeferred()` supplies
+their readings. Antivirus is marked pending on Windows/macOS and remains
+omitted on Linux when no product is known.
 
 ## What's real vs. what's a static default
 

@@ -92,6 +92,9 @@ test("buildReport", async (t) => {
       ssd: true, backgroundApps: { browserExtensions: 1, runningApps: ["Zoom"] },
       display: { count: 1, resolution: "1920 × 1080" },
       firewall: { checked: true, products: [{ name: "Windows Firewall", active: true, detail: null }] },
+      antivirus: { checked: true, products: [{ name: "Windows Defender", running: true }] },
+      audio: { output: "Speakers", input: "Microphone", headsetClass: "Built-in" },
+      machineType: "Dell Latitude",
     };
     const r = buildReport(scanned, deferred, {});
     assert.deepEqual(r.cpu, deferred.cpu);
@@ -100,6 +103,9 @@ test("buildReport", async (t) => {
     assert.deepEqual(r.os, { name: "Windows", pendingUpdates: 2, lastUpdateCheck: "3 hours ago", lastUpdateKind: "checked", appUpdates: {} });
     assert.equal(r.disk.ssd, true);
     assert.deepEqual(r.backgroundApps, deferred.backgroundApps);
+    assert.equal(r.machineType, deferred.machineType);
+    assert.deepEqual(r.antivirus, deferred.antivirus);
+    assert.deepEqual(r.audio, deferred.audio);
   });
 
   await t.test("takes the speed test from the renderer, as numbers and flags only", () => {

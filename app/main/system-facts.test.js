@@ -1806,7 +1806,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   // null only on Linux, when no known product is installed: the card is hidden.
   assert.ok(facts.antivirus === null ? process.platform === "linux" : Array.isArray(facts.antivirus.products),
     "antivirus must be { products: [] }, or null on Linux");
-  if (facts.antivirus) assert.equal(typeof facts.antivirus.checked, "boolean", "antivirus.checked must be true or false");
+  if (facts.antivirus) assert.equal(facts.antivirus.checked, null, "antivirus.checked is null until checked");
   // Filled in by detectDeferred after first paint; null means "still checking".
   assert.equal(facts.backgroundApps, null);
   assert.equal(facts.disk.ssd, null);
@@ -1814,6 +1814,10 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   assert.equal(facts.firewall, null);
   assert.equal(facts.bandwidth.measuredAt, null);
   assert.equal(facts.cpu.model, "Unknown");
+  assert.equal(facts.machineType, "Checking…");
+  assert.equal(facts.audio.output, "Checking…");
+  assert.equal(facts.audio.headsetClass, "Unknown");
+  if (facts.antivirus) assert.equal(facts.antivirus.checked, null, "antivirus is not checked yet");
 
   // A fallen-back probe must not surface as the string "undefined".
   assert.ok(!/undefined/.test(facts.cpu.model), "cpu.model leaked undefined");
@@ -1822,7 +1826,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
 test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
   const d = await detectDeferred();
-  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall", "appUpdates", "cpu"]) {
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall", "appUpdates", "cpu", "antivirus", "audio", "machineType"]) {
     assert.ok(key in d, `deferred.${key} is missing`);
   }
   for (const key of ["model", "cores", "threads", "perfCores", "effCores", "ghz", "ghzKind", "family", "arch", "series"]) {
@@ -1844,6 +1848,12 @@ test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, 
   }
   assert.ok(Array.isArray(d.backgroundApps.runningApps));
   assert.equal(typeof d.backgroundApps.browserExtensions, "number");
+  assert.ok(d.antivirus === null || Array.isArray(d.antivirus.products));
+  if (d.antivirus) assert.equal(typeof d.antivirus.checked, "boolean");
+  assert.equal(typeof d.audio.output, "string");
+  assert.equal(typeof d.audio.input, "string");
+  assert.equal(typeof d.audio.headsetClass, "string");
+  assert.equal(typeof d.machineType, "string");
   // The Display card's rows.
   for (const key of ["count", "monitors", "resolution", "refreshRate", "external", "externalCount", "externalSize", "externalConnection"]) {
     assert.ok(key in d.display, `deferred.display.${key} is missing`);
@@ -1861,12 +1871,13 @@ test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, 
 // check names and milliseconds only: no device, host or user names. Runs after
 // the live collectFacts/detectDeferred tests above, which fill it.
 test("probeTimings holds only check names and milliseconds, slowest first", { timeout: 90000 }, async () => {
-  if (!probeTimings().some(([k]) => k === "audio")) await collectFacts();
+  if (!probeTimings().some(([k]) => k === "mem")) await collectFacts();
   if (!probeTimings().some(([k]) => k.startsWith("deferred:"))) await detectDeferred();
   const timings = probeTimings();
-  const expected = ["mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
-    "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
-    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall", "deferred:appUpdates", "deferred:cpu"];
+  const expected = ["mem", "memLayout", "osInfo", "fsSize", "networkInterfaces",
+    "networkGatewayDefault", "battery", "networkInterfaceDefault", "dns",
+    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall", "deferred:appUpdates", "deferred:cpu",
+    "deferred:antivirus", "deferred:audio", "deferred:system"];
   assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
   for (const [k, ms] of timings) {
     assert.match(k, /^(deferred:)?[A-Za-z]+$/);

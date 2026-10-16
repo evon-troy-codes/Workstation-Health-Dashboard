@@ -128,22 +128,18 @@ const exists = (p) => {
 
 async function collectFacts() {
   // Everything fast runs in one parallel batch. Deliberately excluded and
-  // resolved lazily instead (see detectDeferred): si.cpu() and si.diskLayout()
-  // (both slow Windows providers), the OS update check, si.processes(), which
-  // is among the slowest calls on Windows, and si.graphics(), whose WMI
-  // queries held up the first paint on Windows.
-  const [mem, memLayout, osInfo, system, fsSize, net, gateway,
-         battery, defIfaceName,
-         antivirus, audio, dnsServers] = await Promise.all([
+  // resolved lazily instead (see detectDeferred): si.cpu(), si.system() and
+  // si.diskLayout() (slow Windows providers), the OS update check, si.processes(),
+  // which is among the slowest calls on Windows, si.graphics(), whose WMI
+  // queries held up the first paint, and the antivirus and audio checks.
+  const [mem, memLayout, osInfo, fsSize, net, gateway,
+         battery, defIfaceName, dnsServers] = await Promise.all([
     probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
-    probe(si.osInfo(), {}, "osInfo"), probe(si.system(), {}, "system"), probe(si.fsSize(), [], "fsSize"),
+    probe(si.osInfo(), {}, "osInfo"), probe(si.fsSize(), [], "fsSize"),
     probe(si.networkInterfaces(), [], "networkInterfaces"),
     probe(si.networkGatewayDefault(), "", "networkGatewayDefault"),
     probe(si.battery(), {}, "battery"),
     probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
-    // On Linux, null (nothing to report) stays null; see linuxAntivirus.
-    probe(detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "antivirus"),
-    probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
     probe(detectDnsServers(), [], "dns"),
   ]);
 
@@ -167,10 +163,6 @@ async function collectFacts() {
   // --- OS name: on Linux, the distribution's own os-release ---
   const osFields = osNameVersion(process.platform === "linux" ? linuxOsRelease() : null, osInfo);
 
-  const { output: outputName, input: inputName, classifyBy } = audioNames(audio.defaultAudio, audio.drivers);
-  // No output device is "None", not a guessed "Built-in".
-  const headsetClass = classifyBy ? classifyHeadset(classifyBy) : "None";
-
   const facts = {
     hostname: os.hostname(),
     user: os.userInfo().username,
@@ -178,7 +170,7 @@ async function collectFacts() {
     appVersion: APP_VERSION,
 
     cpu: cpuFacts({}),
-    machineType: `${system.manufacturer || ""} ${system.model || os.platform()}`.trim(),
+    machineType: "Checking…",
     ram: {
       totalGB: Math.round((mem.total || 0) / GB),
       freeGB: round1((mem.available || 0) / GB),
@@ -223,7 +215,8 @@ async function collectFacts() {
       measuredAt: null, // millisecond timestamp once the renderer measures
     },
     vpn: detectVpn(net),
-    antivirus,
+    // The security check is still running; don't report "none installed".
+    antivirus: process.platform === "linux" ? null : { products: [], checked: null },
     // Resolved lazily (detectDeferred): on Windows it is one more PowerShell,
     // and the first paint already waits on several.
     firewall: null,
@@ -235,15 +228,11 @@ async function collectFacts() {
       plugged: battery.hasBattery ? battery.acConnected : true,
     },
     audio: {
-      output: outputName,
-      input: inputName,
-      // Derived from the same device classifyHeadset looked at, so the card
-      // can't report "Bluetooth" and "Wired" at the same time.
-      isWired: headsetClass === "USB headset",
-      // Whether the selected output is a headset, from the same classification.
-      // Counting installed sound drivers made this true on every machine.
-      headsetConnected: headsetClass === "Bluetooth" || headsetClass === "USB headset",
-      headsetClass,
+      output: "Checking…",
+      input: "Checking…",
+      isWired: false,
+      headsetConnected: false,
+      headsetClass: "Unknown",
     },
   };
 
@@ -838,13 +827,12 @@ function linuxFirewallFrom({ ufwInstalled, firewalldInstalled, ufwEnabled, servi
   return { products, checked: services != null || products.length > 0 };
 }
 
-// Slow detections, fetched lazily after first paint: CPU and disk details (slow
-// Windows providers), OS update status, the running-process scan and the
-// firewall (a PowerShell on Windows). Returned together so the renderer merges
-// them in a single re-render. Each is wrapped so one slow provider cannot
-// strand the others.
+// Slower detections, fetched after first paint: CPU and machine details, disk
+// type, OS/app updates, running processes, display, firewall, antivirus and
+// audio. Returned together so the renderer merges them in one re-render. Each
+// is wrapped so one slow provider cannot strand the others.
 async function detectDeferred() {
-  const [updates, ssd, backgroundApps, graphics, firewall, appUpdates, cpu] = await Promise.all([
+  const [updates, ssd, backgroundApps, graphics, firewall, appUpdates, cpu, antivirus, audio, system] = await Promise.all([
     probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
     probe(detectSsd(), null, "deferred:ssd"),
     probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
@@ -852,8 +840,28 @@ async function detectDeferred() {
     probe(detectFirewall(), { products: [], checked: false }, "deferred:firewall"),
     probe(detectAppUpdates(), {}, "deferred:appUpdates"),
     probe(si.cpu(), {}, "deferred:cpu"),
+    // On Linux, null (nothing to report) stays null; see linuxAntivirus.
+    probe(detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "deferred:antivirus"),
+    probe(detectAudio(), { defaultAudio: null, drivers: [] }, "deferred:audio"),
+    probe(si.system(), {}, "deferred:system"),
   ]);
-  return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall, appUpdates, cpu: cpuFacts(cpu) };
+  return {
+    ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall, appUpdates,
+    cpu: cpuFacts(cpu), antivirus, audio: audioFacts(audio),
+    machineType: `${system.manufacturer || ""} ${system.model || os.platform()}`.trim(),
+  };
+}
+
+function audioFacts(audio) {
+  const { output, input, classifyBy } = audioNames(audio.defaultAudio, audio.drivers);
+  const headsetClass = classifyBy ? classifyHeadset(classifyBy) : "None";
+  return {
+    output,
+    input,
+    isWired: headsetClass === "USB headset",
+    headsetConnected: headsetClass === "Bluetooth" || headsetClass === "USB headset",
+    headsetClass,
+  };
 }
 
 // The monitors, one entry each: { name, connection, builtin, main, width,

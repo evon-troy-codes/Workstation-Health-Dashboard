@@ -44,6 +44,7 @@ function handle(channel, fn) {
 let lastFacts = null;
 let lastDeferred = null;
 let scanCount = 0;
+let scanRequestCount = 0;
 
 // CI's check of an installed build (.github/workflows/ci.yml). The Electron
 // fuses stop a test harness from reaching into the packaged app, so when
@@ -258,14 +259,17 @@ if (cli.error) {
     session.defaultSession.setPermissionCheckHandler(() => false);
 
     handle("whd:get-facts", async () => {
+      const request = ++scanRequestCount;
       const facts = await collectFacts();
-      scanCount++;
-      lastFacts = facts;
-      lastDeferred = null;
+      if (request === scanRequestCount) {
+        scanCount++;
+        lastFacts = facts;
+        lastDeferred = null;
+      }
       return facts;
     });
 
-    // Slow scans (OS updates, SSD flag, process list), fetched after first paint.
+    // Slow scans, fetched after first paint and merged by the renderer.
     handle("whd:get-deferred", async () => {
       const scan = scanCount;
       const deferred = await detectDeferred();

@@ -65,6 +65,7 @@ function buildReport(facts, deferred, fromRenderer) {
   }
   if (deferred) {
     report.cpu = deferred.cpu || facts.cpu;
+    report.machineType = deferred.machineType || facts.machineType;
     report.os = {
       ...facts.os,
       pendingUpdates: deferred.pendingUpdates,
@@ -76,6 +77,8 @@ function buildReport(facts, deferred, fromRenderer) {
     report.backgroundApps = deferred.backgroundApps || facts.backgroundApps;
     report.display = deferred.display || facts.display;
     report.firewall = deferred.firewall || facts.firewall;
+    report.antivirus = deferred.antivirus === undefined ? facts.antivirus : deferred.antivirus;
+    report.audio = deferred.audio || facts.audio;
   }
   const b = (fromRenderer && fromRenderer.bandwidth) || {};
   const num = (v) => (typeof v === "number" && Number.isFinite(v) ? v : null);

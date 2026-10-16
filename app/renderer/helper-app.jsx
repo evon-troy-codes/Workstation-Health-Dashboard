@@ -10,6 +10,7 @@ import { ShareDialog } from "./share-dialog.jsx";
 import { ExplainDialog } from "./explain-dialog.jsx";
 import { FleetDialog } from "./fleet-dialog.jsx";
 import { HINTS } from "./hints.js";
+import { createScanSequence } from "../main/scan-sequence.js";
 
 const {
   useState, useEffect, useRef, useCallback, useContext, createContext, useId,
@@ -496,12 +497,15 @@ function SystemScreen() {
 
       {/* null on Linux when no known product is installed: nothing to report. */}
       {facts.antivirus && (
-        <Card icon="circle-check" title="Antivirus" sub={facts.antivirus.checked === false
-          ? "Couldn't check"
-          : `${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
+        <Card icon="circle-check" title="Antivirus" sub={facts.antivirus.checked === null
+          ? "Checking…"
+          : facts.antivirus.checked === false
+            ? "Couldn't check"
+            : `${facts.antivirus.products.length} product${facts.antivirus.products.length === 1 ? "" : "s"} detected`}>
           {/* checked: false is a check that failed, not "none installed". */}
+          {facts.antivirus.checked === null && <KV k="Status" v="Checking…" />}
           {facts.antivirus.checked === false && <KV k="Status" v="Unknown" />}
-          {facts.antivirus.checked !== false && facts.antivirus.products.length === 0 && (
+          {facts.antivirus.checked === true && facts.antivirus.products.length === 0 && (
             <KV k="Status" v="No antivirus detected" />
           )}
           {facts.antivirus.products.map((p, i) => (
@@ -791,6 +795,7 @@ function App() {
   // first is still running; only the latest may write, or an older result
   // landing last would overwrite a newer one.
   const deferredSeq = useRef(0);
+  const scanSequence = useRef(createScanSequence());
 
   // Workstation Scanner for Teams: whether IT manages this computer, and how
   // the last report to the company's server went.
@@ -805,7 +810,7 @@ function App() {
   }, []);
   const speed = useSpeedTest(onSpeedResult);
 
-  // Slow scans (OS updates, SSD flag, process list) land after first paint.
+  // Slower checks land after first paint and merge with the fast Overview facts.
   const loadDeferred = useCallback(() => {
     const seq = ++deferredSeq.current;
     setDeferredFailed(false);
@@ -816,6 +821,9 @@ function App() {
       setFacts((f) => f && ({
         ...f,
         cpu: d.cpu || f.cpu,
+        machineType: d.machineType || f.machineType,
+        antivirus: d.antivirus === undefined ? f.antivirus : d.antivirus,
+        audio: d.audio || f.audio,
         os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck, lastUpdateKind: d.lastUpdateKind,
           appUpdates: d.appUpdates || {} },
         disk: { ...f.disk, ssd: d.ssd },
@@ -833,14 +841,18 @@ function App() {
   }, []);
 
   const scan = useCallback(async () => {
+    const seq = scanSequence.current.begin();
+    setRescanning(false);
     setError(null);
     try {
       const f = await window.whd.getFacts();
+      if (!scanSequence.current.isCurrent(seq)) return false;
       setFacts(f);
       setScannedAt(Date.now());
       loadDeferred();
       return true;
     } catch (e) {
+      if (!scanSequence.current.isCurrent(seq)) return false;
       // ipcRenderer.invoke wraps the main-process error in plumbing the user
       // has no use for: "Error invoking remote method 'whd:get-facts': Error: …".
       const msg = String((e && e.message) || e);
@@ -854,18 +866,20 @@ function App() {
   // Re-scan in place. Reloading the window instead would throw away the speed
   // test and re-run the whole startup sequence.
   const rescan = useCallback(async () => {
+    const seq = scanSequence.current.begin();
     setRescanning(true);
     toast("Re-scanning workstation…");
     try {
       const f = await window.whd.rescan();
+      if (!scanSequence.current.isCurrent(seq)) return;
       setFacts((prev) => ({ ...f, bandwidth: prev ? prev.bandwidth : f.bandwidth }));
       setScannedAt(Date.now());
       loadDeferred();
       toast("Scan complete");
     } catch (e) {
-      toast("Re-scan failed");
+      if (scanSequence.current.isCurrent(seq)) toast("Re-scan failed");
     } finally {
-      setRescanning(false);
+      if (scanSequence.current.isCurrent(seq)) setRescanning(false);
     }
   }, [loadDeferred]);
 
