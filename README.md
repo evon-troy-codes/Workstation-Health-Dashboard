@@ -204,7 +204,7 @@ the same.
 | Area                                                  | Source                                        |
 | ----------------------------------------------------- | --------------------------------------------- |
 | CPU, RAM + pressure, disk, OS, power, uptime          | `systeminformation` + Node `os`               |
-| Displays: each monitor's resolution and refresh rate  | GNOME's display service (Mutter) on GNOME/Wayland, else `systeminformation` (fetched after first paint) |
+| Displays: each monitor's resolution and refresh rate  | Windows active display modes / GNOME's display service (Mutter) on GNOME/Wayland / `systeminformation` elsewhere (fetched after first paint) |
 | Antivirus                                             | Windows Security Center / macOS app bundles / Linux install markers + process check (on Linux the card appears only when a known product is installed; macOS shows its built-in XProtect when nothing else is installed; a check that fails reads "Unknown") |
 | Firewall                                              | Windows Firewall profiles + Security Center / macOS application firewall (`socketfilterfw`) + Little Snitch, LuLu / Linux UFW, firewalld, nftables, iptables services via `systemctl` (without root only the services can be seen, so Linux says "No firewall service found" when none runs; a check that fails reads "Unknown") |
 | VPN                                                   | active tunnel-interface scan                  |

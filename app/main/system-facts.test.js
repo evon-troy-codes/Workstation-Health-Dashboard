@@ -52,6 +52,8 @@ const {
   monitorsFromGraphics,
   parseMutterState,
   parseHyprlandMonitors,
+  parseWindowsDisplayRefreshRates,
+  applyWindowsDisplayRefreshRates,
   withoutXwaylandModes,
   detectAudio,
   audioNames,
@@ -750,6 +752,40 @@ test("summarizeDisplays", async (t) => {
       external: false, externalCount: 0, externalSize: null, externalConnection: null,
       monitors: [{ name: "Built-in display", builtin: true, main: true, resolution: "3072 × 1920",
         refreshRate: "59 Hz", connection: "eDP-1", size: null }] });
+  });
+
+  test("Windows display refresh rates", async (t) => {
+    await t.test("parses the active rate by display device name", () => {
+      assert.deepEqual(parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|5120|1440|240\r\n\\\\.\\DISPLAY2|2560|1440|144\r\n"), {
+        "\\\\.\\display1": { width: 5120, height: 1440, refreshHz: 240 },
+        "\\\\.\\display2": { width: 2560, height: 1440, refreshHz: 144 },
+      });
+    });
+
+    await t.test("ignores invalid dimensions and retains systeminformation rate when Windows says default", () => {
+      const rates = parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|0|800|60\nbad\n\\\\.\\DISPLAY2|1920|1200|1\n");
+      const monitors = applyWindowsDisplayRefreshRates([
+        { displayId: "\\\\.\\DISPLAY1", width: 1280, height: 800, refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1280, height: 800, refreshHz: 59 },
+        { displayId: "\\\\.\\DISPLAY3", width: 1024, height: 768, refreshHz: 59 },
+      ], rates);
+      assert.deepEqual(monitors, [
+        { displayId: "\\\\.\\DISPLAY1", width: 1280, height: 800, refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1920, height: 1200, refreshHz: 59 },
+        { displayId: "\\\\.\\DISPLAY3", width: 1024, height: 768, refreshHz: 59 },
+      ]);
+    });
+
+    await t.test("replaces stale modes only for the matching display", () => {
+      const rates = parseWindowsDisplayRefreshRates("\\\\.\\DISPLAY1|1920|1200|240\n");
+      assert.deepEqual(applyWindowsDisplayRefreshRates([
+        { displayId: "\\\\.\\DISPLAY1", width: 1280, height: 800, refreshHz: 60 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1920, height: 1080, refreshHz: 60 },
+      ], rates), [
+        { displayId: "\\\\.\\DISPLAY1", width: 1920, height: 1200, refreshHz: 240 },
+        { displayId: "\\\\.\\DISPLAY2", width: 1920, height: 1080, refreshHz: 60 },
+      ]);
+    });
   });
 
   await t.test("describes a docked laptop with an external monitor as its main display", () => {
@@ -1777,6 +1813,7 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
   assert.equal(facts.display, null);
   assert.equal(facts.firewall, null);
   assert.equal(facts.bandwidth.measuredAt, null);
+  assert.equal(facts.cpu.model, "Unknown");
 
   // A fallen-back probe must not surface as the string "undefined".
   assert.ok(!/undefined/.test(facts.cpu.model), "cpu.model leaked undefined");
@@ -1785,8 +1822,11 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
 test("detectDeferred returns the keys the renderer merges", { timeout: 90000 }, async () => {
   const d = await detectDeferred();
-  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall", "appUpdates"]) {
+  for (const key of ["pendingUpdates", "lastUpdateCheck", "lastUpdateKind", "ssd", "backgroundApps", "display", "firewall", "appUpdates", "cpu"]) {
     assert.ok(key in d, `deferred.${key} is missing`);
+  }
+  for (const key of ["model", "cores", "threads", "perfCores", "effCores", "ghz", "ghzKind", "family", "arch", "series"]) {
+    assert.ok(key in d.cpu, `deferred.cpu.${key} is missing`);
   }
   // A key per installed app store (snap, flatpak), each a count or null.
   assert.equal(typeof d.appUpdates, "object");
@@ -1824,9 +1864,9 @@ test("probeTimings holds only check names and milliseconds, slowest first", { ti
   if (!probeTimings().some(([k]) => k === "audio")) await collectFacts();
   if (!probeTimings().some(([k]) => k.startsWith("deferred:"))) await detectDeferred();
   const timings = probeTimings();
-  const expected = ["cpu", "mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
+  const expected = ["mem", "memLayout", "osInfo", "system", "fsSize", "networkInterfaces",
     "networkGatewayDefault", "battery", "networkInterfaceDefault", "antivirus", "audio", "dns",
-    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall", "deferred:appUpdates"];
+    "deferred:updates", "deferred:ssd", "deferred:backgroundApps", "deferred:graphics", "deferred:firewall", "deferred:appUpdates", "deferred:cpu"];
   assert.deepEqual(timings.map(([k]) => k).sort(), [...expected].sort());
   for (const [k, ms] of timings) {
     assert.match(k, /^(deferred:)?[A-Za-z]+$/);

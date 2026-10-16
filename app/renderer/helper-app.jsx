@@ -382,13 +382,14 @@ function AtAGlance({ onJump }) {
 }
 
 function OverviewScreen({ onJump }) {
-  const { facts } = useApp();
+  const { facts, deferredDone, deferredFailed } = useApp();
+  const cpuModel = deferredDone || deferredFailed ? facts.cpu.model : "Checking…";
   return (
     <>
       <AtAGlance onJump={onJump} />
       <div className="card-grid card-grid-2">
         <Card icon="cog" title="Quick specs" sub={facts.machineType || facts.os.name}>
-          <KV k="CPU" v={facts.cpu.model} />
+          <KV k="CPU" v={cpuModel} />
           <KV k="RAM" v={[`${facts.ram.totalGB} GB`, facts.ram.type].filter(Boolean).join(" ")} />
           <KV k="Storage" v={`${facts.disk.totalGB} GB ${facts.disk.ssd == null ? "" : facts.disk.ssd ? "SSD" : "HDD"}`.trim()} />
           <KV k="OS" v={`${facts.os.name} ${facts.os.version}`} />
@@ -448,18 +449,20 @@ function SystemScreen() {
   const { facts, deferredFailed, deferredDone } = useApp();
   const driveType = facts.disk.ssd == null ? (deferredFailed || deferredDone ? "Unknown" : "Checking…") : facts.disk.ssd ? "SSD" : "HDD";
   const { cpu, power } = facts;
+  const cpuPending = !deferredDone && !deferredFailed;
+  const cpuValue = (value) => cpuPending ? "Checking…" : value;
   // Only a hybrid CPU has a P/E split worth showing.
-  const coreSplit = cpu.effCores > 0 ? ` (${cpu.perfCores}P + ${cpu.effCores}E)` : "";
+  const coreSplit = !cpuPending && cpu.effCores > 0 ? ` (${cpu.perfCores}P + ${cpu.effCores}E)` : "";
   // Without the Detect registry key, the date is the newest hotfix install.
   const updateInstalled = facts.os.lastUpdateKind === "installed";
   return (
     <div className="card-grid card-grid-2">
-      <Card icon="cog" title="Processor" sub={[`${cpu.cores} cores`, cpuSpeedLabel(cpu), cpu.arch].filter(Boolean).join(" · ")}>
-        <KV k="Model" v={facts.cpu.model} />
+      <Card icon="cog" title="Processor" sub={[cpuValue(`${cpu.cores} cores`), cpuPending ? null : cpuSpeedLabel(cpu), cpu.arch].filter(Boolean).join(" · ")}>
+        <KV k="Model" v={cpuValue(facts.cpu.model)} />
         <KV k="Machine" v={facts.machineType} />
-        <KV k="Family / series" v={`${facts.cpu.family} · ${facts.cpu.series}`} />
-        <KV k="Cores" v={`${cpu.cores}${coreSplit}`} />
-        <KV k="Threads" v={cpu.threads} />
+        <KV k="Family / series" v={cpuValue(`${facts.cpu.family} · ${facts.cpu.series}`)} />
+        <KV k="Cores" v={cpuValue(`${cpu.cores}${coreSplit}`)} />
+        <KV k="Threads" v={cpuValue(cpu.threads)} />
       </Card>
 
       <Card icon="grip" title="Memory" sub={`${facts.ram.totalGB} GB · ${facts.ram.freeGB} GB free`}>
@@ -812,6 +815,7 @@ function App() {
       if (!d) return setDeferredFailed(true);
       setFacts((f) => f && ({
         ...f,
+        cpu: d.cpu || f.cpu,
         os: { ...f.os, pendingUpdates: d.pendingUpdates, lastUpdateCheck: d.lastUpdateCheck, lastUpdateKind: d.lastUpdateKind,
           appUpdates: d.appUpdates || {} },
         disk: { ...f.disk, ssd: d.ssd },

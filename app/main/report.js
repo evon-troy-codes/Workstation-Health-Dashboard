@@ -64,6 +64,7 @@ function buildReport(facts, deferred, fromRenderer) {
     report.network = { ...network, interface: shareableInterface(network.interface) };
   }
   if (deferred) {
+    report.cpu = deferred.cpu || facts.cpu;
     report.os = {
       ...facts.os,
       pendingUpdates: deferred.pendingUpdates,
