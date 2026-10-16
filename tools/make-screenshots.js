@@ -67,6 +67,7 @@ app.whenReady().then(async () => {
 
   ipcMain.handle("whd:get-facts", async () => facts);
   ipcMain.handle("whd:get-deferred", () => deferred);
+  ipcMain.handle("whd:managed", () => ({ managed: false, problem: false }));
   // Sharing does nothing here: the screenshots never open the Share dialog.
   for (const how of ["copy", "save", "email"]) ipcMain.handle(`whd:share-${how}`, async () => ({ ok: false, reason: "cancelled" }));
   // Show "Explain my results" as installed builds do. It is never clicked,
