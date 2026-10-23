@@ -241,8 +241,11 @@ known severity, with capped strings), whatever the server returns.
   `"USB Wi-Fi adapter"`.
 - New `audio.headsetClass` value `"Display audio"`: sound sent to a monitor
   or TV over HDMI or DisplayPort, which was `"Built-in"`.
-  `audio.headsetConnected` is now true only for `"Bluetooth"` and
-  `"USB headset"`.
+  `audio.headsetConnected` is true only for `"Bluetooth"` and
+  `"USB headset"` when the OS supplies a selected output endpoint; it is `null`
+  when endpoint data cannot establish connection.
+- `network.ipv6Disabled` is `null` when the interface has no IPv6 address;
+  address absence alone does not establish that IPv6 is disabled.
 - `os.pendingUpdates` and `os.lastUpdateCheck` now work on macOS, from
   Software Update's last check. A count it didn't record is `null`.
 - A battery level that can't be read shows as "Unknown", not "null%".

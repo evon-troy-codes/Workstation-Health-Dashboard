@@ -150,7 +150,7 @@ function createWindow() {
   const win = new BrowserWindow({
     width: 1100,
     height: 860,
-    minWidth: 920,
+    minWidth: 560,
     minHeight: 680,
     title: "Workstation Scanner",
     // Packaged builds take the icon from electron-builder; setting it here is

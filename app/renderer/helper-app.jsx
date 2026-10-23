@@ -70,7 +70,8 @@ function useSpeedTest(onResult) {
         signal: abort.current.signal,
       });
       onResult(res);
-      if (res.partial) toast("Speed test timed out — showing partial results");
+      if (res.cancelled) toast("Speed test canceled — keeping available results");
+      else if (res.partial) toast("Speed test timed out — showing partial results");
       else if (res.failed) toast("Couldn't measure throughput — check the connection");
     } catch (e) {
       toast("Speed test failed");
@@ -82,10 +83,14 @@ function useSpeedTest(onResult) {
     }
   }, [onResult]);
 
+  const cancel = useCallback(() => {
+    abort.current?.abort();
+  }, []);
+
   // A run still in flight when the app closes should not keep sockets open.
   useEffect(() => () => abort.current && abort.current.abort(), []);
 
-  return { testing, progress, runs, run };
+  return { testing, progress, runs, run, cancel };
 }
 
 // ---- UI --------------------------------------------------------------------
@@ -178,7 +183,7 @@ function useFocusOnClose(open, button) {
 
 function HelperApp() {
   const [screen, setScreen] = useState("overview"); // overview | system | network
-  const { facts, rescan, rescanning, managed, fleet } = useApp();
+  const { facts, rescan, rescanning, managed, fleet, deferredFailed, deferredLoading, retryDeferred } = useApp();
   // "Share report": the person picks how (share-dialog.jsx); main builds the
   // report from its own scan and takes only the speed test from here.
   const [shareOpen, setShareOpen] = useState(false);
@@ -219,6 +224,14 @@ function HelperApp() {
       <div className="helper-main">
         <Header />
         <div className="screen-wrap">
+          {deferredFailed && (
+            <div className="deferred-alert" role="alert">
+              <span>Some workstation details couldn&apos;t be loaded.</span>
+              <button type="button" className="link-btn" onClick={retryDeferred} disabled={deferredLoading}>
+                {deferredLoading ? "Retrying…" : "Retry checks"}
+              </button>
+            </div>
+          )}
           {screen === "overview" && <OverviewScreen onJump={setScreen} />}
           {screen === "system"   && <SystemScreen />}
           {screen === "network"  && <NetworkScreen />}
@@ -610,7 +623,7 @@ function TestingTag({ show }) {
 function NetworkScreen() {
   const { facts, speed, deferredFailed } = useApp();
   const pendingText = deferredFailed ? "Unknown" : "Checking…";
-  const { testing, progress, run } = speed;
+  const { testing, progress, run, cancel } = speed;
   const b = facts.bandwidth;
   const value = (v) => (v == null ? "—" : v);
   // A run that got nothing back still has a timestamp; saying "Measured" over
@@ -647,10 +660,15 @@ function NetworkScreen() {
           <div className="sh-value">{value(b.jitter)}<span className="sh-unit">ms</span></div>
         </div>
         <div className="sh-action">
-          <button className="send-btn" onClick={run} disabled={testing}>
-            {testing ? <Spinner size={14} color="var(--accent-contrast)" /> : <Icon name="arrow-rotate-right" />}
-            {testing ? ` Testing… ${progress}%` : " Run speed test"}
-          </button>
+          {testing ? (
+            <button className="send-btn speed-cancel" onClick={cancel} aria-label={`Cancel speed test at ${progress}%`}>
+              <Icon name="xmark" size={14} /> Cancel test
+            </button>
+          ) : (
+            <button className="send-btn" onClick={run}>
+              <Icon name="arrow-rotate-right" /> Run speed test
+            </button>
+          )}
           <div className="sh-meta">
             {testing ? "Measured now…"
               : b.measuredAt == null ? "Measured not yet run"
@@ -674,7 +692,7 @@ function NetworkScreen() {
           <KV k="IPv4" v={facts.network.ipv4} />
           <KV k="Gateway" v={facts.network.gateway} hint={HINTS.gateway} />
           <KV k="DNS" v={facts.network.dns.join(", ")} hint={HINTS.dns} />
-          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
+          <KV k="IPv6" v={facts.network.ipv6Disabled == null ? "Unknown" : facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
         </Card>
 
         <Card icon="circle-check" title="VPN" sub="Traditional VPNs may add jitter">
@@ -784,6 +802,7 @@ function App() {
   const [rescanning, setRescanning] = useState(false);
   const [status, setStatus] = useState("Reading system facts…");
   const [deferredFailed, setDeferredFailed] = useState(false);
+  const [deferredLoading, setDeferredLoading] = useState(false);
   // Whether the deferred scan has landed: after it, a reading still null is
   // unknown, not still being checked.
   const [deferredDone, setDeferredDone] = useState(false);
@@ -801,18 +820,33 @@ function App() {
   }, []);
 
   const onSpeedResult = useCallback((res) => {
-    setFacts((f) => (f ? { ...f, bandwidth: { ...f.bandwidth, ...res } } : f));
+    setFacts((f) => {
+      if (!f) return f;
+      if (!res.cancelled) return { ...f, bandwidth: { ...f.bandwidth, ...res } };
+      const readings = ["downMbps", "upMbps", "ping", "jitter"];
+      const available = Object.fromEntries(readings
+        .filter((key) => res[key] != null)
+        .map((key) => [key, res[key]]));
+      return {
+        ...f,
+        bandwidth: {
+          ...f.bandwidth,
+          ...available,
+          ...(Object.keys(available).length ? { measuredAt: res.measuredAt } : {}),
+        },
+      };
+    });
   }, []);
   const speed = useSpeedTest(onSpeedResult);
 
   // Slow scans (OS updates, SSD flag, process list) land after first paint.
   const loadDeferred = useCallback(() => {
     const seq = ++deferredSeq.current;
-    setDeferredFailed(false);
     setDeferredDone(false);
+    setDeferredLoading(true);
     window.whd.getDeferred().then((d) => {
       if (seq !== deferredSeq.current) return;
-      if (!d) return setDeferredFailed(true);
+      if (!d) throw new Error("No deferred workstation details were returned");
       setFacts((f) => f && ({
         ...f,
         cpu: d.cpu || f.cpu,
@@ -823,12 +857,14 @@ function App() {
         display: d.display || f.display,
         firewall: d.firewall || f.firewall,
       }));
+      setDeferredFailed(false);
       setDeferredDone(true);
     }).catch(() => {
-      // Left alone, the cards would say "Checking…" forever.
       if (seq !== deferredSeq.current) return;
       setDeferredFailed(true);
       setFacts((f) => f && ({ ...f, os: { ...f.os, lastUpdateCheck: "Unknown" } }));
+    }).finally(() => {
+      if (seq === deferredSeq.current) setDeferredLoading(false);
     });
   }, []);
 
@@ -907,7 +943,8 @@ function App() {
   if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
 
   return (
-    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone, managed, fleet }}>
+    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone,
+      deferredLoading, retryDeferred: loadDeferred, managed, fleet }}>
       <Frame><RenderGuard onRetry={rescan}><HelperApp /></RenderGuard></Frame>
     </AppContext.Provider>
   );
