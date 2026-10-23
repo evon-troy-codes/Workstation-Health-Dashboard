@@ -192,10 +192,13 @@ esbuild. Nothing is fetched from a CDN at runtime, so the app launches on a
 machine with no working network — which is exactly the machine you are most
 likely to be diagnosing.
 
-On launch the dashboard appears as soon as the system scan lands (about a
-second or two). The network speed test runs in the background and fills in the
-Network tab when it finishes; the slower OS-update, SSD and process scans do
-the same.
+On launch, the dashboard appears when the initial system scan completes; timing
+varies by workstation and operating system. Optional OS-update, SSD, process,
+antivirus, and audio checks fill in afterward. An automatic Cloudflare speed
+test also runs in the background and fills in the Network tab when it finishes.
+The project does not promise a fixed launch time: `npm run smoke` reports how
+long this machine takes to show the dashboard, but that check is not a
+representative cross-platform performance benchmark.
 
 ---
 

@@ -356,6 +356,11 @@ Still open:
 - **Code-sign** the app (Apple Developer ID + Microsoft Authenticode) to avoid
   SmartScreen / Gatekeeper warnings.
 - **Auto-update** via `electron-updater`.
-- **First-scan latency**: `collectFacts()` takes ~6s on Windows because the
-  `systeminformation` probes contend on WMI. Splitting the batch so the
-  Overview card can paint from a couple of fast probes would cut the wait.
+- **First-scan timing**: startup duration varies by operating system and
+  workstation. The Overview is shown after the initial fact batch; deferred
+  probes and the automatic speed test continue afterward. `collectFacts()` has
+  taken ~6s on Windows in local measurements, where `systeminformation` probes
+  contend on WMI. Measure cold and warm startup on target hardware before
+  publishing a timing claim. `npm run smoke` prints a local dashboard-visible
+  duration from Electron smoke-process start, with roughly half-second polling
+  resolution; it is diagnostic evidence, not a cross-platform benchmark.
