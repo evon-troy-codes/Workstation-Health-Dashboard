@@ -68,6 +68,7 @@
       "app/main/fleet.js",
       "app/main/fleet-client.js",
       "app/main/managed-settings.js",
+      "app/main/local-history.js",
       "app/renderer/index.html",
       "app/renderer/helper.css",
       "app/renderer/assets/**/*",

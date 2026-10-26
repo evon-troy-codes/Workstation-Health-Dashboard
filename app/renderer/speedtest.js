@@ -349,7 +349,11 @@ async function run(onProgress, opts = {}) {
   // One controller for the whole run: the hard cap, or a caller-supplied
   // signal, aborts every request still in flight.
   const ctrl = new AbortController();
-  const capTimer = setTimeout(() => ctrl.abort(), HARD_CAP_MS);
+  let timedOut = false;
+  const capTimer = setTimeout(() => {
+    timedOut = true;
+    ctrl.abort();
+  }, HARD_CAP_MS);
   const outer = opts.signal;
   const onOuterAbort = () => ctrl.abort();
   if (outer) {
@@ -383,7 +387,8 @@ async function run(onProgress, opts = {}) {
       measuredAt: Date.now(),
       // A run the hard cap cut short still reports what it managed to measure,
       // flagged so the UI can say so rather than quietly showing a low number.
-      partial: signal.aborted,
+      partial: timedOut,
+      cancelled: Boolean(outer && outer.aborted && !timedOut),
       failed: down == null || up == null,
     };
   } finally {

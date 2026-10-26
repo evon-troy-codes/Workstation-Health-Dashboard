@@ -31,13 +31,27 @@ const round1 = (n) => Math.round(n * 10) / 10;
 // test prints, so CI shows which checks are slow on each OS. Windows can't be
 // profiled from the Linux machine any other way.
 const timings = {};
-function probe(promise, fallback, name) {
+function probe(run, fallback, name) {
   const start = Date.now();
   const done = () => { if (name) timings[name] = Date.now() - start; };
-  return Promise.resolve(promise).then(
-    (v) => { done(); return v == null ? fallback : v; },
-    () => { done(); return fallback; },
-  );
+  try {
+    return Promise.resolve(typeof run === "function" ? run() : run).then(
+      (v) => { done(); return v == null ? fallback : v; },
+      () => { done(); return fallback; },
+    );
+  } catch (_) {
+    done();
+    return Promise.resolve(fallback);
+  }
+}
+
+function ipv6DisabledFromInterface(iface) {
+  const address = typeof (iface && iface.ip6) === "string" ? iface.ip6.trim() : "";
+  return address && address.toLowerCase() !== "unknown" ? false : null;
+}
+
+function headsetConnectionStatus(headsetClass, hasDefaultEndpoint) {
+  return hasDefaultEndpoint && (headsetClass === "Bluetooth" || headsetClass === "USB headset") ? true : null;
 }
 
 // The last duration of each named probe, slowest first, e.g. [["audio", 480]].
@@ -135,16 +149,16 @@ async function collectFacts() {
   const [mem, memLayout, osInfo, system, fsSize, net, gateway,
          battery, defIfaceName,
          antivirus, audio, dnsServers] = await Promise.all([
-    probe(si.mem(), {}, "mem"), probe(si.memLayout(), [], "memLayout"),
-    probe(si.osInfo(), {}, "osInfo"), probe(si.system(), {}, "system"), probe(si.fsSize(), [], "fsSize"),
-    probe(si.networkInterfaces(), [], "networkInterfaces"),
-    probe(si.networkGatewayDefault(), "", "networkGatewayDefault"),
-    probe(si.battery(), {}, "battery"),
-    probe(si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
+    probe(() => si.mem(), {}, "mem"), probe(() => si.memLayout(), [], "memLayout"),
+    probe(() => si.osInfo(), {}, "osInfo"), probe(() => si.system(), {}, "system"), probe(() => si.fsSize(), [], "fsSize"),
+    probe(() => si.networkInterfaces(), [], "networkInterfaces"),
+    probe(() => si.networkGatewayDefault(), "", "networkGatewayDefault"),
+    probe(() => si.battery(), {}, "battery"),
+    probe(() => si.networkInterfaceDefault(), "", "networkInterfaceDefault"),
     // On Linux, null (nothing to report) stays null; see linuxAntivirus.
-    probe(detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "antivirus"),
-    probe(detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
-    probe(detectDnsServers(), [], "dns"),
+    probe(() => detectAntivirus(), process.platform === "linux" ? null : { products: [], checked: false }, "antivirus"),
+    probe(() => detectAudio(), { defaultAudio: null, drivers: [] }, "audio"),
+    probe(() => detectDnsServers(), [], "dns"),
   ]);
 
   // --- default network interface ---
@@ -209,7 +223,7 @@ async function collectFacts() {
       mtu: iface.mtu || null,
       mac: iface.mac || "",
       ipv4: iface.ip4 || "",
-      ipv6Disabled: !iface.ip6,
+      ipv6Disabled: ipv6DisabledFromInterface(iface),
       gateway: gateway || "",
       dns: dnsServers.length ? dnsServers : (osInfo.servers || []),
       ssid: isWired || isVirtual ? null : (iface.ssid || null),
@@ -242,7 +256,7 @@ async function collectFacts() {
       isWired: headsetClass === "USB headset",
       // Whether the selected output is a headset, from the same classification.
       // Counting installed sound drivers made this true on every machine.
-      headsetConnected: headsetClass === "Bluetooth" || headsetClass === "USB headset",
+      headsetConnected: headsetConnectionStatus(headsetClass, audio.defaultAudio != null),
       headsetClass,
     },
   };
@@ -845,13 +859,13 @@ function linuxFirewallFrom({ ufwInstalled, firewalldInstalled, ufwEnabled, servi
 // strand the others.
 async function detectDeferred() {
   const [updates, ssd, backgroundApps, graphics, firewall, appUpdates, cpu] = await Promise.all([
-    probe(detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
-    probe(detectSsd(), null, "deferred:ssd"),
-    probe(detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
-    probe(detectDisplays(), [], "deferred:graphics"),
-    probe(detectFirewall(), { products: [], checked: false }, "deferred:firewall"),
-    probe(detectAppUpdates(), {}, "deferred:appUpdates"),
-    probe(si.cpu(), {}, "deferred:cpu"),
+    probe(() => detectUpdates(), UNKNOWN_UPDATES, "deferred:updates"),
+    probe(() => detectSsd(), null, "deferred:ssd"),
+    probe(() => detectBackgroundApps(), { browserExtensions: 0, runningApps: [] }, "deferred:backgroundApps"),
+    probe(() => detectDisplays(), [], "deferred:graphics"),
+    probe(() => detectFirewall(), { products: [], checked: false }, "deferred:firewall"),
+    probe(() => detectAppUpdates(), {}, "deferred:appUpdates"),
+    probe(() => si.cpu(), {}, "deferred:cpu"),
   ]);
   return { ...updates, ssd, backgroundApps, display: summarizeMonitors(graphics), firewall, appUpdates, cpu: cpuFacts(cpu) };
 }
@@ -1977,6 +1991,9 @@ module.exports = {
   parseOsRelease,
   linuxOsRelease,
   cpuSpeed,
+  probe,
+  ipv6DisabledFromInterface,
+  headsetConnectionStatus,
   pacmanPending,
   matchBackgroundApps,
   parseWindowsAvResult,

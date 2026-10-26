@@ -70,7 +70,8 @@ function useSpeedTest(onResult) {
         signal: abort.current.signal,
       });
       onResult(res);
-      if (res.partial) toast("Speed test timed out — showing partial results");
+      if (res.cancelled) toast("Speed test canceled — keeping available results");
+      else if (res.partial) toast("Speed test timed out — showing partial results");
       else if (res.failed) toast("Couldn't measure throughput — check the connection");
     } catch (e) {
       toast("Speed test failed");
@@ -82,10 +83,14 @@ function useSpeedTest(onResult) {
     }
   }, [onResult]);
 
+  const cancel = useCallback(() => {
+    abort.current?.abort();
+  }, []);
+
   // A run still in flight when the app closes should not keep sockets open.
   useEffect(() => () => abort.current && abort.current.abort(), []);
 
-  return { testing, progress, runs, run };
+  return { testing, progress, runs, run, cancel };
 }
 
 // ---- UI --------------------------------------------------------------------
@@ -177,8 +182,11 @@ function useFocusOnClose(open, button) {
 }
 
 function HelperApp() {
-  const [screen, setScreen] = useState("overview"); // overview | system | network
-  const { facts, rescan, rescanning, managed, fleet } = useApp();
+  const [screen, setScreen] = useState("overview"); // overview | system | network | history
+  const {
+    facts, rescan, rescanning, managed, fleet, deferredFailed, deferredLoading, retryDeferred,
+    history, setHistoryEnabled, clearHistory,
+  } = useApp();
   // "Share report": the person picks how (share-dialog.jsx); main builds the
   // report from its own scan and takes only the speed test from here.
   const [shareOpen, setShareOpen] = useState(false);
@@ -219,9 +227,18 @@ function HelperApp() {
       <div className="helper-main">
         <Header />
         <div className="screen-wrap">
+          {deferredFailed && (
+            <div className="deferred-alert" role="alert">
+              <span>Some workstation details couldn&apos;t be loaded.</span>
+              <button type="button" className="link-btn" onClick={retryDeferred} disabled={deferredLoading}>
+                {deferredLoading ? "Retrying…" : "Retry checks"}
+              </button>
+            </div>
+          )}
           {screen === "overview" && <OverviewScreen onJump={setScreen} />}
           {screen === "system"   && <SystemScreen />}
           {screen === "network"  && <NetworkScreen />}
+          {screen === "history"  && <HistoryScreen />}
         </div>
         <div className="helper-foot">
           {managed && managed.managed ? (
@@ -287,6 +304,7 @@ function Sidebar({ active, onChange }) {
     { id: "overview", label: "Overview", icon: "house" },
     { id: "system",   label: "System",   icon: "cog" },
     { id: "network",  label: "Network",  icon: "globe" },
+    { id: "history",  label: "History",  icon: "clock" },
   ];
   return (
     <aside className="helper-sidebar">
@@ -408,6 +426,103 @@ function OverviewScreen({ onJump }) {
         <button className="qj-btn" onClick={() => onJump("network")}><Icon name="globe" size={13} /> Network &amp; speed</button>
       </div>
     </>
+  );
+}
+
+function historyValue(value, unit) {
+  if (value == null) return "Unknown";
+  const formatted = Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (unit === "%") return `${formatted}%`;
+  if (unit === "update") return `${formatted} ${value === 1 ? "update" : "updates"}`;
+  return `${formatted} ${unit}`;
+}
+
+function HistoryTrend({ title, entries, field, unit }) {
+  const values = entries.filter((entry) => typeof entry[field] === "number");
+  if (!values.length) {
+    return <Card icon="chart-line" title={title}><div className="history-empty">No readings yet</div></Card>;
+  }
+  const latest = values[values.length - 1];
+  const previous = values.length > 1 ? values[values.length - 2] : null;
+  const delta = previous ? latest[field] - previous[field] : null;
+  return (
+    <Card icon="chart-line" title={title} sub={new Date(latest.recordedAt).toLocaleString()}>
+      <div className="history-trend-value">{historyValue(latest[field], unit)}</div>
+      {previous && (
+        <div className="history-trend-delta">
+          {delta > 0 ? "+" : ""}{historyValue(delta, unit)} since previous reading
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function HistoryScreen() {
+  const { history, setHistoryEnabled, clearHistory } = useApp();
+  const scans = history.entries.filter((entry) => entry.type === "scan");
+  const speedTests = history.entries.filter((entry) => entry.type === "speed-test");
+  const recent = [...history.entries].reverse();
+  const scanTrend = [...scans];
+  const speedTrend = [...speedTests];
+  const countUpdates = (value) => value == null ? "Unknown" : `${value}`;
+  return (
+    <div className="history-screen">
+      <div className="history-heading">
+        <div>
+          <h1>Local history</h1>
+          <p>Compare disk space, OS updates, and speed-test results over time.</p>
+        </div>
+        <div className="history-controls">
+          <button type="button" className="foot-btn" onClick={() => setHistoryEnabled(!history.enabled)}
+            disabled={!history.loaded}>
+            {history.enabled ? "Pause history" : "Enable history"}
+          </button>
+          <button type="button" className="foot-btn" onClick={clearHistory}
+            disabled={!history.loaded || history.entries.length === 0}>
+            Clear history
+          </button>
+        </div>
+      </div>
+      <p className="history-privacy">
+        {history.enabled ? "History is on." : "History is off; no new readings are being saved."}
+        {" "}Entries stay on this device, are not included in shared or fleet reports, and expire after 30 days
+        (up to 100 entries). Only disk, OS update counts, and speed-test measurements are stored — no
+        hostname, username, IP, or MAC address.
+        {!history.enabled && history.entries.length > 0 && " Existing entries remain until cleared or expired."}
+      </p>
+      {history.error && <div className="deferred-alert" role="alert">{history.error}</div>}
+      {!history.loaded ? <p className="history-empty">Loading local history…</p> : (
+        <>
+          <div className="card-grid card-grid-2 history-trends">
+            <HistoryTrend title="Disk space free" entries={scanTrend} field="diskFreeGB" unit="GB" />
+            <HistoryTrend title="Disk space used" entries={scanTrend} field="diskUsedPercent" unit="%" />
+            <HistoryTrend title="OS updates pending" entries={scanTrend} field="pendingUpdates" unit="update" />
+            <HistoryTrend title="Download speed" entries={speedTrend} field="downloadMbps" unit="Mbps" />
+            <HistoryTrend title="Upload speed" entries={speedTrend} field="uploadMbps" unit="Mbps" />
+            <HistoryTrend title="Ping" entries={speedTrend} field="pingMs" unit="ms" />
+          </div>
+          <Card icon="clock" title="Recent readings" sub={`${history.entries.length} of 100 retained`}>
+            {recent.length === 0 ? <div className="history-empty">No history yet. Enable history to save future scans and speed tests.</div> : (
+              <div className="history-list">
+                {recent.map((entry, index) => (
+                  <div className="history-row" key={`${entry.type}-${entry.recordedAt}-${index}`}>
+                    <div>
+                      <div className="history-row-title">{entry.type === "scan" ? "System scan" : "Speed test"}</div>
+                      <div className="history-row-date">{new Date(entry.recordedAt).toLocaleString()}</div>
+                    </div>
+                    <div className="history-row-values">
+                      {entry.type === "scan"
+                        ? `${historyValue(entry.diskFreeGB, "GB")} free · ${historyValue(entry.diskUsedPercent, "%")} used · ${countUpdates(entry.pendingUpdates)} pending OS updates`
+                        : `${historyValue(entry.downloadMbps, "Mbps")} down · ${historyValue(entry.uploadMbps, "Mbps")} up · ${historyValue(entry.pingMs, "ms")} ping · ${historyValue(entry.jitterMs, "ms")} jitter${entry.partial ? " · partial result" : ""}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -610,7 +725,7 @@ function TestingTag({ show }) {
 function NetworkScreen() {
   const { facts, speed, deferredFailed } = useApp();
   const pendingText = deferredFailed ? "Unknown" : "Checking…";
-  const { testing, progress, run } = speed;
+  const { testing, progress, run, cancel } = speed;
   const b = facts.bandwidth;
   const value = (v) => (v == null ? "—" : v);
   // A run that got nothing back still has a timestamp; saying "Measured" over
@@ -647,10 +762,15 @@ function NetworkScreen() {
           <div className="sh-value">{value(b.jitter)}<span className="sh-unit">ms</span></div>
         </div>
         <div className="sh-action">
-          <button className="send-btn" onClick={run} disabled={testing}>
-            {testing ? <Spinner size={14} color="var(--accent-contrast)" /> : <Icon name="arrow-rotate-right" />}
-            {testing ? ` Testing… ${progress}%` : " Run speed test"}
-          </button>
+          {testing ? (
+            <button className="send-btn speed-cancel" onClick={cancel} aria-label={`Cancel speed test at ${progress}%`}>
+              <Icon name="xmark" size={14} /> Cancel test
+            </button>
+          ) : (
+            <button className="send-btn" onClick={run}>
+              <Icon name="arrow-rotate-right" /> Run speed test
+            </button>
+          )}
           <div className="sh-meta">
             {testing ? "Measured now…"
               : b.measuredAt == null ? "Measured not yet run"
@@ -674,7 +794,7 @@ function NetworkScreen() {
           <KV k="IPv4" v={facts.network.ipv4} />
           <KV k="Gateway" v={facts.network.gateway} hint={HINTS.gateway} />
           <KV k="DNS" v={facts.network.dns.join(", ")} hint={HINTS.dns} />
-          <KV k="IPv6" v={facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
+          <KV k="IPv6" v={facts.network.ipv6Disabled == null ? "Unknown" : facts.network.ipv6Disabled ? "Disabled" : "Enabled"} />
         </Card>
 
         <Card icon="circle-check" title="VPN" sub="Traditional VPNs may add jitter">
@@ -784,6 +904,7 @@ function App() {
   const [rescanning, setRescanning] = useState(false);
   const [status, setStatus] = useState("Reading system facts…");
   const [deferredFailed, setDeferredFailed] = useState(false);
+  const [deferredLoading, setDeferredLoading] = useState(false);
   // Whether the deferred scan has landed: after it, a reading still null is
   // unknown, not still being checked.
   const [deferredDone, setDeferredDone] = useState(false);
@@ -796,23 +917,60 @@ function App() {
   // the last report to the company's server went.
   const [managed, setManaged] = useState(null);
   const [fleet, setFleet] = useState({ result: null, lastSentAt: null, pending: false });
+  const [history, setHistory] = useState({ enabled: false, entries: [], loaded: false, error: null });
+  const historyRecorded = useRef(null);
+  const receiveHistory = useCallback((request) => {
+    Promise.resolve(request).then((result) => {
+      setHistory({ ...result, loaded: true, error: null });
+    }).catch(() => {
+      setHistory((previous) => ({
+        ...previous,
+        loaded: true,
+        error: "Local history could not be read or saved. Check available disk space and file permissions.",
+      }));
+    });
+  }, []);
   useEffect(() => {
     window.whd.managed().then(setManaged, () => setManaged(null));
-  }, []);
+    receiveHistory(window.whd.historyGet());
+  }, [receiveHistory]);
+
+  const setHistoryEnabled = useCallback((enabled) => {
+    receiveHistory(window.whd.historySetEnabled(enabled));
+  }, [receiveHistory]);
+  const clearHistory = useCallback(() => {
+    receiveHistory(window.whd.historyClear());
+  }, [receiveHistory]);
 
   const onSpeedResult = useCallback((res) => {
-    setFacts((f) => (f ? { ...f, bandwidth: { ...f.bandwidth, ...res } } : f));
-  }, []);
+    setFacts((f) => {
+      if (!f) return f;
+      if (!res.cancelled) return { ...f, bandwidth: { ...f.bandwidth, ...res } };
+      const readings = ["downMbps", "upMbps", "ping", "jitter"];
+      const available = Object.fromEntries(readings
+        .filter((key) => res[key] != null)
+        .map((key) => [key, res[key]]));
+      return {
+        ...f,
+        bandwidth: {
+          ...f.bandwidth,
+          ...available,
+          ...(Object.keys(available).length ? { measuredAt: res.measuredAt } : {}),
+        },
+      };
+    });
+    if (!res.cancelled && !res.failed) receiveHistory(window.whd.historyRecordSpeedTest(res));
+  }, [receiveHistory]);
   const speed = useSpeedTest(onSpeedResult);
 
   // Slow scans (OS updates, SSD flag, process list) land after first paint.
   const loadDeferred = useCallback(() => {
     const seq = ++deferredSeq.current;
-    setDeferredFailed(false);
     setDeferredDone(false);
+    setDeferredLoading(true);
     window.whd.getDeferred().then((d) => {
       if (seq !== deferredSeq.current) return;
-      if (!d) return setDeferredFailed(true);
+      if (!d) throw new Error("No deferred workstation details were returned");
       setFacts((f) => f && ({
         ...f,
         cpu: d.cpu || f.cpu,
@@ -823,14 +981,23 @@ function App() {
         display: d.display || f.display,
         firewall: d.firewall || f.firewall,
       }));
+      setDeferredFailed(false);
       setDeferredDone(true);
     }).catch(() => {
-      // Left alone, the cards would say "Checking…" forever.
       if (seq !== deferredSeq.current) return;
       setDeferredFailed(true);
       setFacts((f) => f && ({ ...f, os: { ...f.os, lastUpdateCheck: "Unknown" } }));
+    }).finally(() => {
+      if (seq === deferredSeq.current) setDeferredLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!history.loaded || !history.enabled || !facts || scannedAt == null || !deferredDone) return;
+    if (historyRecorded.current === scannedAt) return;
+    historyRecorded.current = scannedAt;
+    receiveHistory(window.whd.historyRecordScan());
+  }, [history, facts, scannedAt, deferredDone, receiveHistory]);
 
   const scan = useCallback(async () => {
     setError(null);
@@ -907,7 +1074,8 @@ function App() {
   if (!facts) return <Frame><LoadingScreen status={status} /></Frame>;
 
   return (
-    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone, managed, fleet }}>
+    <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone,
+      deferredLoading, retryDeferred: loadDeferred, managed, fleet, history, setHistoryEnabled, clearHistory }}>
       <Frame><RenderGuard onRetry={rescan}><HelperApp /></RenderGuard></Frame>
     </AppContext.Provider>
   );

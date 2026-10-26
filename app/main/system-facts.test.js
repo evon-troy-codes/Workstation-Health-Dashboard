@@ -10,6 +10,9 @@ const {
   collectFacts,
   detectDeferred,
   probeTimings,
+  probe,
+  ipv6DisabledFromInterface,
+  headsetConnectionStatus,
   classifyHeadset,
   cleanAudioName,
   detectVpn,
@@ -77,6 +80,51 @@ const {
   osNameVersion,
 } = require("./system-facts");
 const { execFileSync } = require("child_process");
+
+test("probe", async (t) => {
+  await t.test("uses the fallback when invoking the provider throws synchronously", async () => {
+    assert.deepEqual(await probe(() => { throw new Error("provider failed"); }, { fallback: true }), { fallback: true });
+  });
+
+  await t.test("uses the fallback when the provider promise rejects", async () => {
+    assert.deepEqual(await probe(() => Promise.reject(new Error("provider failed")), { fallback: true }), { fallback: true });
+  });
+
+  await t.test("does not affect other probe results", async () => {
+    const [failed, succeeded] = await Promise.all([
+      probe(() => { throw new Error("provider failed"); }, "fallback"),
+      probe(() => Promise.resolve("reading"), "fallback"),
+    ]);
+    assert.deepEqual([failed, succeeded], ["fallback", "reading"]);
+  });
+});
+
+test("ipv6DisabledFromInterface", async (t) => {
+  await t.test("reports enabled when an IPv6 address is present", () => {
+    assert.equal(ipv6DisabledFromInterface({ ip6: "2001:db8::1" }), false);
+  });
+
+  await t.test("reports unknown when an IPv6 address is absent", () => {
+    assert.equal(ipv6DisabledFromInterface({ ip6: "" }), null);
+    assert.equal(ipv6DisabledFromInterface({ ip6: "Unknown" }), null);
+    assert.equal(ipv6DisabledFromInterface({}), null);
+  });
+});
+
+test("headsetConnectionStatus", async (t) => {
+  await t.test("reports connected only with explicit Bluetooth or USB headset evidence", () => {
+    assert.equal(headsetConnectionStatus("Bluetooth", true), true);
+    assert.equal(headsetConnectionStatus("USB headset", true), true);
+  });
+
+  await t.test("reports unknown when the output does not establish headset connection", () => {
+    for (const type of ["Built-in", "Display audio", "None", null]) {
+      assert.equal(headsetConnectionStatus(type, true), null);
+    }
+    assert.equal(headsetConnectionStatus("Bluetooth", false), null);
+    assert.equal(headsetConnectionStatus("USB headset", false), null);
+  });
+});
 
 test("runCmd uses an injectable OS command runner", async (t) => {
   const calls = [];
@@ -1803,6 +1851,10 @@ test("collectFacts returns the shape the renderer reads", { timeout: 90000 }, as
 
   // Types the renderer calls methods on.
   assert.ok(Array.isArray(facts.network.dns), "network.dns must be an array");
+  assert.ok(facts.network.ipv6Disabled === null || typeof facts.network.ipv6Disabled === "boolean",
+    "network.ipv6Disabled must be true, false, or null when unknown");
+  assert.ok(facts.audio.headsetConnected === null || typeof facts.audio.headsetConnected === "boolean",
+    "audio.headsetConnected must be true, false, or null when unknown");
   // null only on Linux, when no known product is installed: the card is hidden.
   assert.ok(facts.antivirus === null ? process.platform === "linux" : Array.isArray(facts.antivirus.products),
     "antivirus must be { products: [] }, or null on Linux");

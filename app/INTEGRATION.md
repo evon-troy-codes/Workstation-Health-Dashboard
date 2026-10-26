@@ -124,6 +124,20 @@ waiting, and its mail looks like phishing to people who never heard of the
 app. Sharing from the person's own email, a file or the clipboard needs no
 server at all.
 
+## Local history
+
+The History screen is opt-in. Main stores at most 100 readings from the last
+30 days in `local-history.json` under Electron's `userData`; it records only
+disk free/used space, the OS pending-update count, and numeric speed-test
+results. It never stores a hostname, username, network address, MAC address,
+or report, and the history is not included in shared or fleet reports. Users
+can pause recording or clear the file from the History screen.
+
+`app/main/local-history.js` validates the allowlisted fields, drops expired or
+malformed entries, and enforces the size limit. Scan entries are saved only
+after the deferred system checks complete; canceled and failed speed tests
+are not recorded.
+
 ## Explain my results (AI)
 
 The footer's **Explain my results** button, shown only when the build has a
@@ -241,8 +255,11 @@ known severity, with capped strings), whatever the server returns.
   `"USB Wi-Fi adapter"`.
 - New `audio.headsetClass` value `"Display audio"`: sound sent to a monitor
   or TV over HDMI or DisplayPort, which was `"Built-in"`.
-  `audio.headsetConnected` is now true only for `"Bluetooth"` and
-  `"USB headset"`.
+  `audio.headsetConnected` is true only for `"Bluetooth"` and
+  `"USB headset"` when the OS supplies a selected output endpoint; it is `null`
+  when endpoint data cannot establish connection.
+- `network.ipv6Disabled` is `null` when the interface has no IPv6 address;
+  address absence alone does not establish that IPv6 is disabled.
 - `os.pendingUpdates` and `os.lastUpdateCheck` now work on macOS, from
   Software Update's last check. A count it didn't record is `null`.
 - A battery level that can't be read shows as "Unknown", not "null%".
@@ -356,6 +373,11 @@ Still open:
 - **Code-sign** the app (Apple Developer ID + Microsoft Authenticode) to avoid
   SmartScreen / Gatekeeper warnings.
 - **Auto-update** via `electron-updater`.
-- **First-scan latency**: `collectFacts()` takes ~6s on Windows because the
-  `systeminformation` probes contend on WMI. Splitting the batch so the
-  Overview card can paint from a couple of fast probes would cut the wait.
+- **First-scan timing**: startup duration varies by operating system and
+  workstation. The Overview is shown after the initial fact batch; deferred
+  probes and the automatic speed test continue afterward. `collectFacts()` has
+  taken ~6s on Windows in local measurements, where `systeminformation` probes
+  contend on WMI. Measure cold and warm startup on target hardware before
+  publishing a timing claim. `npm run smoke` prints a local dashboard-visible
+  duration from Electron smoke-process start, with roughly half-second polling
+  resolution; it is diagnostic evidence, not a cross-platform benchmark.

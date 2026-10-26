@@ -426,8 +426,24 @@ test("run", async (t) => {
       const { value: res, elapsed } = await settle(t, run(() => {}));
       assert.equal(elapsed, 75_000);
       assert.equal(res.partial, true);
+      assert.equal(res.cancelled, false);
       assert.equal(res.failed, true);
       assert.equal(res.ping, null);
+    } finally {
+      f.restore();
+    }
+  });
+
+  await t.test("cancels promptly and marks the result as cancelled, not timed out", async (t) => {
+    useFakeClock(t);
+    const f = stubFetch(() => 200);
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 50);
+    try {
+      const { value: res, elapsed } = await settle(t, run(() => {}, { signal: controller.signal }));
+      assert.ok(elapsed < 1000, `cancellation took ${elapsed} ms`);
+      assert.equal(res.cancelled, true);
+      assert.equal(res.partial, false);
     } finally {
       f.restore();
     }

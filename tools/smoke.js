@@ -24,6 +24,7 @@ const path = require("path");
 
 const ROOT = path.join(__dirname, "..");
 const { collectFacts, detectDeferred, probeTimings } = require(path.join(ROOT, "app/main/system-facts"));
+const smokeStartedAt = Date.now();
 
 const RENDER_TIMEOUT_MS = 90000;
 const DEFERRED_TIMEOUT_MS = 45000; // shared across the tabs, not per tab
@@ -122,15 +123,28 @@ async function inspect(win) {
   }
   if (state === "error") return fail("the app showed its scan error screen");
   if (state !== "dashboard") return fail(`no dashboard within ${RENDER_TIMEOUT_MS / 1000} s`);
-  console.log(`dashboard rendered in ${((Date.now() - started) / 1000).toFixed(1)} s`);
+  console.log(
+    `dashboard visible ${((Date.now() - smokeStartedAt) / 1000).toFixed(1)} s after smoke process start`,
+  );
 
   // Every tab, not just the first, since each reads different facts.
   const deferredBy = Date.now() + DEFERRED_TIMEOUT_MS;
-  for (const i of [1, 2, 0]) {
+  for (const i of [1, 2, 3, 0]) {
     const clicked = await js(`(() => { const t = document.querySelectorAll(".sb-item")[${i}];
       if (!t) return false; t.click(); return true; })()`);
     if (!clicked) return fail(`tab ${i} is missing from the sidebar`);
     await wait(400);
+
+    if (i === 3) {
+      let loaded = false;
+      const historyBy = Date.now() + 5000;
+      while (Date.now() < historyBy) {
+        loaded = await js(`Boolean(document.querySelector(".history-trends"))`);
+        if (loaded) break;
+        await wait(100);
+      }
+      if (!loaded) return fail("local history screen did not load");
+    }
 
     // The slow scans land after first paint and fill in cards on the System
     // and Network tabs, which mark them "Checking…" until then. Waiting here,
