@@ -30,6 +30,8 @@ const ICONS = {
   "circle-check": <><circle cx="12" cy="12" r="9"/><path d="M8 12l3 3 5-6"/></>,
   "circle-xmark": <><circle cx="12" cy="12" r="9"/><path d="M9 9l6 6M15 9l-6 6"/></>,
   "circle-info": <><circle cx="12" cy="12" r="9"/><path d="M12 11v6M12 8h.01"/></>,
+  clock: <><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></>,
+  "chart-line": <><path d="M4 19V5M4 19h16"/><path d="m7 15 4-4 3 2 5-6"/></>,
   "triangle-exclamation": <><path d="M12 4l10 17H2L12 4z"/><path d="M12 10v5M12 18h.01"/></>,
   xmark: <path d="M6 6l12 12M18 6L6 18"/>,
   "angle-down": <path d="M6 9l6 6 6-6"/>,

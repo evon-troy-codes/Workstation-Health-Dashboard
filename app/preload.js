@@ -29,4 +29,10 @@ contextBridge.exposeInMainWorld("whd", {
   managed: () => ipcRenderer.invoke("whd:managed"),
   fleetReport: (facts) => ipcRenderer.invoke("whd:fleet-report", facts),
   fleetStatus: () => ipcRenderer.invoke("whd:fleet-status"),
+  // Optional, local-only history of system scans and completed speed tests.
+  historyGet: () => ipcRenderer.invoke("whd:history-get"),
+  historySetEnabled: (enabled) => ipcRenderer.invoke("whd:history-set-enabled", enabled),
+  historyClear: () => ipcRenderer.invoke("whd:history-clear"),
+  historyRecordScan: () => ipcRenderer.invoke("whd:history-record-scan"),
+  historyRecordSpeedTest: (result) => ipcRenderer.invoke("whd:history-record-speed-test", result),
 });

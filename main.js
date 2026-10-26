@@ -24,6 +24,7 @@ const { fromApp } = require("./app/main/ipc-guard");
 const { parseCliArgs, buildEnvelope } = require("./app/main/fleet");
 const { readManagedSettings } = require("./app/main/managed-settings");
 const { createFleetClient } = require("./app/main/fleet-client");
+const { createLocalHistory } = require("./app/main/local-history");
 
 const APP_DIR = path.join(__dirname, "app");
 const INDEX_FILE = path.join(APP_DIR, "renderer", "index.html");
@@ -99,6 +100,28 @@ function writeFleetState(state) {
   fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
   fs.renameSync(tmp, file);
 }
+
+// Local history contains only a bounded allowlist of numeric readings, never
+// machine identifiers. It is opt-in and stored beside the app's other state.
+const historyStateFile = () => path.join(app.getPath("userData"), "local-history.json");
+function readHistoryState() {
+  try {
+    return JSON.parse(fs.readFileSync(historyStateFile(), "utf8"));
+  } catch (err) {
+    if (err.code === "ENOENT") return null;
+    throw err;
+  }
+}
+function writeHistoryState(state) {
+  const file = historyStateFile();
+  const tmp = `${file}.tmp`;
+  fs.writeFileSync(tmp, JSON.stringify(state, null, 2), { mode: 0o600 });
+  fs.renameSync(tmp, file);
+}
+const localHistory = createLocalHistory({
+  readState: readHistoryState,
+  writeState: writeHistoryState,
+});
 
 // The OS keychain, through safeStorage. On Linux with no keychain service,
 // safeStorage falls back to "basic_text", which only disguises: then the
@@ -264,6 +287,19 @@ if (cli.error) {
       lastDeferred = null;
       return facts;
     });
+
+    handle("whd:history-get", () => localHistory.get());
+    handle("whd:history-set-enabled", (enabled) => localHistory.setEnabled(enabled));
+    handle("whd:history-clear", () => localHistory.clear());
+    handle("whd:history-record-scan", () => {
+      if (!lastFacts || !lastDeferred) return localHistory.get();
+      return localHistory.recordScan({
+        diskFreeGB: lastFacts.disk.freeGB,
+        diskUsedPercent: lastFacts.disk.usedPercent,
+        pendingUpdates: lastDeferred.pendingUpdates,
+      });
+    });
+    handle("whd:history-record-speed-test", (result) => localHistory.recordSpeedTest(result || {}));
 
     // Slow scans (OS updates, SSD flag, process list), fetched after first paint.
     handle("whd:get-deferred", async () => {

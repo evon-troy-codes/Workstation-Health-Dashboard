@@ -182,8 +182,11 @@ function useFocusOnClose(open, button) {
 }
 
 function HelperApp() {
-  const [screen, setScreen] = useState("overview"); // overview | system | network
-  const { facts, rescan, rescanning, managed, fleet, deferredFailed, deferredLoading, retryDeferred } = useApp();
+  const [screen, setScreen] = useState("overview"); // overview | system | network | history
+  const {
+    facts, rescan, rescanning, managed, fleet, deferredFailed, deferredLoading, retryDeferred,
+    history, setHistoryEnabled, clearHistory,
+  } = useApp();
   // "Share report": the person picks how (share-dialog.jsx); main builds the
   // report from its own scan and takes only the speed test from here.
   const [shareOpen, setShareOpen] = useState(false);
@@ -235,6 +238,7 @@ function HelperApp() {
           {screen === "overview" && <OverviewScreen onJump={setScreen} />}
           {screen === "system"   && <SystemScreen />}
           {screen === "network"  && <NetworkScreen />}
+          {screen === "history"  && <HistoryScreen />}
         </div>
         <div className="helper-foot">
           {managed && managed.managed ? (
@@ -300,6 +304,7 @@ function Sidebar({ active, onChange }) {
     { id: "overview", label: "Overview", icon: "house" },
     { id: "system",   label: "System",   icon: "cog" },
     { id: "network",  label: "Network",  icon: "globe" },
+    { id: "history",  label: "History",  icon: "clock" },
   ];
   return (
     <aside className="helper-sidebar">
@@ -421,6 +426,103 @@ function OverviewScreen({ onJump }) {
         <button className="qj-btn" onClick={() => onJump("network")}><Icon name="globe" size={13} /> Network &amp; speed</button>
       </div>
     </>
+  );
+}
+
+function historyValue(value, unit) {
+  if (value == null) return "Unknown";
+  const formatted = Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 });
+  if (unit === "%") return `${formatted}%`;
+  if (unit === "update") return `${formatted} ${value === 1 ? "update" : "updates"}`;
+  return `${formatted} ${unit}`;
+}
+
+function HistoryTrend({ title, entries, field, unit }) {
+  const values = entries.filter((entry) => typeof entry[field] === "number");
+  if (!values.length) {
+    return <Card icon="chart-line" title={title}><div className="history-empty">No readings yet</div></Card>;
+  }
+  const latest = values[values.length - 1];
+  const previous = values.length > 1 ? values[values.length - 2] : null;
+  const delta = previous ? latest[field] - previous[field] : null;
+  return (
+    <Card icon="chart-line" title={title} sub={new Date(latest.recordedAt).toLocaleString()}>
+      <div className="history-trend-value">{historyValue(latest[field], unit)}</div>
+      {previous && (
+        <div className="history-trend-delta">
+          {delta > 0 ? "+" : ""}{historyValue(delta, unit)} since previous reading
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function HistoryScreen() {
+  const { history, setHistoryEnabled, clearHistory } = useApp();
+  const scans = history.entries.filter((entry) => entry.type === "scan");
+  const speedTests = history.entries.filter((entry) => entry.type === "speed-test");
+  const recent = [...history.entries].reverse();
+  const scanTrend = [...scans];
+  const speedTrend = [...speedTests];
+  const countUpdates = (value) => value == null ? "Unknown" : `${value}`;
+  return (
+    <div className="history-screen">
+      <div className="history-heading">
+        <div>
+          <h1>Local history</h1>
+          <p>Compare disk space, OS updates, and speed-test results over time.</p>
+        </div>
+        <div className="history-controls">
+          <button type="button" className="foot-btn" onClick={() => setHistoryEnabled(!history.enabled)}
+            disabled={!history.loaded}>
+            {history.enabled ? "Pause history" : "Enable history"}
+          </button>
+          <button type="button" className="foot-btn" onClick={clearHistory}
+            disabled={!history.loaded || history.entries.length === 0}>
+            Clear history
+          </button>
+        </div>
+      </div>
+      <p className="history-privacy">
+        {history.enabled ? "History is on." : "History is off; no new readings are being saved."}
+        {" "}Entries stay on this device, are not included in shared or fleet reports, and expire after 30 days
+        (up to 100 entries). Only disk, OS update counts, and speed-test measurements are stored — no
+        hostname, username, IP, or MAC address.
+        {!history.enabled && history.entries.length > 0 && " Existing entries remain until cleared or expired."}
+      </p>
+      {history.error && <div className="deferred-alert" role="alert">{history.error}</div>}
+      {!history.loaded ? <p className="history-empty">Loading local history…</p> : (
+        <>
+          <div className="card-grid card-grid-2 history-trends">
+            <HistoryTrend title="Disk space free" entries={scanTrend} field="diskFreeGB" unit="GB" />
+            <HistoryTrend title="Disk space used" entries={scanTrend} field="diskUsedPercent" unit="%" />
+            <HistoryTrend title="OS updates pending" entries={scanTrend} field="pendingUpdates" unit="update" />
+            <HistoryTrend title="Download speed" entries={speedTrend} field="downloadMbps" unit="Mbps" />
+            <HistoryTrend title="Upload speed" entries={speedTrend} field="uploadMbps" unit="Mbps" />
+            <HistoryTrend title="Ping" entries={speedTrend} field="pingMs" unit="ms" />
+          </div>
+          <Card icon="clock" title="Recent readings" sub={`${history.entries.length} of 100 retained`}>
+            {recent.length === 0 ? <div className="history-empty">No history yet. Enable history to save future scans and speed tests.</div> : (
+              <div className="history-list">
+                {recent.map((entry, index) => (
+                  <div className="history-row" key={`${entry.type}-${entry.recordedAt}-${index}`}>
+                    <div>
+                      <div className="history-row-title">{entry.type === "scan" ? "System scan" : "Speed test"}</div>
+                      <div className="history-row-date">{new Date(entry.recordedAt).toLocaleString()}</div>
+                    </div>
+                    <div className="history-row-values">
+                      {entry.type === "scan"
+                        ? `${historyValue(entry.diskFreeGB, "GB")} free · ${historyValue(entry.diskUsedPercent, "%")} used · ${countUpdates(entry.pendingUpdates)} pending OS updates`
+                        : `${historyValue(entry.downloadMbps, "Mbps")} down · ${historyValue(entry.uploadMbps, "Mbps")} up · ${historyValue(entry.pingMs, "ms")} ping · ${historyValue(entry.jitterMs, "ms")} jitter${entry.partial ? " · partial result" : ""}`}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </Card>
+        </>
+      )}
+    </div>
   );
 }
 
@@ -815,9 +917,30 @@ function App() {
   // the last report to the company's server went.
   const [managed, setManaged] = useState(null);
   const [fleet, setFleet] = useState({ result: null, lastSentAt: null, pending: false });
+  const [history, setHistory] = useState({ enabled: false, entries: [], loaded: false, error: null });
+  const historyRecorded = useRef(null);
+  const receiveHistory = useCallback((request) => {
+    Promise.resolve(request).then((result) => {
+      setHistory({ ...result, loaded: true, error: null });
+    }).catch(() => {
+      setHistory((previous) => ({
+        ...previous,
+        loaded: true,
+        error: "Local history could not be read or saved. Check available disk space and file permissions.",
+      }));
+    });
+  }, []);
   useEffect(() => {
     window.whd.managed().then(setManaged, () => setManaged(null));
-  }, []);
+    receiveHistory(window.whd.historyGet());
+  }, [receiveHistory]);
+
+  const setHistoryEnabled = useCallback((enabled) => {
+    receiveHistory(window.whd.historySetEnabled(enabled));
+  }, [receiveHistory]);
+  const clearHistory = useCallback(() => {
+    receiveHistory(window.whd.historyClear());
+  }, [receiveHistory]);
 
   const onSpeedResult = useCallback((res) => {
     setFacts((f) => {
@@ -836,7 +959,8 @@ function App() {
         },
       };
     });
-  }, []);
+    if (!res.cancelled && !res.failed) receiveHistory(window.whd.historyRecordSpeedTest(res));
+  }, [receiveHistory]);
   const speed = useSpeedTest(onSpeedResult);
 
   // Slow scans (OS updates, SSD flag, process list) land after first paint.
@@ -867,6 +991,13 @@ function App() {
       if (seq === deferredSeq.current) setDeferredLoading(false);
     });
   }, []);
+
+  useEffect(() => {
+    if (!history.loaded || !history.enabled || !facts || scannedAt == null || !deferredDone) return;
+    if (historyRecorded.current === scannedAt) return;
+    historyRecorded.current = scannedAt;
+    receiveHistory(window.whd.historyRecordScan());
+  }, [history, facts, scannedAt, deferredDone, receiveHistory]);
 
   const scan = useCallback(async () => {
     setError(null);
@@ -944,7 +1075,7 @@ function App() {
 
   return (
     <AppContext.Provider value={{ facts, scannedAt, rescan, rescanning, speed, deferredFailed, deferredDone,
-      deferredLoading, retryDeferred: loadDeferred, managed, fleet }}>
+      deferredLoading, retryDeferred: loadDeferred, managed, fleet, history, setHistoryEnabled, clearHistory }}>
       <Frame><RenderGuard onRetry={rescan}><HelperApp /></RenderGuard></Frame>
     </AppContext.Provider>
   );

@@ -124,6 +124,20 @@ waiting, and its mail looks like phishing to people who never heard of the
 app. Sharing from the person's own email, a file or the clipboard needs no
 server at all.
 
+## Local history
+
+The History screen is opt-in. Main stores at most 100 readings from the last
+30 days in `local-history.json` under Electron's `userData`; it records only
+disk free/used space, the OS pending-update count, and numeric speed-test
+results. It never stores a hostname, username, network address, MAC address,
+or report, and the history is not included in shared or fleet reports. Users
+can pause recording or clear the file from the History screen.
+
+`app/main/local-history.js` validates the allowlisted fields, drops expired or
+malformed entries, and enforces the size limit. Scan entries are saved only
+after the deferred system checks complete; canceled and failed speed tests
+are not recorded.
+
 ## Explain my results (AI)
 
 The footer's **Explain my results** button, shown only when the build has a
