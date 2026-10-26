@@ -182,8 +182,10 @@ keeps working.
   the app checks itself: with `WHD_SELFTEST_FILE` set, `main.js` writes
   true/false per reading (never values, `app/main/selftest.js`) once it has
   scanned and the page confirms the dashboard is on screen,
-  and `tools/check-selftest.js` asserts it. SmartScreen and Gatekeeper
-  aren't exercised (they act only on browser downloads).
+  and `tools/check-selftest.js` asserts it. The macOS job assesses a separate
+  quarantined app copy with `spctl` and expects Gatekeeper to reject it.
+  SmartScreen and Gatekeeper's first-open dialog still need browser-download
+  checks on real user machines.
 - **Electron fuses are flipped in `tools/after-pack.js`, before the macOS
   ad-hoc signing** (RunAsNode, NODE_OPTIONS, `--inspect` off;
   OnlyLoadAppFromAsar on; asar integrity on for Windows and macOS). CI

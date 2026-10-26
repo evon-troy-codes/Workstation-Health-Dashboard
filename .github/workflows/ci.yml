@@ -7,9 +7,9 @@
 # the .deb on Ubuntu, the NSIS installer on Windows and the Apple silicon .dmg
 # on macOS. The installed app proves it rendered and scanned through
 # WHD_SELFTEST_FILE (main.js; true/false per reading, no values), checked by
-# tools/check-selftest.js. Not exercised: the AppImage, the Intel .dmg, and
-# SmartScreen and Gatekeeper, which only act on files a browser downloaded, so
-# try those by hand from the run's artifacts.
+# tools/check-selftest.js. Not exercised: the AppImage, the Intel .dmg,
+# SmartScreen, or Gatekeeper's first-open dialog. The macOS job does assess a
+# quarantined copy with spctl to verify Gatekeeper rejects the unsigned app.
 #
 # The macOS build is ad-hoc signed, not signed with an Apple Developer ID, so
 # the first open needs Privacy & Security → Open Anyway.
@@ -246,8 +246,8 @@ jobs:
       # The Apple silicon .dmg (the runner's own architecture): mounted, the app
       # copied to /Applications as a user drags it, its ad-hoc signature still
       # valid after the fuses were flipped (a broken one is what macOS calls
-      # "damaged"), then started and self-tested. Not quarantined, so
-      # Gatekeeper's first-open prompt isn't exercised.
+      # "damaged"), then started and self-tested. A separate quarantined copy
+      # must be rejected by Gatekeeper before the clean copy is launched.
       - name: Install and launch the .dmg (macOS)
         if: runner.os == 'macOS' && github.event_name != 'pull_request'
         run: |
@@ -259,6 +259,22 @@ jobs:
           app="/Applications/Workstation Scanner.app"
           codesign --verify --deep --strict --verbose=2 "$app"
           node tools/check-fuses.js "$app" --integrity
+          quarantined="$RUNNER_TEMP/Workstation Scanner Quarantined.app"
+          cp -R "$app" "$quarantined"
+          quarantine="0081;$(printf '%x' "$(date +%s)");GitHub Actions;"
+          xattr -w com.apple.quarantine "$quarantine" "$quarantined"
+          test "$(xattr -p com.apple.quarantine "$quarantined")" = "$quarantine"
+          if spctl --assess --type execute --verbose=4 "$quarantined" > gatekeeper.log 2>&1; then
+            cat gatekeeper.log
+            echo "::error::Gatekeeper accepted the quarantined unsigned app"
+            exit 1
+          fi
+          cat gatekeeper.log
+          if ! grep -Eiq 'rejected' gatekeeper.log; then
+            echo "::error::Gatekeeper assessment failed without reporting a policy rejection"
+            exit 1
+          fi
+          echo "Gatekeeper rejected the quarantined unsigned app as expected"
           WHD_SELFTEST_FILE="$RUNNER_TEMP/selftest.json" "$app/Contents/MacOS/Workstation Scanner" > app.log 2>&1 &
           pid=$!
           set +e
